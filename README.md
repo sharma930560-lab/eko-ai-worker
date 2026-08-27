@@ -92,26 +92,39 @@ graph TD
 
 ## 🚀 Quick Start (Local Setup)
 
-### Option 1: Docker Compose (Recommended)
+### Option 1: Docker Compose (Web & Backend)
 ```bash
-git clone https://github.com/your-username/eko-field-worker.git
-cd eko-field-worker
+git clone https://github.com/sharma930560-lab/eko-ai-worker.git
+cd eko-ai-worker
 
 # Run everything (FastAPI backend + Nginx frontend)
 docker-compose up --build
 ```
-- **App UI**: `http://localhost:3000`
+- **Web App**: `http://localhost:3000`
 - **FastAPI Docs**: `http://localhost:8000/docs`
 
 ---
 
-### Option 2: Native Manual Setup
+### Option 2: Native Android App (APK Build)
+```bash
+cd android
+
+# Build debug APK
+./gradlew assembleDebug   # Windows: gradlew.bat assembleDebug
+
+# Install on connected device or emulator
+adb install app/build/outputs/apk/debug/app-debug.apk
+```
+
+---
+
+### Option 3: Local Dev Setup (FastAPI + Static Web)
 
 #### 1. Backend (FastAPI)
 ```bash
 cd backend
 python -m venv venv
-source venv/bin/activate  # On Windows: venv\Scripts\activate
+source venv/bin/activate  # Windows: venv\Scripts\activate
 pip install -r requirements.txt
 
 # Configure environment
@@ -130,17 +143,41 @@ Open `http://localhost:3000` in any modern browser.
 
 ---
 
+## 📱 Android Hybrid Native Architecture
+
+```
+┌──────────────────────────────────────────────────────────────────────────┐
+│                            ANDROID WRAPPER                               │
+├──────────────────────────────────────────────────────────────────────────┤
+│ 🔐 Credential Manager (Native Google Sign-In)                            │
+│    - Passkey & Google ID Token retrieval with zero WebView redirections │
+│                                                                          │
+│ 🌐 AndroidX WebViewAssetLoader                                           │
+│    - Loads local assets via http://appassets.androidplatform.net/        │
+│    - Eliminates Chromium Active Mixed Content blocks                     │
+│    - Cleartext traffic permitted for local 10.0.2.2 dev emulation        │
+│                                                                          │
+│ 🌉 JavaScript Bridge (AndroidBridge)                                     │
+│    - Offline SQLite Room Queue (SyncRepository, SyncDao, AuditLogDao)   │
+│    - Bi-directional token and user identity injection                   │
+└──────────────────────────────────────────────────────────────────────────┘
+```
+
+---
+
 ## 🧪 Recruiter Evaluation Walkthrough
 
-1. Open `http://localhost:3000` and click **"Try Demo Mode"** (instant 1-click evaluation).
-2. **Test 1: 📷 Parchii Scanner**: Click **AI Tools** → **Parchii Scanner** → Click test receipt *"Ramesh Khata Parchii"*. Observe Vision AI extracting items and totals with 1-click save.
-3. **Test 2: 🎙️ Voice Khata**: Click **Voice Khata** → Click test sample *"Sharma ji 10 packet atta le gaye..."* → Observe natural language entity extraction and auto-create task.
-4. **Test 3: 💬 WhatsApp Studio**: Click **WhatsApp Studio** → Switch tone to *"⚡ Firm & Professional Recovery"* → Click *"Open in WhatsApp"*.
-5. **Test 4: 🛡️ Credit Risk Scorer**: Click **Credit Scorer** → Adjust delay slider → Observe real-time Micro-Lending Trust Score (1-100) and recommended credit cap.
-6. **Test 5: 🎨 Flyer Creator**: Click **Flyer Creator** → Modify offer text → Observe real-time HTML5 canvas render and download PNG.
-7. **Test 6: 🤖 Ask Eko Assistant**: Open **Ask Eko AI** → Click *"Daily plan summary"* → Click the **"Add to Tasks"** action button on the structured response card.
+1. **Option A: Web Demo**: Open `http://localhost:3000` and click **"Try Demo Mode"** (instant 1-click evaluation).
+2. **Option B: Native Android APK**: Launch the installed Android app, sign in with Google or explore Demo Mode.
+3. **Test 1: 📷 Parchii Scanner**: Click **AI Tools** → **Parchii Scanner** → Click test receipt *"Ramesh Khata Parchii"*. Observe Vision AI extracting items and totals with 1-click save.
+4. **Test 2: 🎙️ Voice Khata**: Click **Voice Khata** → Click test sample *"Sharma ji 10 packet atta le gaye..."* → Observe natural language entity extraction and auto-create task.
+5. **Test 3: 💬 WhatsApp Studio**: Click **WhatsApp Studio** → Switch tone to *"⚡ Firm & Professional Recovery"* → Click *"Open in WhatsApp"*.
+6. **Test 4: 🛡️ Credit Risk Scorer**: Click **Credit Scorer** → Adjust delay slider → Observe real-time Micro-Lending Trust Score (1-100) and recommended credit cap.
+7. **Test 5: 🎨 Flyer Creator**: Click **Flyer Creator** → Modify offer text → Observe real-time HTML5 canvas render and download PNG.
+8. **Test 6: 🤖 Ask Eko Assistant**: Open **Ask Eko AI** → Click *"Daily plan summary"* → Click the **"Add to Tasks"** action button on the structured response card.
 
 ---
 
 ## 📜 License
-Built with ❤️ for Eko Micro-Entrepreneur Operations. Open Source MIT License.
+Built with ❤️ by Paras Sharma for Eko Micro-Entrepreneur Operations. Open Source MIT License.
+
