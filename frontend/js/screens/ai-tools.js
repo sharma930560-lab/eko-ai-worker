@@ -496,6 +496,11 @@ function renderWhatsappTab() {
             </div>
 
             <div class="form-group">
+                <label class="form-label">Phone Number (WhatsApp)</label>
+                <input type="text" id="wa-customer-phone" class="form-input" value="9876543210" placeholder="e.g. 9876543210">
+            </div>
+
+            <div class="form-group">
                 <label class="form-label">Pending Amount (₹)</label>
                 <input type="number" id="wa-amount-due" class="form-input" value="3500" placeholder="e.g. 3500">
             </div>
@@ -565,16 +570,24 @@ async function generateAiWhatsappMessage() {
 }
 
 function copyWhatsappText() {
-    const text = document.getElementById('wa-message-text')?.innerText || '';
-    navigator.clipboard.writeText(text).then(() => {
+    const text = document.getElementById('wa-message-text')?.textContent || '';
+    navigator.clipboard.writeText(text.trim()).then(() => {
         showToast('WhatsApp message copied! 📋');
     });
 }
 
 function launchWhatsappDirect() {
-    const text = document.getElementById('wa-message-text')?.innerText || '';
+    const text = document.getElementById('wa-message-text')?.textContent || '';
+    const phone = document.getElementById('wa-customer-phone')?.value.trim() || '';
     api.logActionTaken('whatsapp_opened');
-    window.open(`https://wa.me/?text=${encodeURIComponent(text)}`, '_blank');
+    
+    let url = `https://wa.me/`;
+    if (phone) {
+        url += `${phone.replace(/\D/g,'')}`;
+    }
+    url += `?text=${encodeURIComponent(text.trim())}`;
+    
+    window.open(url, '_blank');
 }
 
 // ═════════════════════════════════════════════════════════════════════════════
