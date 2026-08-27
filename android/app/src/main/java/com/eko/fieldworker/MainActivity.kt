@@ -6,6 +6,8 @@ import android.net.ConnectivityManager
 import android.net.Network
 import android.net.NetworkCapabilities
 import android.net.NetworkRequest
+import android.webkit.ConsoleMessage
+import android.webkit.WebChromeClient
 import android.webkit.WebSettings
 import android.webkit.WebView
 import android.util.Log
@@ -75,17 +77,37 @@ class MainActivity : AppCompatActivity() {
             .addPathHandler("/assets/", WebViewAssetLoader.AssetsPathHandler(this))
             .build()
 
+        // Dev-only: Allow mixed content so the HTTPS asset loader page can fetch http://10.0.2.2:8000.
+        // This is needed because WebViewAssetLoader serves via https://appassets.androidplatform.net
+        // but the emulator backend runs on plain HTTP. Replace with MIXED_CONTENT_NEVER_ALLOW
+        // once the production backend is deployed on HTTPS.
         webView.settings.apply {
             javaScriptEnabled = true
             domStorageEnabled = true
             databaseEnabled = true
-            allowFileAccess = false  // Not needed — assets served via WebViewAssetLoader
-            // Production: Never allow mixed content (HTTPS page must not load HTTP)
-            mixedContentMode = WebSettings.MIXED_CONTENT_NEVER_ALLOW
+            allowFileAccess = false
+            mixedContentMode = if (BuildConfig.DEBUG) {
+                WebSettings.MIXED_CONTENT_ALWAYS_ALLOW // Debug/emulator HTTP backend
+            } else {
+                WebSettings.MIXED_CONTENT_NEVER_ALLOW  // Production HTTPS only
+            }
         }
 
         // Add Javascript Interface
         webView.addJavascriptInterface(EkoBridge(this, viewModel), "AndroidBridge")
+
+        // Surface WebView console.log → Logcat under tag EkoWebView
+        webView.webChromeClient = object : WebChromeClient() {
+            override fun onConsoleMessage(msg: ConsoleMessage): Boolean {
+                val level = when (msg.messageLevel()) {
+                    ConsoleMessage.MessageLevel.ERROR -> "ERROR"
+                    ConsoleMessage.MessageLevel.WARNING -> "WARN"
+                    else -> "INFO"
+                }
+                Log.i("EkoWebView", "[$level] ${msg.message()} (${msg.sourceId()}:${msg.lineNumber()})")
+                return true
+            }
+        }
 
         webView.webViewClient = object : WebViewClientCompat() {
             override fun shouldInterceptRequest(
@@ -109,7 +131,7 @@ class MainActivity : AppCompatActivity() {
             }
         }
 
-        // Production: load via HTTPS — no mixed content, no cleartext
+        // Load via HTTPS asset loader
         webView.loadUrl("https://appassets.androidplatform.net/assets/index.html")
     }
 
@@ -221,28 +243,42 @@ class MainActivity : AppCompatActivity() {
     }
 
     private fun handleCredentialResult(credential: androidx.credentials.Credential) {
-        Log.i(TAG, "Auth: Received credential of type: ${credential.type}")
+        Log.i(TAG, "Auth: [ID TOKEN RECEIVED] Credential type: ${credential.type}")
         try {
             when {
                 credential is GoogleIdTokenCredential -> {
                     val idToken = credential.idToken
-                    Log.i(TAG, "Auth: ID Token success from GoogleIdTokenCredential. Length: ${idToken.length}")
-                    webView.evaluateJavascript("handleNativeGoogleResponse('$idToken')", null)
+                    Log.i(TAG, "Auth: [ID TOKEN RECEIVED] Source: GoogleIdTokenCredential. Token length: ${idToken.length}")
+                    Log.i(TAG, "Auth: [PASSING TOKEN TO WEBVIEW] Calling window.handleNativeGoogleResponse via evaluateJavascript")
+                    runOnUiThread {
+                        webView.evaluateJavascript("window.handleNativeGoogleResponse('$idToken')") { result ->
+                            Log.i(TAG, "Auth: [WEBVIEW CALLBACK TRIGGERED] evaluateJavascript result: $result")
+                        }
+                    }
                 }
                 credential is CustomCredential && credential.type == GoogleIdTokenCredential.TYPE_GOOGLE_ID_TOKEN_CREDENTIAL -> {
                     val googleIdTokenCredential = GoogleIdTokenCredential.createFrom(credential.data)
                     val idToken = googleIdTokenCredential.idToken
-                    Log.i(TAG, "Auth: ID Token success from CustomCredential. Length: ${idToken.length}")
-                    webView.evaluateJavascript("handleNativeGoogleResponse('$idToken')", null)
+                    Log.i(TAG, "Auth: [ID TOKEN RECEIVED] Source: CustomCredential. Token length: ${idToken.length}")
+                    Log.i(TAG, "Auth: [PASSING TOKEN TO WEBVIEW] Calling window.handleNativeGoogleResponse via evaluateJavascript")
+                    runOnUiThread {
+                        webView.evaluateJavascript("window.handleNativeGoogleResponse('$idToken')") { result ->
+                            Log.i(TAG, "Auth: [WEBVIEW CALLBACK TRIGGERED] evaluateJavascript result: $result")
+                        }
+                    }
                 }
                 else -> {
-                    Log.w(TAG, "Auth: Unexpected credential type: ${credential.type}")
-                    webView.evaluateJavascript("showAuthError('Unexpected credential type: ${credential.type}')", null)
+                    Log.w(TAG, "Auth: [ID TOKEN RECEIVED] Unexpected credential type: ${credential.type}")
+                    runOnUiThread {
+                        webView.evaluateJavascript("showAuthError('Unexpected credential type: ${credential.type}')", null)
+                    }
                 }
             }
         } catch (e: Exception) {
-            Log.e(TAG, "Auth: Failed to parse credential data: ${e.message}", e)
-            webView.evaluateJavascript("showAuthError('Failed to parse Google credential: ${e.message}')", null)
+            Log.e(TAG, "Auth: [ID TOKEN RECEIVED] Failed to parse credential: ${e.message}", e)
+            runOnUiThread {
+                webView.evaluateJavascript("showAuthError('Failed to parse Google credential: ${e.message}')", null)
+            }
         }
     }
 

@@ -58,6 +58,16 @@ class EkoBridge(private val context: Context, private val viewModel: EkoViewMode
     }
 
     @JavascriptInterface
+    fun isDebug(): Boolean {
+        return BuildConfig.DEBUG
+    }
+
+    @JavascriptInterface
+    fun getProductionApiBase(): String {
+        return "https://eko-field-worker-api.onrender.com"
+    }
+
+    @JavascriptInterface
     fun googleSignOut() {
         if (context is MainActivity) {
             context.runOnUiThread {

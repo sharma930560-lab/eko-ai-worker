@@ -12,17 +12,40 @@
 // ── Config ────────────────────────────────────────────────────────────────────
 const GOOGLE_CLIENT_ID = '258255119262-hl7e15h4ohciliroc29gcpbfa6i1sf2l.apps.googleusercontent.com';
 
-// Production API URL — no localhost, no emulator, no mixed content
-// Render.com production backend (HTTPS). Fallback to localhost for browser dev.
-window.EKO_API_BASE = (function() {
-  const PROD_API = 'https://eko-field-worker-api.onrender.com';
-  if (window.location.hostname === 'appassets.androidplatform.net') {
-    // Running inside Android APK — use production HTTPS backend
-    return PROD_API;
+// Production API URL — no localhost, no emulator, no mixed content in Release
+// Automatically detects Release (HTTPS onrender.com) vs Debug (10.0.2.2:8000) vs Browser (localhost:8000)
+function getEkoApiBase() {
+  try {
+    const override = localStorage.getItem('eko_api_base_override');
+    if (override) return override;
+  } catch (e) {}
+
+  if (typeof AndroidBridge !== 'undefined') {
+    if (typeof AndroidBridge.isDebug === 'function' && AndroidBridge.isDebug()) {
+      return 'http://10.0.2.2:8000';
+    }
+    if (typeof AndroidBridge.getProductionApiBase === 'function') {
+      return AndroidBridge.getProductionApiBase();
+    }
   }
-  // Browser dev: use localhost
+
+  if (window.location.hostname === 'appassets.androidplatform.net') {
+    return 'https://eko-field-worker-api.onrender.com';
+  }
+
   return 'http://localhost:8000';
-})();
+}
+
+try {
+  Object.defineProperty(window, 'EKO_API_BASE', {
+    get: function() {
+      return getEkoApiBase();
+    },
+    configurable: true
+  });
+} catch (e) {
+  window.EKO_API_BASE = getEkoApiBase();
+}
 
 function isAndroidApk() {
   const isBridge = typeof AndroidBridge !== 'undefined';
@@ -111,63 +134,77 @@ function clearAuthError() {
 
 // ── Google Sign-In Callback ───────────────────────────────────────────────────
 async function handleCredentialResponse(response) {
+  console.log('Auth: [WEBVIEW AUTH CALLBACK] handleCredentialResponse called');
   clearAuthError();
   showLoginLoading(true);
 
   let idToken = null;
   if (typeof response === 'string') {
-    // This is from native bridge
+    // This is from native Android bridge
     idToken = response;
+    console.log('Auth: [WEBVIEW AUTH CALLBACK] Token source: Native Android bridge. Token length:', idToken.length);
   } else if (response && response.credential) {
     // This is from GSI web button
     idToken = response.credential;
+    console.log('Auth: [WEBVIEW AUTH CALLBACK] Token source: Web GSI button. Token length:', idToken.length);
   }
 
   if (!idToken) {
+    console.warn('Auth: [WEBVIEW AUTH CALLBACK] No ID token extracted from response');
     showAuthError('Sign-in cancelled. You can try again whenever you\'re ready.');
     showLoginLoading(false);
     return;
   }
 
-  if (!navigator.onLine) {
-    showAuthError('You\'re offline. Sign-in requires an internet connection.');
-    showLoginLoading(false);
-    return;
-  }
+  // NOTE: navigator.onLine is unreliable in Android WebView (always reports false in some builds).
+  // We skip the offline check and let the fetch fail naturally with a network error if truly offline.
+  console.log('Auth: [WEBVIEW AUTH CALLBACK] navigator.onLine =', navigator.onLine, '(skipping offline guard — unreliable in WebView)');
+
+  const apiBase = window.EKO_API_BASE || 'http://10.0.2.2:8000';
+  const authUrl = `${apiBase}/api/auth/google`;
+  console.log('Auth: [POST /api/auth/google] Sending request to:', authUrl);
 
   try {
-    const res = await fetch(`${window.EKO_API_BASE}/api/auth/google`, {
+    const res = await fetch(authUrl, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ credential: idToken }),
     });
 
+    console.log('Auth: [POST /api/auth/google] Response status:', res.status, res.statusText);
+
     if (!res.ok) {
-      const err = await res.json().catch(() => ({}));
-      throw new Error(err.detail || 'Authentication failed.');
+      const errBody = await res.json().catch(() => ({}));
+      const detail = errBody.detail || `HTTP ${res.status}`;
+      console.error('Auth: [AUTH FAILURE] Backend rejected token:', detail);
+      throw new Error(detail);
     }
 
     const user = await res.json();
+    console.log('Auth: [AUTH SUCCESS] Signed in as:', user.email, '| onboarding_completed:', user.onboarding_completed);
     currentUser = user;
     isDemoMode = false;
     saveSession(user);
     onAuthSuccess(user);
 
   } catch (err) {
-    console.error('Auth error:', err.message);
-    if (!navigator.onLine) {
-      showAuthError('You\'re offline. Sign-in requires an internet connection.');
-    } else {
-      showAuthError('We couldn\'t sign you in. Please try again.');
-    }
+    console.error('Auth: [AUTH FAILURE] Fetch error:', err.message);
+    showAuthError('We couldn\'t sign you in. Check your connection and try again.');
     showLoginLoading(false);
   }
 }
 
 /**
- * Global function for Native Android Bridge to call
+ * Global function for Native Android Bridge to call via evaluateJavascript.
+ * Must be defined on window so it is accessible from Kotlin's evaluateJavascript().
  */
-window.handleNativeGoogleResponse = (idToken) => {
+window.handleNativeGoogleResponse = function(idToken) {
+  console.log('Auth: [PASSING TOKEN TO WEBVIEW] handleNativeGoogleResponse called. Token length:', idToken ? idToken.length : 0);
+  if (!idToken) {
+    console.error('Auth: [PASSING TOKEN TO WEBVIEW] Received null/empty token!');
+    showAuthError('Sign-in failed: no token received.');
+    return;
+  }
   handleCredentialResponse(idToken);
 };
 

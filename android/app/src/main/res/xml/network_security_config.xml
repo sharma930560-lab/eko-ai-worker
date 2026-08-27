@@ -1,10 +1,10 @@
 <?xml version="1.0" encoding="utf-8"?>
 <!--
-    Network Security Configuration — Production
-    - HTTPS only for all traffic (no cleartext HTTP)
+    Network Security Configuration
+    - HTTPS only for all production traffic
+    - 10.0.2.2: Android emulator loopback to host machine (local dev backend, HTTP allowed)
     - appassets.androidplatform.net: internal WebView asset loader (no real network)
     - onrender.com: production backend HTTPS
-    - All cleartext traffic blocked globally
 -->
 <network-security-config>
     <!-- Block all cleartext by default (HTTPS only) -->
@@ -13,6 +13,11 @@
             <certificates src="system" />
         </trust-anchors>
     </base-config>
+
+    <!-- Android emulator loopback to host machine — HTTP allowed for local dev backend -->
+    <domain-config cleartextTrafficPermitted="true">
+        <domain includeSubdomains="false">10.0.2.2</domain>
+    </domain-config>
 
     <!-- Android WebView asset loader domain — internal, HTTPS scheme in loader -->
     <domain-config cleartextTrafficPermitted="false">
@@ -30,3 +35,4 @@
         </trust-anchors>
     </domain-config>
 </network-security-config>
+
