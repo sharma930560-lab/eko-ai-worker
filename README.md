@@ -11,11 +11,22 @@
 
 ---
 
-## 📥 Download Production APK
+## 🌐 Live Web App & Direct Android Downloads
 
-| Package | Version | Architecture | Direct Download |
+- **Live Web App / PWA**: **[https://eko-field-worker.netlify.app](https://eko-field-worker.netlify.app)**
+- **Latest GitHub Release**: **[https://github.com/sharma930560-lab/eko-ai-worker/releases/latest](https://github.com/sharma930560-lab/eko-ai-worker/releases/latest)**
+
+| Package | Version | Architecture | Direct Download Link |
 |---|---|---|---|
-| **Eko Field Worker Release APK** | `v1.0.0` | Universal Android (ARM64, ARMv7, x86_64) | [**Download APK (5.6 MB)**](https://github.com/sharma930560-lab/eko-ai-worker/releases/download/v1.0.0/app-release.apk) |
+| **Eko Field Worker Release APK** | `v1.0.0` | Universal Android (ARM64, ARMv7, x86_64) | [**Download APK (5.6 MB)**](https://github.com/sharma930560-lab/eko-ai-worker/releases/download/v1.0.0/eko-field-worker-v1.0.0.apk) |
+| **Direct Mirror APK** | `v1.0.0` | Universal Android | [**Download app-release.apk**](https://github.com/sharma930560-lab/eko-ai-worker/releases/download/v1.0.0/app-release.apk) |
+| **Play Store Bundle (AAB)** | `v1.0.0` | Android App Bundle | [**Download app-release.aab (5.0 MB)**](https://github.com/sharma930560-lab/eko-ai-worker/releases/download/v1.0.0/app-release.aab) |
+
+### 📱 Android Installation Instructions
+1. Download the APK file directly to your Android device using Chrome or any mobile browser.
+2. Tap the downloaded file in your notification bar or **Downloads** folder.
+3. If Android prompts *"For your security, your phone is not allowed to install unknown apps from this source"*, tap **Settings** and enable **"Allow from this source"**.
+4. Tap **Install** and open **Eko Worker**.
 
 ---
 
