@@ -4,19 +4,25 @@
  * Handles:
  *   - Google Sign-In (via Google Identity Services)
  *   - Demo Mode
- *   - Session management (in-memory + sessionStorage)
+ *   - Session management (in-memory + localStorage)
  *   - Onboarding state routing
  *   - Logout
  */
 
 // ── Config ────────────────────────────────────────────────────────────────────
-// Replace with your actual Google Client ID.
-// This is the PUBLIC client id (safe in frontend). NEVER put the client secret here.
 const GOOGLE_CLIENT_ID = '258255119262-hl7e15h4ohciliroc29gcpbfa6i1sf2l.apps.googleusercontent.com';
-// Android emulator uses 10.0.2.2 to reach the host machine (localhost)
-window.EKO_API_BASE = (window.location.hostname === 'appassets.androidplatform.net')
-  ? 'http://10.0.2.2:8000'
-  : 'http://localhost:8000';
+
+// Production API URL — no localhost, no emulator, no mixed content
+// Render.com production backend (HTTPS). Fallback to localhost for browser dev.
+window.EKO_API_BASE = (function() {
+  const PROD_API = 'https://eko-field-worker-api.onrender.com';
+  if (window.location.hostname === 'appassets.androidplatform.net') {
+    // Running inside Android APK — use production HTTPS backend
+    return PROD_API;
+  }
+  // Browser dev: use localhost
+  return 'http://localhost:8000';
+})();
 
 function isAndroidApk() {
   const isBridge = typeof AndroidBridge !== 'undefined';
@@ -44,9 +50,10 @@ const DEMO_USER = {
 
 // ── Session Helpers ───────────────────────────────────────────────────────────
 function saveSession(user) {
-  // We store minimal profile in sessionStorage (not a token — token is never persisted)
+  // localStorage persists across app restarts, device reboots, and WebView recreations.
+  // We store the user profile (no tokens — Google ID token is never persisted).
   try {
-    sessionStorage.setItem('eko_user', JSON.stringify({
+    localStorage.setItem('eko_user', JSON.stringify({
       id: user.id,
       name: user.name,
       email: user.email,
@@ -57,21 +64,30 @@ function saveSession(user) {
       location_city: user.location_city,
       onboarding_completed: user.onboarding_completed,
       isDemo: user.isDemo || false,
+      saved_at: Date.now(),
     }));
   } catch (_) { /* ignore storage errors */ }
 }
 
 function loadSession() {
   try {
-    const raw = sessionStorage.getItem('eko_user');
-    return raw ? JSON.parse(raw) : null;
+    const raw = localStorage.getItem('eko_user');
+    if (!raw) return null;
+    const user = JSON.parse(raw);
+    // Expire cached session after 30 days
+    const MAX_AGE = 30 * 24 * 60 * 60 * 1000;
+    if (user.saved_at && Date.now() - user.saved_at > MAX_AGE) {
+      localStorage.removeItem('eko_user');
+      return null;
+    }
+    return user;
   } catch (_) {
     return null;
   }
 }
 
 function clearSession() {
-  sessionStorage.removeItem('eko_user');
+  localStorage.removeItem('eko_user');
   currentUser = null;
   isDemoMode = false;
 }

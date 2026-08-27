@@ -1,16 +1,25 @@
 # Eko Micro-Entrepreneur AI Worker
 
-> **A Device-Constrained, Production-Grade AI Operating System for Indian Small Businesses & Field Agents**
+> **A Production-Grade, Offline-First AI Operating System for Indian Small Businesses & Field Agents**
 
 [![FastAPI](https://img.shields.io/badge/Backend-FastAPI%200.115-009688.svg?logo=fastapi&logoColor=white)](https://fastapi.tiangolo.com)
+[![PostgreSQL](https://img.shields.io/badge/Database-PostgreSQL%2016-336791.svg?logo=postgresql&logoColor=white)](https://www.postgresql.org)
 [![Gemini 1.5 Flash](https://img.shields.io/badge/AI%20Engine-Gemini%201.5%20Flash-4285F4.svg?logo=google&logoColor=white)](https://ai.google.dev)
-[![Vanilla JS](https://img.shields.io/badge/Frontend-Vanilla%20ES6%20PWA-F7DF1E.svg?logo=javascript&logoColor=black)](https://developer.mozilla.org)
-[![DPDP Act 2023](https://img.shields.io/badge/Compliance-DPDP%20Act%202023-10B981.svg)](#privacy--data-protection)
-[![Docker](https://img.shields.io/badge/Deployment-Docker%20Compose-2496ED.svg?logo=docker&logoColor=white)](https://docker.com)
+[![Android](https://img.shields.io/badge/Platform-Android%20Native%20APK-3DDC84.svg?logo=android&logoColor=white)](https://github.com/sharma930560-lab/eko-ai-worker/releases)
+[![Offline First](https://img.shields.io/badge/Architecture-Offline--First%20IndexedDB%2BRoom-FFA000.svg)](#-offline-first-architecture)
+[![DPDP Act 2023](https://img.shields.io/badge/Compliance-DPDP%20Act%202023-10B981.svg)](#-privacy--security)
 
 ---
 
-## 🎯 Eko Mission Alignment
+## 📥 Download Production APK
+
+| Package | Version | Architecture | Direct Download |
+|---|---|---|---|
+| **Eko Field Worker Release APK** | `v1.0.0` | Universal Android (ARM64, ARMv7, x86_64) | [**Download APK (5.6 MB)**](https://github.com/sharma930560-lab/eko-ai-worker/releases/download/v1.0.0/app-release.apk) |
+
+---
+
+## 🎯 Mission Alignment
 
 In semi-urban, rural, and deep rural markets across India, micro-entrepreneurs (kirana store owners, mobile recharge agents, ration distributors, local facilitators) represent the financial backbone of local commerce. 
 
@@ -19,7 +28,7 @@ Traditional software fails them because:
 2. **Device constraints**: They operate on $70–$150 Android phones with intermittent 2G/3G/4G connectivity.
 3. **Complex credit/khata chaos**: Transactions happen via messy handwritten parchii, Hindi voice notes, and informal WhatsApp promises.
 
-**Eko Micro-Entrepreneur Worker** solves these exact problems by pairing lightweight, zero-dependency frontend architecture with **True Multimodal & Generative AI superpowers**.
+**Eko Micro-Entrepreneur Worker** solves these exact problems by pairing lightweight, zero-dependency frontend architecture with **True Multimodal & Generative AI superpowers** and **complete offline-first reliability**.
 
 ---
 
@@ -47,14 +56,25 @@ Traditional software fails them because:
 
 ---
 
-## 🏗️ System Architecture
+## 📡 Offline-First Architecture & Auto-Sync
+
+The app is built from the ground up to guarantee **zero blank screens** and **instant startup** even in zero-connectivity environments:
+
+1. **Instant Startup**: All application UI and cached data (Customers, Tasks, Notes, Offers, AI history) load immediately from **IndexedDB** / **Room SQLite** without waiting for the network.
+2. **Session Persistence**: Authentication profile persists safely across device restarts, reboots, and app lifecycle changes via hardened local persistence.
+3. **Optimistic Offline Mutations**: Creating, editing, or deleting ledger items while offline queues the mutations in the background sync queue and optimistically updates the UI.
+4. **Automatic Reconnection Sync**: When network connectivity returns, the engine automatically drains the sync queue with exponential backoff and refreshes all views seamlessly.
+
+---
+
+## 🏗️ Production System Architecture
 
 ```mermaid
 graph TD
-    A[Micro-Entrepreneur Device / Mobile PWA] -->|Nginx Static Port 3000| B[Vanilla ES6 Frontend UI]
-    B -->|Offline-First IndexedDB/LocalStorage| C[Local Persistence Cache]
-    B -->|REST API Requests with X-User-Id| D[FastAPI Backend Port 8000]
-    D -->|SQLAlchemy ORM| E[(SQLite Database eko_data.db)]
+    A[Android Native Device / PWA Client] -->|HTTPS Asset Loader| B[Vanilla ES6 Frontend UI]
+    B -->|Offline-First Cache & Queue| C[(IndexedDB / Room SQLite)]
+    B -->|HTTPS REST API + X-User-Id| D[FastAPI Production Gateway]
+    D -->|PostgreSQL Connection Pool| E[(Production PostgreSQL DB)]
     D -->|Topic Filter & Context Builder| F[AI Gateway Engine]
     F -->|In-Memory LRU Cache TTL 5m| G{Cache Hit?}
     G -->|Yes 1ms| B
@@ -67,117 +87,82 @@ graph TD
 
 ---
 
-## 🛡️ Production AI Guardrails & Performance Optimization
+## 🛡️ Production Security & AI Guardrails
 
-| Feature | Implementation | Business Value |
+| Feature | Implementation | Production Guardrail |
 |---|---|---|
+| **HTTPS Only** | Android Network Security Config + SSL | Completely blocks all cleartext HTTP traffic in production builds. |
+| **Native Google Auth** | AndroidX Credential Manager | Native bottom sheet picker; no OAuth WebView redirection vulnerabilities. |
+| **Session Persistence** | Hardened Local Storage | User session survives phone reboots, app closes, and offline restarts. |
 | **Structured Output** | `response_mime_type="application/json"` | Guarantees reliable JSON rendering without client regex crashes. |
-| **Selective Context Injection** | `classify_topic(question)` | Injects only relevant customer or task records (capped at 5) to minimize token consumption. |
-| **Response Caching** | LRU hash cache (TTL = 300s) | Serves repeated queries in **~1ms** with zero redundant LLM API costs. |
-| **Latency & Cost Caps** | `max_output_tokens=300`, `timeout=8.0s` | Strict timeouts avoid hanging UI on low-end 3G field connections. |
-| **Anti-Hallucination** | System prompt contract + `validate_no_hallucinated_names()` | Rejects phantom customer names not present in the database. |
-| **Transient Retries** | Exponential backoff (1s, 2s) | Resilient to transient Google API rate spikes and network drops. |
-| **Metric Tracking** | `POST /api/ai/action-taken` | Logs recommendation conversion rates for product analytics. |
+| **Rate Limiting** | SlowAPI Token Bucket | 30 req/min for Ask Eko, 20 req/min for Vision & Multimodal endpoints. |
+| **Anti-Hallucination** | System prompt contract + `validate_no_hallucinated_names()` | Rejects phantom customer names not present in the user's actual database. |
+| **PostgreSQL Support** | SQLAlchemy + Psycopg2 + Pool pre-ping | Production-ready connection pooling for concurrent requests. |
 
 ---
 
-## 🔒 Privacy & Data Protection (DPDP Act 2023 Ready)
+## 🚀 Deployment & Cloud Setup
 
-- **User Data Isolation**: Every customer, note, task, and AI query is strictly scoped to the authenticated `user_id`.
-- **Zero Token Leakage**: OAuth tokens and credentials never touch client storage; backend uses Google token verification.
-- **Client-Side Storage**: In Demo / Offline mode, data stays completely local inside the browser sandbox.
-- **Minimal Scopes**: Only requests `openid`, `email`, and `profile` during Google Sign-in.
+### 1. Backend Deployment (Render.com + PostgreSQL)
 
----
+The repository includes a ready-to-deploy [`render.yaml`](file:///c:/Users/naman/OneDrive/Desktop/Eko%20Field%20Worker/render.yaml) specification for 1-click cloud deployment.
 
-## 🚀 Quick Start (Local Setup)
-
-### Option 1: Docker Compose (Web & Backend)
-```bash
-git clone https://github.com/sharma930560-lab/eko-ai-worker.git
-cd eko-ai-worker
-
-# Run everything (FastAPI backend + Nginx frontend)
-docker-compose up --build
+#### Environment Variables for Production
+```env
+GOOGLE_CLIENT_ID=258255119262-hl7e15h4ohciliroc29gcpbfa6i1sf2l.apps.googleusercontent.com
+GEMINI_API_KEY=your_gemini_api_key
+ENVIRONMENT=production
+ALLOWED_ORIGINS=https://appassets.androidplatform.net,http://localhost:3000
+DATABASE_URL=postgresql://user:password@hostname:5432/eko_db
 ```
-- **Web App**: `http://localhost:3000`
-- **FastAPI Docs**: `http://localhost:8000/docs`
+
+#### Production Endpoints
+- **Health Check**: `GET /api/health`
+- **Interactive Swagger Docs**: `GET /docs` (available in development/staging)
+- **Google Auth**: `POST /api/auth/google`
+- **Customer Khata**: `GET|POST|PATCH|DELETE /api/customers`
+- **Tasks & Reminders**: `GET|POST|PATCH|DELETE /api/tasks`
+- **AI Superpowers**:
+  - `POST /api/ai/ask`
+  - `POST /api/ai/scan-bill`
+  - `POST /api/ai/voice-parse`
+  - `POST /api/ai/generate-message`
+  - `POST /api/ai/credit-score`
+  - `POST /api/ai/generate-flyer`
 
 ---
 
-### Option 2: Native Android App (APK Build)
+## 📱 Building Android APK Locally
+
 ```bash
 cd android
 
-# Build debug APK
-./gradlew assembleDebug   # Windows: gradlew.bat assembleDebug
+# Build both Release and Debug APKs
+./gradlew.bat assembleRelease assembleDebug
 
-# Install on connected device or emulator
-adb install app/build/outputs/apk/debug/app-debug.apk
-```
+# Output APKs:
+# app/build/outputs/apk/release/app-release.apk
+# app/build/outputs/apk/debug/app-debug.apk
 
----
-
-### Option 3: Local Dev Setup (FastAPI + Static Web)
-
-#### 1. Backend (FastAPI)
-```bash
-cd backend
-python -m venv venv
-source venv/bin/activate  # Windows: venv\Scripts\activate
-pip install -r requirements.txt
-
-# Configure environment
-cp .env.example .env
-
-# Start server
-uvicorn main:app --host 0.0.0.0 --port 8000 --reload
-```
-
-#### 2. Frontend (Static Web Server)
-```bash
-cd frontend
-python -m http.server 3000
-```
-Open `http://localhost:3000` in any modern browser.
-
----
-
-## 📱 Android Hybrid Native Architecture
-
-```
-┌──────────────────────────────────────────────────────────────────────────┐
-│                            ANDROID WRAPPER                               │
-├──────────────────────────────────────────────────────────────────────────┤
-│ 🔐 Credential Manager (Native Google Sign-In)                            │
-│    - Passkey & Google ID Token retrieval with zero WebView redirections │
-│                                                                          │
-│ 🌐 AndroidX WebViewAssetLoader                                           │
-│    - Loads local assets via http://appassets.androidplatform.net/        │
-│    - Eliminates Chromium Active Mixed Content blocks                     │
-│    - Cleartext traffic permitted for local 10.0.2.2 dev emulation        │
-│                                                                          │
-│ 🌉 JavaScript Bridge (AndroidBridge)                                     │
-│    - Offline SQLite Room Queue (SyncRepository, SyncDao, AuditLogDao)   │
-│    - Bi-directional token and user identity injection                   │
-└──────────────────────────────────────────────────────────────────────────┘
+# Install directly on device/emulator
+adb install app/build/outputs/apk/release/app-release.apk
 ```
 
 ---
 
 ## 🧪 Recruiter Evaluation Walkthrough
 
-1. **Option A: Web Demo**: Open `http://localhost:3000` and click **"Try Demo Mode"** (instant 1-click evaluation).
-2. **Option B: Native Android APK**: Launch the installed Android app, sign in with Google or explore Demo Mode.
+1. **Option A: Native Android APK**: Install `app-release.apk` on any Android device or emulator.
+2. **Option B: Web Demo Mode**: Run `docker-compose up` or start frontend and click **"Try Demo Mode"** for instant 1-click evaluation.
 3. **Test 1: 📷 Parchii Scanner**: Click **AI Tools** → **Parchii Scanner** → Click test receipt *"Ramesh Khata Parchii"*. Observe Vision AI extracting items and totals with 1-click save.
 4. **Test 2: 🎙️ Voice Khata**: Click **Voice Khata** → Click test sample *"Sharma ji 10 packet atta le gaye..."* → Observe natural language entity extraction and auto-create task.
 5. **Test 3: 💬 WhatsApp Studio**: Click **WhatsApp Studio** → Switch tone to *"⚡ Firm & Professional Recovery"* → Click *"Open in WhatsApp"*.
 6. **Test 4: 🛡️ Credit Risk Scorer**: Click **Credit Scorer** → Adjust delay slider → Observe real-time Micro-Lending Trust Score (1-100) and recommended credit cap.
 7. **Test 5: 🎨 Flyer Creator**: Click **Flyer Creator** → Modify offer text → Observe real-time HTML5 canvas render and download PNG.
 8. **Test 6: 🤖 Ask Eko Assistant**: Open **Ask Eko AI** → Click *"Daily plan summary"* → Click the **"Add to Tasks"** action button on the structured response card.
+9. **Test 7: 📴 Offline Resilience**: Turn on Airplane mode on your device/emulator. Open app, navigate khata, add a task. Observe optimistic instant update, offline banner, and automatic sync upon disabling Airplane mode.
 
 ---
 
 ## 📜 License
 Built with ❤️ by Paras Sharma for Eko Micro-Entrepreneur Operations. Open Source MIT License.
-

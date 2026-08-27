@@ -1,6 +1,7 @@
 """
 Eko Micro-Entrepreneur Worker — FastAPI Backend
 Full CRUD + Google Auth + Gemini AI Assistant
+Production-ready: PostgreSQL, rate limiting, hardened CORS
 """
 import os
 import uuid
@@ -9,13 +10,28 @@ from typing import Optional, List
 from datetime import datetime, date
 
 # pyrefly: ignore [missing-import]
-from fastapi import FastAPI, HTTPException, Depends, Header
+from fastapi import FastAPI, HTTPException, Depends, Header, Request
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.responses import JSONResponse
 from pydantic import BaseModel
 from sqlalchemy.orm import Session
 from dotenv import load_dotenv
 from google.oauth2 import id_token
 from google.auth.transport import requests as google_requests
+try:
+    from slowapi import Limiter, _rate_limit_exceeded_handler
+    from slowapi.util import get_remote_address
+    from slowapi.errors import RateLimitExceeded
+    HAS_SLOWAPI = True
+except ImportError:
+    HAS_SLOWAPI = False
+    class RateLimitExceeded(Exception): pass
+    def _rate_limit_exceeded_handler(*args, **kwargs): pass
+    class Limiter:
+        def __init__(self, *args, **kwargs): pass
+        def limit(self, *args, **kwargs):
+            return lambda fn: fn
+    def get_remote_address(request): return "127.0.0.1"
 
 import database
 import models
@@ -27,28 +43,42 @@ logger = logging.getLogger("eko")
 
 GOOGLE_CLIENT_ID = os.getenv("GOOGLE_CLIENT_ID", "")
 GEMINI_API_KEY = os.getenv("GEMINI_API_KEY", "")
+ENVIRONMENT = os.getenv("ENVIRONMENT", "development")
 
-app = FastAPI(title="Eko Micro-Entrepreneur Worker API", version="1.0.0")
+# ─── Rate Limiter ──────────────────────────────────────────────────────────────
+limiter = Limiter(key_func=get_remote_address)
+
+app = FastAPI(
+    title="Eko Micro-Entrepreneur Worker API",
+    version="1.0.0",
+    description="AI-powered business assistant for micro-entrepreneurs in India.",
+    docs_url="/docs" if ENVIRONMENT != "production" else None,
+    redoc_url=None,
+)
+app.state.limiter = limiter
+app.add_exception_handler(RateLimitExceeded, _rate_limit_exceeded_handler)
+
 models.Base.metadata.create_all(bind=database.engine)
 
 # ─── CORS ─────────────────────────────────────────────────────────────────────
-# NOTE: "http(s)://appassets.androidplatform.net" is the origin used by the
-# Android WebView when loading assets. Allowed here for DEBUG/LOCAL DEV only.
-# For production: remove these origins and serve over HTTPS with a real domain.
+# Read allowed origins from environment variable (comma-separated).
+# Always include the Android WebView HTTPS asset origin.
+_default_origins = (
+    "https://appassets.androidplatform.net,"
+    "http://localhost:3000,"
+    "http://127.0.0.1:3000"
+)
+_origins_env = os.getenv("ALLOWED_ORIGINS", _default_origins)
+ALLOWED_ORIGINS = [o.strip() for o in _origins_env.split(",") if o.strip()]
+
+logger.info("CORS allowed origins: %s", ALLOWED_ORIGINS)
+
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=[
-        "http://localhost:3000",
-        "http://127.0.0.1:3000",
-        "http://localhost:8000",
-        "http://127.0.0.1:8000",
-        "http://10.0.2.2:8000",
-        "https://appassets.androidplatform.net",  # DEBUG ONLY — Android WebView HTTPS asset origin
-        "http://appassets.androidplatform.net",   # DEBUG ONLY — Android WebView HTTP asset origin
-    ],
+    allow_origins=ALLOWED_ORIGINS,
     allow_credentials=True,
-    allow_methods=["*"],
-    allow_headers=["*"],
+    allow_methods=["GET", "POST", "PATCH", "DELETE", "OPTIONS"],
+    allow_headers=["Content-Type", "X-User-Id", "Authorization"],
 )
 
 
@@ -169,11 +199,15 @@ class AskEkoRequest(BaseModel):
 # ─── Health ───────────────────────────────────────────────────────────────────
 @app.get("/api/health")
 def health():
+    db_ok = database.check_db_connection()
     return {
-        "status": "ok",
+        "status": "ok" if db_ok else "degraded",
         "service": "Eko Micro-Entrepreneur Worker API",
+        "version": "1.0.0",
+        "environment": ENVIRONMENT,
         "ai_configured": bool(GEMINI_API_KEY),
         "auth_configured": bool(GOOGLE_CLIENT_ID),
+        "database": "connected" if db_ok else "unreachable",
     }
 
 
@@ -604,7 +638,9 @@ def generate_grounded_fallback_response(question: str, user, customers, tasks) -
 
 # ── Main AI Endpoint ─────────────────────────────────────────────────────────
 @app.post("/api/ai/ask")
+@limiter.limit("30/minute")
 async def ask_eko(
+    request: Request,
     body: AskEkoRequest,
     user_id: str = Depends(verify_user_id),
     db: Session = Depends(database.get_db),
@@ -730,7 +766,8 @@ class ScanBillRequest(BaseModel):
     sample_type: Optional[str] = None  # "kirana_parchii" | "supplier_invoice" | "transport_bilty"
 
 @app.post("/api/ai/scan-bill")
-async def scan_bill(body: ScanBillRequest, user_id: str = Depends(verify_user_id)):
+@limiter.limit("20/minute")
+async def scan_bill(request: Request, body: ScanBillRequest, user_id: str = Depends(verify_user_id)):
     """Extract structured items, prices, and customer/supplier from receipt images."""
     logger.info("AI_VISION_SCAN user=%s sample=%s", user_id[:8], body.sample_type)
 
@@ -837,7 +874,8 @@ class VoiceParseRequest(BaseModel):
     language: Optional[str] = "hi"
 
 @app.post("/api/ai/voice-parse")
-async def voice_parse(body: VoiceParseRequest, user_id: str = Depends(verify_user_id)):
+@limiter.limit("20/minute")
+async def voice_parse(request: Request, body: VoiceParseRequest, user_id: str = Depends(verify_user_id)):
     """Parse unstructured field speech in Hindi/Hinglish into structured CRM record."""
     text = body.transcript.strip()
     logger.info("AI_VOICE_PARSE user=%s len=%d", user_id[:8], len(text))
@@ -921,7 +959,8 @@ class GenerateMessageRequest(BaseModel):
     shop_name: Optional[str] = "Eko Store"
 
 @app.post("/api/ai/generate-message")
-async def generate_whatsapp_message(body: GenerateMessageRequest, user_id: str = Depends(verify_user_id)):
+@limiter.limit("20/minute")
+async def generate_whatsapp_message(request: Request, body: GenerateMessageRequest, user_id: str = Depends(verify_user_id)):
     """Generate high-conversion, culturally respectful WhatsApp payment and marketing messages."""
     c_name = body.customer_name or "Grahak"
     raw_amt = float(body.amount_due or 0)
@@ -990,7 +1029,8 @@ class CreditScoreRequest(BaseModel):
     relationship_months: Optional[int] = 12
 
 @app.post("/api/ai/credit-score")
-async def calculate_credit_score(body: CreditScoreRequest, user_id: str = Depends(verify_user_id)):
+@limiter.limit("20/minute")
+async def calculate_credit_score(request: Request, body: CreditScoreRequest, user_id: str = Depends(verify_user_id)):
     """AI underwriting engine for micro-merchants evaluating borrower default risk."""
     name = body.customer_name
     amt = body.amount_due or 0.0
@@ -1050,7 +1090,8 @@ class GenerateFlyerRequest(BaseModel):
     shop_name: Optional[str] = "Eko Kirana Store"
 
 @app.post("/api/ai/generate-flyer")
-async def generate_marketing_flyer(body: GenerateFlyerRequest, user_id: str = Depends(verify_user_id)):
+@limiter.limit("20/minute")
+async def generate_marketing_flyer(request: Request, body: GenerateFlyerRequest, user_id: str = Depends(verify_user_id)):
     """Generate high-impact marketing copy and canvas layout tokens for WhatsApp status flyers."""
     p_name = body.product_name
     offer_p = body.offer_price

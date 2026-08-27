@@ -57,6 +57,8 @@ Thumbs.db
 .vscode/
 .idea/
 *.iml
+.project
+.settings/
 .system_generated/
 .artifacts/
 

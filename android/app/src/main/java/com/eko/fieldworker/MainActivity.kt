@@ -68,15 +68,9 @@ class MainActivity : AppCompatActivity() {
     }
 
     private fun setupWebView() {
-        // Clear cache for debugging to ensure no old JS/HTML persists
-        webView.clearCache(true)
-        
-        // DEBUG/LOCAL DEV ONLY:
-        // By allowing HTTP on the asset loader and loading the page via http://appassets.androidplatform.net,
-        // we eliminate active mixed-content blocking when making API calls to local development backend (http://10.0.2.2:8000).
-        // For PRODUCTION: Set setHttpAllowed(false), load via https://, and connect to a production HTTPS backend.
+        // Production: HTTPS-only asset loader, no cleartext, no mixed content
         val assetLoader = WebViewAssetLoader.Builder()
-            .setHttpAllowed(true)
+            .setHttpAllowed(false)  // HTTPS only
             .setDomain("appassets.androidplatform.net")
             .addPathHandler("/assets/", WebViewAssetLoader.AssetsPathHandler(this))
             .build()
@@ -85,9 +79,9 @@ class MainActivity : AppCompatActivity() {
             javaScriptEnabled = true
             domStorageEnabled = true
             databaseEnabled = true
-            allowFileAccess = true
-            // DEBUG/LOCAL DEV ONLY: Allow mixed content if any subresource uses mixed schemes
-            mixedContentMode = WebSettings.MIXED_CONTENT_ALWAYS_ALLOW
+            allowFileAccess = false  // Not needed — assets served via WebViewAssetLoader
+            // Production: Never allow mixed content (HTTPS page must not load HTTP)
+            mixedContentMode = WebSettings.MIXED_CONTENT_NEVER_ALLOW
         }
 
         // Add Javascript Interface
@@ -109,16 +103,14 @@ class MainActivity : AppCompatActivity() {
                 Log.d(TAG, "shouldOverrideUrlLoading: $url")
                 if (url.contains("accounts.google.com")) {
                     Log.e(TAG, "BLOCKING navigation to Google login page in WebView!")
-                    Toast.makeText(this@MainActivity, "Google Web Login blocked in APK. Use Native Picker.", Toast.LENGTH_LONG).show()
-                    return true // Block it
+                    return true // Block web Google login — use native Credential Manager
                 }
                 return false
             }
         }
 
-        // Load index.html from assets over HTTP (matching local backend protocol)
-        // DEBUG/LOCAL DEV ONLY: In production, use "https://appassets.androidplatform.net/assets/index.html"
-        webView.loadUrl("http://appassets.androidplatform.net/assets/index.html")
+        // Production: load via HTTPS — no mixed content, no cleartext
+        webView.loadUrl("https://appassets.androidplatform.net/assets/index.html")
     }
 
     private fun observeViewModel() {

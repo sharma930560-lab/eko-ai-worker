@@ -2,8 +2,14 @@
  * Eko — API Client
  * Handles all requests to the FastAPI backend.
  * Automatically attaches the user ID header for data isolation.
- * Falls back gracefully when offline.
+ * Falls back gracefully when offline (cache → queue → retry).
+ *
+ * Production: uses window.EKO_API_BASE set by auth.js (HTTPS production URL).
  */
+
+const API_TIMEOUT_MS = 15000;  // 15 second timeout
+const API_MAX_RETRIES = 3;
+const API_RETRY_DELAYS = [1000, 2000, 4000]; // exponential backoff
 
 function getHeaders() {
     const headers = { 'Content-Type': 'application/json' };
@@ -16,39 +22,84 @@ function getHeaders() {
     return headers;
 }
 
+/**
+ * Fetch with timeout support.
+ */
+async function fetchWithTimeout(url, options, timeoutMs = API_TIMEOUT_MS) {
+    const controller = new AbortController();
+    const timer = setTimeout(() => controller.abort(), timeoutMs);
+    try {
+        const res = await fetch(url, { ...options, signal: controller.signal });
+        return res;
+    } finally {
+        clearTimeout(timer);
+    }
+}
+
+/**
+ * Core API request — with retry and offline queue.
+ * GET requests: served from cache if offline.
+ * Mutations (POST/PATCH/DELETE): queued when offline, retried when reconnected.
+ */
 async function apiRequest(method, path, body = null) {
     if (!navigator.onLine) {
         if (method !== 'GET' && typeof AndroidBridge !== 'undefined') {
             AndroidBridge.queueSync(path, method, JSON.stringify(body));
             return { queued: true, message: 'Saved locally. Will sync when online.' };
         }
+        // Try cache for GET requests
+        if (method === 'GET') {
+            const cached = await offlineCache.get(path);
+            if (cached) return cached;
+        }
         throw { offline: true, message: 'You are offline.' };
     }
-    // Default to localhost, but allow override.
-    // On Android Emulator, use 10.0.2.2 to access host machine.
-    let base = window.EKO_API_BASE || 'http://localhost:8000';
 
-    if (base.includes('localhost') && /Android/i.test(navigator.userAgent)) {
-        base = base.replace('localhost', '10.0.2.2');
-    }
-
+    // EKO_API_BASE is set by auth.js — production HTTPS URL (no localhost, no emulator)
+    const base = window.EKO_API_BASE || 'http://localhost:8000';
+    const url = `${base}${path}`;
     const opts = { method, headers: getHeaders() };
     if (body) opts.body = JSON.stringify(body);
 
-    try {
-        const res = await fetch(`${base}${path}`, opts);
-        if (!res.ok) {
-            const err = await res.json().catch(() => ({}));
-            throw { status: res.status, message: err.detail || 'Request failed.' };
+    let lastError = null;
+    const attempts = method === 'GET' ? API_MAX_RETRIES : 1;
+
+    for (let attempt = 0; attempt < attempts; attempt++) {
+        if (attempt > 0) {
+            await new Promise(r => setTimeout(r, API_RETRY_DELAYS[attempt - 1]));
         }
-        return res.json();
-    } catch (e) {
-        if (method !== 'GET' && typeof AndroidBridge !== 'undefined') {
-            AndroidBridge.queueSync(path, method, JSON.stringify(body));
-            return { queued: true, message: 'Backend unreachable. Saved locally.' };
+        try {
+            const res = await fetchWithTimeout(url, opts);
+            if (!res.ok) {
+                const err = await res.json().catch(() => ({}));
+                // Don't retry client errors (4xx)
+                if (res.status >= 400 && res.status < 500) {
+                    throw { status: res.status, message: err.detail || 'Request failed.' };
+                }
+                lastError = { status: res.status, message: err.detail || 'Server error.' };
+                continue;
+            }
+            const data = await res.json();
+            // Cache successful GET responses
+            if (method === 'GET') {
+                await offlineCache.set(path, data);
+            }
+            return data;
+        } catch (e) {
+            if (e.offline || e.status) throw e; // don't retry known errors
+            lastError = e;
+            if (e.name === 'AbortError') {
+                lastError = { message: 'Request timed out. Please try again.' };
+            }
         }
-        throw e;
     }
+
+    // All retries failed — queue mutation for later
+    if (method !== 'GET' && typeof AndroidBridge !== 'undefined') {
+        AndroidBridge.queueSync(path, method, JSON.stringify(body));
+        return { queued: true, message: 'Backend unreachable. Saved locally.' };
+    }
+    throw lastError || { message: 'Request failed after retries.' };
 }
 
 const api = {
