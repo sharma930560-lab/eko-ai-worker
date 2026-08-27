@@ -29,7 +29,11 @@ function getEkoApiBase() {
     }
   }
 
-  if (window.location.hostname === 'appassets.androidplatform.net') {
+  if (window.location.hostname === 'appassets.androidplatform.net' ||
+      window.location.hostname === 'eko-field-worker.netlify.app' ||
+      window.location.protocol === 'https:' ||
+      window.location.hostname.endsWith('netlify.app') ||
+      window.location.hostname.endsWith('onrender.com')) {
     return 'https://eko-field-worker-api.onrender.com';
   }
 
@@ -50,8 +54,7 @@ try {
 function isAndroidApk() {
   const isBridge = typeof AndroidBridge !== 'undefined';
   const isAppAssets = window.location.hostname === 'appassets.androidplatform.net';
-  const isAndroidUA = /Android/i.test(navigator.userAgent);
-  return isBridge || isAppAssets || isAndroidUA;
+  return isBridge || isAppAssets;
 }
 
 // ── State ─────────────────────────────────────────────────────────────────────
@@ -239,14 +242,6 @@ function showLoginLoading(state) {
 }
 
 function showLoginScreen() {
-  // Defensive: kill any GSI residuals in APK
-  if (isAndroidApk()) {
-    window.google = null;
-    console.log('Auth: showLoginScreen called in APK. window.google disabled.');
-  } else {
-    console.log('Auth: showLoginScreen called in Browser. window.google exists?', !!window.google);
-  }
-
   const loginScreen = document.getElementById('login-screen');
   const appContainer = document.getElementById('app-container');
   const obScreen = document.getElementById('onboarding-screen');
@@ -264,56 +259,67 @@ function showLoginScreen() {
     obScreen.style.display = 'none';
   }
 
-  // If running in Android APK, we use the Native Credential Manager via Bridge.
-  // We DO NOT initialize Google Identity Services (GSI) Web library because it fails in WebView.
+  const gsiContainer = document.getElementById('google-btn-container');
+
   if (isAndroidApk()) {
-    console.log('Auth: Android environment detected. Using native sign-in bridge.');
-    // Explicitly inject/ensure the button is our manual one
-    const gsiContainer = document.getElementById('google-btn-container');
+    console.log('Auth: Android APK environment detected. Using native sign-in bridge.');
     if (gsiContainer) {
-       gsiContainer.innerHTML = `
+      gsiContainer.innerHTML = `
         <button class="google-btn" id="native-google-signin-btn" onclick="handleGoogleSignIn()">
             <svg width="18" height="18" viewBox="0 0 24 24"><path fill="#4285F4" d="M22.56 12.25c0-.78-.07-1.53-.2-2.25H12v4.26h5.92c-.26 1.37-1.04 2.53-2.21 3.31v2.77h3.57c2.08-1.92 3.28-4.74 3.28-8.09z"/><path fill="#34A853" d="M12 23c2.97 0 5.46-.98 7.28-2.66l-3.57-2.77c-.98.66-2.23 1.06-3.71 1.06-2.86 0-5.29-1.93-6.16-4.53H2.18v2.84C3.99 20.53 7.7 23 12 23z"/><path fill="#FBBC05" d="M5.84 14.09c-.22-.66-.35-1.36-.35-2.09s.13-1.43.35-2.09V7.07H2.18C1.43 8.55 1 10.22 1 12s.43 3.45 1.18 4.93l3.66-2.84z"/><path fill="#EA4335" d="M12 5.38c1.62 0 3.06.56 4.21 1.64l3.15-3.15C17.45 2.09 14.97 1 12 1 7.7 1 3.99 3.47 2.18 7.07l3.66 2.84c.87-2.6 3.3-4.53 6.16-4.53z"/></svg>
             Continue with Google
         </button>`;
     }
-    return;
+  } else {
+    console.log('Auth: Web environment detected. Initializing GSI button.');
+    renderWebGoogleButton();
   }
+}
 
-  console.log('Auth: Web environment detected. Initializing GSI.');
+function renderWebGoogleButton() {
+  const gsiContainer = document.getElementById('google-btn-container');
+  if (!gsiContainer) return;
 
-  // Initialize Google Identity Services button (Web only)
-  if (window.google && GOOGLE_CLIENT_ID !== 'YOUR_GOOGLE_CLIENT_ID_HERE') {
-    window.google.accounts.id.initialize({
-      client_id: GOOGLE_CLIENT_ID,
-      callback: handleCredentialResponse,
-      cancel_on_tap_outside: false,
-    });
-    window.google.accounts.id.renderButton(
-      document.getElementById('google-btn-container'),
-      {
-        theme: 'outline',
-        size: 'large',
-        width: 280,
-        logo_alignment: 'left',
-        text: 'continue_with',
-      }
-    );
-  } else if (GOOGLE_CLIENT_ID === 'YOUR_GOOGLE_CLIENT_ID_HERE') {
-    // Show placeholder button when client ID not configured
-    const container = document.getElementById('google-btn-container');
-    if (container) {
-      container.innerHTML = `
-        <button class="google-btn-placeholder" onclick="showAuthError('Add your Google Client ID to frontend/js/auth.js to enable Google Sign-In.')">
-          <svg width="18" height="18" viewBox="0 0 18 18" xmlns="http://www.w3.org/2000/svg">
-            <path fill="#4285F4" d="M17.64 9.2c0-.637-.057-1.251-.164-1.84H9v3.481h4.844c-.209 1.125-.843 2.078-1.796 2.717v2.258h2.908c1.702-1.567 2.684-3.875 2.684-6.615z"/>
-            <path fill="#34A853" d="M9 18c2.43 0 4.467-.806 5.956-2.18l-2.908-2.259c-.806.54-1.837.86-3.048.86-2.344 0-4.328-1.584-5.036-3.711H.957v2.332A8.997 8.997 0 0 0 9 18z"/>
-            <path fill="#FBBC05" d="M3.964 10.71A5.41 5.41 0 0 1 3.682 9c0-.593.102-1.17.282-1.71V4.958H.957A8.996 8.996 0 0 0 0 9c0 1.452.348 2.827.957 4.042l3.007-2.332z"/>
-            <path fill="#EA4335" d="M9 3.58c1.321 0 2.508.454 3.44 1.345l2.582-2.58C13.463.891 11.426 0 9 0A8.997 8.997 0 0 0 .957 4.958L3.964 6.29C4.672 4.163 6.656 3.58 9 3.58z"/>
-          </svg>
-          Continue with Google
-        </button>`;
+  if (window.google && window.google.accounts && window.google.accounts.id) {
+    try {
+      window.google.accounts.id.initialize({
+        client_id: GOOGLE_CLIENT_ID,
+        callback: handleCredentialResponse,
+        cancel_on_tap_outside: false,
+      });
+      gsiContainer.innerHTML = '';
+      window.google.accounts.id.renderButton(
+        gsiContainer,
+        {
+          theme: 'outline',
+          size: 'large',
+          width: 280,
+          logo_alignment: 'left',
+          text: 'continue_with',
+        }
+      );
+      window.google.accounts.id.prompt();
+    } catch (e) {
+      console.warn('GSI render error:', e);
     }
+  } else {
+    // If google script not yet loaded, render fallback and retry polling
+    gsiContainer.innerHTML = `
+      <button class="google-btn" id="web-google-fallback-btn" onclick="handleGoogleSignIn()">
+          <svg width="18" height="18" viewBox="0 0 24 24"><path fill="#4285F4" d="M22.56 12.25c0-.78-.07-1.53-.2-2.25H12v4.26h5.92c-.26 1.37-1.04 2.53-2.21 3.31v2.77h3.57c2.08-1.92 3.28-4.74 3.28-8.09z"/><path fill="#34A853" d="M12 23c2.97 0 5.46-.98 7.28-2.66l-3.57-2.77c-.98.66-2.23 1.06-3.71 1.06-2.86 0-5.29-1.93-6.16-4.53H2.18v2.84C3.99 20.53 7.7 23 12 23z"/><path fill="#FBBC05" d="M5.84 14.09c-.22-.66-.35-1.36-.35-2.09s.13-1.43.35-2.09V7.07H2.18C1.43 8.55 1 10.22 1 12s.43 3.45 1.18 4.93l3.66-2.84z"/><path fill="#EA4335" d="M12 5.38c1.62 0 3.06.56 4.21 1.64l3.15-3.15C17.45 2.09 14.97 1 12 1 7.7 1 3.99 3.47 2.18 7.07l3.66 2.84c.87-2.6 3.3-4.53 6.16-4.53z"/></svg>
+          Continue with Google
+      </button>`;
+
+    let attempts = 0;
+    const interval = setInterval(() => {
+      attempts++;
+      if (window.google && window.google.accounts && window.google.accounts.id) {
+        clearInterval(interval);
+        renderWebGoogleButton();
+      } else if (attempts > 20) {
+        clearInterval(interval);
+      }
+    }, 300);
   }
 }
 
@@ -581,12 +587,12 @@ function handleGoogleSignIn() {
   console.log('Auth: handleGoogleSignIn clicked. Origin:', window.location.origin);
 
   if (isAndroidApk()) {
-    if (typeof AndroidBridge !== 'undefined') {
+    if (typeof AndroidBridge !== 'undefined' && typeof AndroidBridge.googleSignIn === 'function') {
       console.log('Auth: Triggering Native Google Sign-In via Bridge');
       AndroidBridge.googleSignIn();
     } else {
       console.error('Auth: Android environment detected but Bridge is MISSING!');
-      showAuthError('Internal Error: Native bridge not found.');
+      showAuthError('Initializing native Google Sign-In... Please tap again.');
     }
     return;
   }
@@ -596,7 +602,21 @@ function handleGoogleSignIn() {
     showAuthError('Google Sign-In is not configured yet. Add your Client ID to frontend/js/auth.js, or click "Try Demo" to explore.');
     return;
   }
-  // GIS handles the popup — the callback is handleCredentialResponse
+  
+  if (window.google && window.google.accounts && window.google.accounts.id) {
+    try {
+      window.google.accounts.id.initialize({
+        client_id: GOOGLE_CLIENT_ID,
+        callback: handleCredentialResponse,
+        cancel_on_tap_outside: false,
+      });
+      window.google.accounts.id.prompt();
+    } catch (e) {
+      console.error('Google Sign-In prompt error:', e);
+    }
+  } else {
+    renderWebGoogleButton();
+  }
 }
 
 // ── Init ───────────────────────────────────────────────────────────────────────
