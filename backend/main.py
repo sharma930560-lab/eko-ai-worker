@@ -65,6 +65,7 @@ models.Base.metadata.create_all(bind=database.engine)
 # Always include the Android WebView HTTPS asset origin.
 _default_origins = (
     "https://appassets.androidplatform.net,"
+    "https://eko-field-worker.netlify.app,"
     "http://localhost:3000,"
     "http://127.0.0.1:3000"
 )
