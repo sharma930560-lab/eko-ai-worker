@@ -7,7 +7,10 @@
 
 function getHeaders() {
     const headers = { 'Content-Type': 'application/json' };
-    if (typeof currentUser !== 'undefined' && currentUser && currentUser.id && !isDemoMode) {
+    if (typeof isDemoMode !== 'undefined' && isDemoMode) {
+        // Demo mode: use a fixed sandbox user ID so backend endpoints work without real auth
+        headers['X-User-Id'] = 'demo_user_123';
+    } else if (typeof currentUser !== 'undefined' && currentUser && currentUser.id) {
         headers['X-User-Id'] = currentUser.id;
     }
     return headers;
