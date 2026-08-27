@@ -380,6 +380,28 @@ TASK_KEYWORDS = {"task", "kaam", "karna", "pending", "schedule", "plan", "today"
                  "aaj", "tomorrow", "kal", "priority", "overdue", "complete", "done"}
 
 
+def fmt_inr(n) -> str:
+    """Format amount in Indian number system (e.g. ₹1,00,000) — never raw floats."""
+    if n is None or n == "":
+        return "₹0"
+    try:
+        n = int(float(n))
+    except (ValueError, TypeError):
+        return f"₹{n}"
+    s = str(n)
+    if len(s) <= 3:
+        return f"₹{s}"
+    last3 = s[-3:]
+    rest = s[:-3]
+    parts = []
+    while len(rest) > 2:
+        parts.insert(0, rest[-2:])
+        rest = rest[:-2]
+    if rest:
+        parts.insert(0, rest)
+    return f"₹{','.join(parts)},{last3}"
+
+
 def classify_topic(question: str) -> str:
     """Classify question into 'customers', 'tasks', or 'general'."""
     q_words = set(question.lower().split())
@@ -412,7 +434,7 @@ def build_selective_context(user, customers, tasks, topic: str) -> tuple:
             customer_names.add(c.name)
             parts = [f"  - {c.name}"]
             if c.amount_due and c.amount_due > 0:
-                parts.append(f"₹{c.amount_due} due")
+                parts.append(f"{fmt_inr(c.amount_due)} due")
             if c.business_type:
                 parts.append(c.business_type)
             if c.follow_up_date:
@@ -513,8 +535,8 @@ def generate_grounded_fallback_response(question: str, user, customers, tasks) -
         answer = "📋 **Aaj ka Business Action Plan**:\n\n"
         if due_customers:
             total = sum(c.amount_due for c in due_customers)
-            answer += f"• **Payment Follow-ups**: {len(due_customers)} customers ki payment pending hai (Total: ₹{total}).\n"
-            answer += f"  👉 Sabse pehle **{due_customers[0].name}** (₹{due_customers[0].amount_due}) ko call karein.\n"
+            answer += f"• **Payment Follow-ups**: {len(due_customers)} customers ki payment pending hai (Total: {fmt_inr(total)}).\n"
+            answer += f"  👉 Sabse pehle **{due_customers[0].name}** ({fmt_inr(due_customers[0].amount_due)}) ko call karein.\n"
         if pending_tasks:
             answer += f"• **Pending Tasks**: {len(pending_tasks)} kaam bache hain:\n"
             for t in pending_tasks[:3]:
@@ -536,17 +558,17 @@ def generate_grounded_fallback_response(question: str, user, customers, tasks) -
                     "suggested_action": None, "action_title": None, "related_customer": None, "priority": None}
         answer = f"Aaj **{len(due_customers)} customers** ke sath follow-up karein:\n\n"
         for i, c in enumerate(due_customers[:3], 1):
-            answer += f"{i}. **{c.name}**: ₹{c.amount_due} due ({c.business_type or 'Customer'})\n"
+            answer += f"{i}. **{c.name}**: {fmt_inr(c.amount_due)} due ({c.business_type or 'Customer'})\n"
         answer += "\n💡 Customer profile par jaakar seedha WhatsApp payment reminder draft kar sakte hain."
         return {"answer": answer, "suggested_action": "follow_up", "action_title": None,
                 "related_customer": due_customers[0].name, "priority": "high"}
 
     if any(k in q for k in ["whatsapp", "reminder", "message", "payment"]):
         c_name = due_customers[0].name if due_customers else "Customer"
-        amt = due_customers[0].amount_due if due_customers else "—"
+        amt = fmt_inr(due_customers[0].amount_due) if (due_customers and due_customers[0].amount_due) else "₹0"
         answer = (
             f"Yeh polite WhatsApp message bhej sakte hain:\n\n"
-            f'"Namaste {c_name} bhai! 🙏 Aapka ₹{amt} ka payment pending tha. '
+            f'"Namaste {c_name} bhai! 🙏 Aapka {amt} ka payment pending tha. '
             f'Kripya jab bhi time mile settle kar dein. Dhanyawad!"\n\n'
             f"Yeh message professional aur courteous hai."
         )
@@ -891,11 +913,30 @@ class GenerateMessageRequest(BaseModel):
 async def generate_whatsapp_message(body: GenerateMessageRequest, user_id: str = Depends(verify_user_id)):
     """Generate high-conversion, culturally respectful WhatsApp payment and marketing messages."""
     c_name = body.customer_name or "Grahak"
-    amt = int(body.amount_due or 0)
+    raw_amt = float(body.amount_due or 0)
     shop = body.shop_name or "Aapki Dukaan"
     tone = body.tone
 
-    logger.info("AI_WHATSAPP_GEN user=%s customer=%s tone=%s", user_id[:8], c_name, tone)
+    # Format amount in Indian number system (₹1,00,000) — never raw floats
+    def fmt_inr(n: float) -> str:
+        n = int(n)
+        s = str(n)
+        if len(s) <= 3:
+            return f"₹{s}"
+        last3 = s[-3:]
+        rest = s[:-3]
+        parts = []
+        while len(rest) > 2:
+            parts.insert(0, rest[-2:])
+            rest = rest[:-2]
+        if rest:
+            parts.insert(0, rest)
+        return f"₹{','.join(parts)},{last3}"
+
+    amt_fmt = fmt_inr(raw_amt)
+    amt_int = int(raw_amt)
+
+    logger.info("AI_WHATSAPP_GEN user=%s customer=%s tone=%s amount=%s", user_id[:8], c_name, tone, amt_fmt)
 
     if GEMINI_API_KEY and GEMINI_API_KEY != "YOUR_GEMINI_API_KEY_HERE":
         try:
@@ -904,27 +945,27 @@ async def generate_whatsapp_message(body: GenerateMessageRequest, user_id: str =
             model = genai.GenerativeModel("gemini-1.5-flash")
             prompt = f"""Write a single WhatsApp message in natural conversational Hindi/Hinglish.
 Customer Name: {c_name}
-Amount Due: ₹{amt}
+Amount Due: {amt_fmt} (write the amount EXACTLY as given with Indian rupee formatting, never use decimals like .0)
 Shop Name: {shop}
 Tone Style: {tone} (Options: gentle_reminder=respectful reminder, firm_overdue=urgent professional recovery, incentive_offer=pay now get 5% discount on next order, festival_greeting=festive wishes with special combo discount, stock_arrival=new fresh stock arrived).
-Keep it within 3-4 sentences. Include relevant emojis. Do not add placeholders. Return ONLY the message text."""
+Keep it within 3-4 sentences. Include relevant emojis. Do not add any placeholders or brackets. Return ONLY the message text."""
             res = await asyncio.wait_for(asyncio.to_thread(model.generate_content, prompt), timeout=8.0)
             msg = res.text.strip()
             return {"success": True, "message": msg, "tone": tone, "ai_engine": "gemini-1.5-flash"}
         except Exception as e:
             logger.warning("Gemini message gen failed (%s), using tone engine.", str(e))
 
-    # Culturally Tuned Messaging Engine
+    # Culturally Tuned Messaging Engine — uses properly formatted amounts
     if tone == "firm_overdue":
-        msg = f"Namaste {c_name} ji 🙏 {shop} se nivedan hai ki aapka ₹{amt} ka payment kaafi dino se pending hai. Kripya aaj shaam tak UPI/cash dwara hisaab clear kar dein taaki aage ke orders smoothly deliver ho sakein. Dhanyawad!"
+        msg = f"Namaste {c_name} ji 🙏 {shop} se nivedan hai ki aapka {amt_fmt} ka payment kaafi dino se pending hai. Kripya aaj shaam tak UPI/cash dwara hisaab clear kar dein taaki aage ke orders smoothly deliver ho sakein. Dhanyawad!"
     elif tone == "incentive_offer":
-        msg = f"Namaste {c_name} bhai! 🎉 {shop} ki taraf se special offer: Agar aap apna purana ₹{amt} ka balance aaj settle karte hain, toh agle order par aapko FLAT 5% EXTRA DISCOUNT milega! Aaj hi apna discount claim karein. 🙏"
+        msg = f"Namaste {c_name} bhai! 🎉 {shop} ki taraf se special offer: Agar aap apna purana {amt_fmt} ka balance aaj settle karte hain, toh agle order par aapko FLAT 5% EXTRA DISCOUNT milega! Aaj hi apna discount claim karein. 🙏"
     elif tone == "festival_greeting":
         msg = f"✨ Shubh Tyohar {c_name} ji! ✨ {shop} aapke aur aapke parivar ke liye shubhkaamnayein bhejta hai. Tyohar ke mauke par hamare yahan premium ration combos aur gift packs par vishesh chhoot uplabdh hai. Zaroor visit karein! 🪔"
     elif tone == "stock_arrival":
-        msg = f"Namaste {c_name} ji! 📦 Aapne jis fresh stock (Basmati Chawal & Refined Oil) ke baare mein poocha tha, wo {shop} par deliver ho chuka hai. Fresh stock limited hai, aap apna order book karwa sakte hain. Dhanyawad!"
+        msg = f"Namaste {c_name} ji! 📦 Aapne jis fresh stock ke baare mein poocha tha, wo {shop} par deliver ho chuka hai. Fresh stock limited hai — aap apna order book karwa sakte hain. Dhanyawad! 🙏"
     else:  # gentle_reminder
-        msg = f"Namaste {c_name} bhai! 🙏 Aasha hai aap kushal hain. {shop} par aapka pichle hafte ka ₹{amt} ka hisaab balance pending hai. Jab bhi suvidha ho, kripya settle karwa dein. Kisi naye saaman ki zaroorat ho toh batayein. Dhanyawad!"
+        msg = f"Namaste {c_name} bhai! 🙏 Aasha hai aap aur aapka parivar kushal hain. {shop} par aapka {amt_fmt} ka hisaab balance pending hai. Jab bhi suvidha ho, kripya settle karwa dein. Dhanyawad!"
 
     return {"success": True, "message": msg, "tone": tone, "ai_engine": "cultural-tone-engine"}
 

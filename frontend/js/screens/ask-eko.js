@@ -125,15 +125,21 @@ function renderAiActionCard(msg, idx) {
 
     if (action === 'send_reminder') {
         return `
-        <div style="margin-top:12px; padding:10px 14px; background:rgba(34, 197, 94, 0.06); border:1px solid rgba(34, 197, 94, 0.25); border-radius:var(--radius-md); display:flex; justify-content:space-between; align-items:center;">
+        <div style="margin-top:12px; padding:10px 14px; background:rgba(34, 197, 94, 0.06); border:1px solid rgba(34, 197, 94, 0.25); border-radius:var(--radius-md); display:flex; justify-content:space-between; align-items:center; gap:8px;">
             <div style="font-size:0.84rem; color:var(--text-main); font-weight:600; display:flex; align-items:center; gap:6px;">
                 <svg class="icon icon-sm" style="color:var(--success);" viewBox="0 0 24 24"><path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"></path></svg>
-                <span>WhatsApp Draft Ready</span>
+                <span>WhatsApp Reminder</span>
             </div>
-            <button class="btn-secondary" style="font-size:0.8rem; padding:5px 12px;" onclick="executeAiCopyMessage(${idx})">
-                <svg class="icon icon-sm" viewBox="0 0 24 24"><rect x="9" y="9" width="13" height="13" rx="2" ry="2"></rect><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"></path></svg>
-                <span>Copy Text</span>
-            </button>
+            <div style="display:flex; gap:6px;">
+                <button class="btn-secondary" style="font-size:0.8rem; padding:5px 10px;" onclick="executeAiCopyMessage(${idx})">
+                    <svg class="icon icon-sm" viewBox="0 0 24 24"><rect x="9" y="9" width="13" height="13" rx="2" ry="2"></rect><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"></path></svg>
+                    <span>Copy Text</span>
+                </button>
+                <button class="btn-primary" style="font-size:0.8rem; padding:5px 12px; background:#22C55E; border-color:#22C55E;" onclick="executeAiSendWhatsApp(${idx})">
+                    <svg class="icon icon-sm" viewBox="0 0 24 24"><path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"></path></svg>
+                    <span>Send</span>
+                </button>
+            </div>
         </div>`;
     }
 
@@ -181,20 +187,45 @@ function executeAiViewCustomer(customerName) {
     }
 }
 
+function extractCleanWhatsAppMessage(rawText) {
+    if (!rawText) return '';
+    // Look for quoted message inside "..." or “...” or &quot;...&quot;
+    const quoteMatch = rawText.match(/(?:&quot;|["“])([^"”&]+)(?:&quot;|["”])/);
+    if (quoteMatch && quoteMatch[1].trim().length > 10) {
+        return quoteMatch[1].trim();
+    }
+    // Clean preamble and suffix if quotes are not found
+    let text = rawText.replace(/<[^>]+>/g, '').trim();
+    text = text.replace(/^[\s\S]*?(?:message bhej sakte hain|message hai|reminder:?)\s*[:：]?\s*/i, '');
+    text = text.replace(/Yeh message (?:professional|courteous|polite)[\s\S]*$/i, '').trim();
+    text = text.replace(/^["“”]/, '').replace(/["“”]$/, '').trim();
+    return text;
+}
+
 function executeAiCopyMessage(idx) {
     const msg = chatHistory[idx];
     if (!msg) return;
     api.logActionTaken('send_reminder', 'whatsapp_copy');
 
-    // Extract quote text or plain answer
-    const match = msg.html.match(/"([^"]+)"/);
-    const textToCopy = match ? match[1] : msg.html.replace(/<[^>]+>/g, '');
+    const raw = msg.raw_answer || msg.html || '';
+    const textToCopy = extractCleanWhatsAppMessage(raw);
 
     navigator.clipboard.writeText(textToCopy).then(() => {
         showToast('WhatsApp message copied to clipboard! 📋');
     }).catch(() => {
         showToast('Message copied!');
     });
+}
+
+function executeAiSendWhatsApp(idx) {
+    const msg = chatHistory[idx];
+    if (!msg) return;
+    api.logActionTaken('send_reminder', 'whatsapp_direct');
+
+    const raw = msg.raw_answer || msg.html || '';
+    const textToSend = extractCleanWhatsAppMessage(raw);
+
+    window.open(`https://wa.me/?text=${encodeURIComponent(textToSend)}`, '_blank');
 }
 
 function sendQuickPrompt(q) {
@@ -255,12 +286,14 @@ async function sendToEko() {
             chatHistory.push({
                 role: 'eko',
                 html: escapeHtml(result.answer),
+                raw_answer: result.answer,
                 failure: true,
             });
         } else {
             chatHistory.push({
                 role: 'eko',
                 html: formatAiResponse(result.answer),
+                raw_answer: result.answer,
                 suggested_action: result.suggested_action || null,
                 action_title: result.action_title || null,
                 related_customer: result.related_customer || null,
