@@ -30,6 +30,8 @@ android/captures/
 *.class
 *.keystore
 *.jks
+build_*.txt
+*.log
 
 # Python
 __pycache__/
