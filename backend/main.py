@@ -32,9 +32,20 @@ app = FastAPI(title="Eko Micro-Entrepreneur Worker API", version="1.0.0")
 models.Base.metadata.create_all(bind=database.engine)
 
 # ─── CORS ─────────────────────────────────────────────────────────────────────
+# NOTE: "http(s)://appassets.androidplatform.net" is the origin used by the
+# Android WebView when loading assets. Allowed here for DEBUG/LOCAL DEV only.
+# For production: remove these origins and serve over HTTPS with a real domain.
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["http://localhost:3000", "http://127.0.0.1:3000"],
+    allow_origins=[
+        "http://localhost:3000",
+        "http://127.0.0.1:3000",
+        "http://localhost:8000",
+        "http://127.0.0.1:8000",
+        "http://10.0.2.2:8000",
+        "https://appassets.androidplatform.net",  # DEBUG ONLY — Android WebView HTTPS asset origin
+        "http://appassets.androidplatform.net",   # DEBUG ONLY — Android WebView HTTP asset origin
+    ],
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
