@@ -1,125 +1,188 @@
 # Eko Field Worker
 
-An offline-first AI business assistant for micro-entrepreneurs, small retail shopkeepers, and field operators.
-
-Eko helps business owners track credit balances (khata), follow up on pending customer payments, manage daily tasks, monitor inventory levels, and get contextual business suggestions on both web and Android.
+Eko Field Worker is an offline-first business assistant for micro-entrepreneurs. It helps manage customers, payments, inventory and daily tasks, while Ask Eko uses business data to provide practical recommendations.
 
 ---
 
-## Live Links & Downloads
+## What it does
 
-- **Web App / PWA**: [https://eko-field-worker.netlify.app](https://eko-field-worker.netlify.app)
-- **Backend API**: [https://eko-field-worker-api.onrender.com](https://eko-field-worker-api.onrender.com)
-- **Latest GitHub Release**: [v1.0.0 Releases](https://github.com/sharma930560-lab/eko-ai-worker/releases/latest)
+Micro-entrepreneurs (such as kirana store owners, wholesalers, and field agents) often struggle with credit recovery, manual stock tracking, and unorganized daily tasks. 
 
-| Asset | Type | Description | Link |
-|---|---|---|---|
-| **Eko Field Worker APK** | Android APK | Universal release build (ARM64, ARMv7, x86_64) | [Download APK](https://github.com/sharma930560-lab/eko-ai-worker/releases/download/v1.0.0/eko-field-worker-v1.0.0.apk) |
-| **Play Store Bundle** | Android AAB | Production App Bundle | [Download AAB](https://github.com/sharma930560-lab/eko-ai-worker/releases/download/v1.0.0/app-release.aab) |
+Eko Field Worker organizes these daily operations into a single mobile-friendly workflow:
+- Tracks customer accounts and outstanding dues (Khata).
+- Monitors low stock thresholds and reorder triggers.
+- Provides a prioritized daily action plan (Daily Business Brief & Next Best Action).
+- Drafts polite, personalized customer follow-ups and payment reminders.
+- Requires explicit user confirmation before executing database actions.
+- Works offline on the road, syncing when connectivity is restored.
 
 ---
 
 ## Features
 
-- **Google Sign-In**: Authentication via Google Identity Services on Web and Android Credential Manager on mobile.
-- **Customer & Khata Management**: Track customer records, outstanding credit balances, and due dates.
-- **Task Management**: Create, prioritize, and track daily operational to-dos.
-- **Business Notes**: Log daily commercial notes and observations.
-- **Inventory & Stock Tracking**: Monitor product stock levels with low-stock reorder warnings.
-- **Payment History**: Record received and pending payments with settlement statuses.
-- **Ask Eko AI**: Contextual assistant that analyzes your current ledger to suggest prioritized follow-ups and draft WhatsApp messages.
-- **Bill OCR**: Scan handwritten store receipts and invoices to extract structured line items and totals.
-- **Voice Khata**: Speech-to-text ledger entry supporting spoken Hindi and Hinglish phrases.
-- **WhatsApp Tools**: Generate culturally appropriate payment reminders (polite, standard, or firm) ready to send in one tap.
-- **Offline-First Support**: Loads instantly from local storage (IndexedDB / Room SQLite) and queues offline changes to sync when connection resumes.
+- **Google Sign-In**: Quick sign-in across desktop web and Android WebView.
+- **Customer Management (Khata)**: Add, edit, search, and track customer contact information and balance due.
+- **Task Management**: Daily priority checklist with due dates and completion toggles.
+- **Business Notes**: Log supplier meetings, order details, and operational reminders.
+- **Inventory Tracking**: Manage item stock quantities, units, unit prices, and low-stock alerts.
+- **Payment Ledger**: Record incoming and outgoing payments with status tracking.
+- **Ask Eko AI**: Context-grounded business assistant powered by Gemini.
+- **Persistent Business Memory**: Remembers high-level business goals (e.g. reducing outstanding credit) across sessions.
+- **Daily Business Brief**: Aggregates pending payments, low stock counts, and overdue tasks into a daily summary.
+- **Next Best Action**: Automatically identifies the most important action for the day.
+- **AI Utility Tools**: Handwritten bill parser (OCR), voice note transcriber, and flyer copy generator.
+- **Offline-First Storage**: Caches data locally with IndexedDB and Service Worker support.
+- **Human-in-the-Loop Actions**: Displays confirmation cards before modifying business records.
+- **Android APK**: Native Android WebView app with intent handling for phone calls, WhatsApp, and email.
+
+---
+
+## How Ask Eko works
+
+Ask Eko is designed to give grounded answers based strictly on actual business records:
+
+```
+User Question
+      ↓
+Relevant Business Data (Customers, Inventory, Tasks, Payments, Goals)
+      ↓
+Gemini AI Engine (with system guardrails)
+      ↓
+Grounded Response (attributing facts to verified ledger data)
+      ↓
+Suggested Action (Optional action card)
+      ↓
+User Approval ([Approve & Execute] / [Later])
+      ↓
+Database Update & Business Event Audit Log
+```
+
+### Anti-Hallucination Guardrails
+If necessary data is missing (for example, asking *"Kal kitna stock order karu?"* when recent sales movement data is not recorded), Eko refuses to guess arbitrary numbers. Instead, it explains what information is missing and suggests a safe next step.
 
 ---
 
 ## Architecture
 
-```
-┌─────────────────────────────────────────────────────────────┐
-│                       Client Layer                          │
-│   Web (HTML / Vanilla JS / Service Worker / IndexedDB)      │
-│   Android App (Kotlin + WebView + Room SQLite)              │
-└──────────────────────────────┬──────────────────────────────┘
-                               │ HTTPS REST API
-┌──────────────────────────────▼──────────────────────────────┐
-│                      Backend Layer                          │
-│   FastAPI Gateway + SQLAlchemy                              │
-│   PostgreSQL (Production) / SQLite (Local Dev)              │
-└──────────────────────────────┬──────────────────────────────┘
-                               │ Structured Prompts
-┌──────────────────────────────▼──────────────────────────────┐
-│                        AI Layer                             │
-│   Google Gemini API (Multi-turn Chat & Vision OCR)          │
-└─────────────────────────────────────────────────────────────┘
-```
-
-- **Frontend**: Vanilla ES6 JavaScript, HTML5, CSS3. Zero external build dependencies.
-- **Storage**: IndexedDB in browser, Room SQLite on Android, PostgreSQL on Render.
-- **Backend**: Python 3.11 with FastAPI, Pydantic v2, and SQLAlchemy.
-- **AI Integration**: Google Gemini API for multi-turn conversational assistance, receipt parsing, and message drafting.
+- **Android App**: Android WebView wrapper with native scheme interceptors (`tel:`, `whatsapp://`, `mailto:`) and offline caching.
+- **Web Frontend**: Single-page application written in HTML5, Vanilla CSS, and JavaScript. Uses IndexedDB and Service Worker for offline resilience.
+- **Backend API**: FastAPI REST service running on Python 3.11 with rate limiting, CORS configuration, and Pydantic validation.
+- **Database**: PostgreSQL (managed on Render) with SQLAlchemy ORM.
+- **AI Engine**: Google Gemini API (`gemini-3.7-flash` / `gemini-1.5-flash`) with fallback to local rule-based engine if offline.
 
 ---
 
-## Getting Started
+## Tech Stack
 
-### Prerequisites
+| Layer | Technologies |
+|---|---|
+| **Mobile** | Kotlin, Android SDK 34, AndroidX, WebView |
+| **Frontend** | HTML5, Vanilla CSS, Vanilla JavaScript, Service Worker, IndexedDB |
+| **Backend** | Python 3.11, FastAPI, Uvicorn, SQLAlchemy, Pydantic, SlowAPI |
+| **Database** | PostgreSQL |
+| **AI / LLM** | Google Gemini API (`google-generativeai`) |
+| **Deployment** | Netlify (Frontend), Render (Backend & PostgreSQL) |
 
+---
+
+## Project Structure
+
+```
+.
+├── android/               # Native Android application source & Gradle build
+│   └── app/src/main/
+│       ├── java/          # Kotlin WebView & native scheme handlers
+│       └── assets/        # Synchronized production web assets
+├── backend/               # FastAPI backend application
+│   ├── main.py            # API routes, Gemini integration & approval handlers
+│   ├── models.py          # SQLAlchemy database models
+│   ├── database.py        # Database session and connection pool
+│   └── Dockerfile         # Production container definition
+├── frontend/              # Production web application
+│   ├── index.html         # Main single-page application entry point
+│   ├── css/               # Application styling and responsive design tokens
+│   ├── js/                # Client logic, API bridge, and screen routers
+│   └── sw.js              # Service Worker for offline asset caching
+├── render.yaml            # Render deployment blueprint
+├── netlify.toml           # Netlify build and redirect configuration
+└── README.md              # Project documentation
+```
+
+---
+
+## Running Locally
+
+### 1. Prerequisites
 - Python 3.10+
-- Node.js / `http-server` (or any static web server for local frontend)
-- Android Studio (for native Android builds)
+- Node.js or simple HTTP server
+- Android Studio (optional, for APK build)
 
-### 1. Run Backend Locally
-
+### 2. Backend Setup
 ```bash
 cd backend
 python -m venv venv
-source venv/bin/activate  # On Windows: venv\Scripts\activate
+
+# Windows:
+.\venv\Scripts\activate
+# Linux/macOS:
+source venv/bin/activate
+
 pip install -r requirements.txt
+```
 
-# Copy environment template and set variables
-cp .env.example .env
+Create a `.env` file in the `backend/` folder:
+```ini
+ENVIRONMENT=development
+DATABASE_URL=sqlite:///./eko.db
+GEMINI_API_KEY=your_gemini_api_key_here
+GOOGLE_CLIENT_ID=your_google_client_id_here
+ALLOWED_ORIGINS=http://localhost:3000,http://127.0.0.1:3000
+```
 
-# Run FastAPI server
+Start the API server:
+```bash
 uvicorn main:app --reload --port 8000
 ```
 
-### 2. Run Frontend Locally
-
+### 3. Frontend Setup
+Serve the `frontend/` folder with any local web server:
 ```bash
+# Using Python
 cd frontend
-npx http-server -p 3000
+python -m http.server 3000
 ```
-
 Open `http://localhost:3000` in your browser.
 
-### 3. Build Android APK
-
+### 4. Android Build
 ```bash
 cd android
 ./gradlew assembleRelease
 ```
-
-The release APK will be generated at `android/app/build/outputs/apk/release/app-release.apk`.
-
----
-
-## Configuration
-
-Set the following environment variables in `backend/.env` or in your deployment settings:
-
-```env
-GOOGLE_CLIENT_ID=your_google_client_id
-GEMINI_API_KEY=your_gemini_api_key
-DATABASE_URL=postgresql://user:password@hostname:5432/eko_db
-ALLOWED_ORIGINS=https://eko-field-worker.netlify.app,https://appassets.androidplatform.net
-ENVIRONMENT=production
-```
+The APK will be generated at `android/app/build/outputs/apk/release/app-release.apk`.
 
 ---
 
-## License
+## Production
 
-MIT License
+- **Live Web App**: [https://eko-field-worker.netlify.app](https://eko-field-worker.netlify.app)
+- **Live Backend API**: [https://eko-field-worker-api.onrender.com](https://eko-field-worker-api.onrender.com)
+- **Health Check**: [https://eko-field-worker-api.onrender.com/api/health](https://eko-field-worker-api.onrender.com/api/health)
+- **GitHub Repository**: [https://github.com/sharma930560-lab/eko-ai-worker](https://github.com/sharma930560-lab/eko-ai-worker)
+
+---
+
+## Android APK
+
+The compiled Android release binary is available in the repository build artifacts:
+- Path: `android/app/build/outputs/apk/release/app-release.apk`
+- Previous release tag: [v1.0.0](https://github.com/sharma930560-lab/eko-ai-worker/releases/tag/v1.0.0)
+
+---
+
+## Security
+
+- API keys and database credentials are kept exclusively in environment variables and are never checked into source control.
+- All database queries for business data, tasks, notes, inventory, and memories enforce user-level scoping (`user_id == current_user`).
+- Authentication uses Google ID token verification with client ID matching.
+- CORS policy restricts API access to known frontend origins.
+- Rate limiting is configured on AI and auth endpoints to prevent abuse.
