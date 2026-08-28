@@ -2,7 +2,10 @@
 
 Eko Field Worker is an offline-first business assistant for micro-entrepreneurs. It helps manage customers, payments, inventory and daily tasks, while Ask Eko uses business data to provide practical recommendations.
 
+📄 **Detailed Internship Submission Document**: See [ASSIGNMENT.md](ASSIGNMENT.md) for problem framing, reasoning loops, failure scenarios, and video demo script.
+
 ---
+
 
 ## What it does
 
