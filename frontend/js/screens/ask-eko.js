@@ -45,6 +45,7 @@ function loadAskEko() {
         chatHistory = [
             {
                 role: 'eko',
+                isWelcome: true,
                 raw_answer: "Namaste! Main Eko hoon — aapka AI business assistant. Aap mujhse customer follow-ups, payment reminders, stock planning ya daily summary ke baare mein pooch sakte hain.",
                 html: `
                     <div style="display:flex; align-items:center; gap:8px; margin-bottom:8px;">
@@ -62,26 +63,68 @@ function loadAskEko() {
     renderChatHistory();
 }
 
+
+let isAiRequestInProgress = false;
+
+function buildSanitizedHistoryPayload() {
+    // Only include confirmed turns (excluding welcome greeting, errors, and loading state)
+    const validTurns = chatHistory
+        .filter(m => !m.isLoading && !m.isWelcome && !m.errorType && m.raw_answer)
+        .slice(-10);
+
+    const cleanPayload = [];
+    for (const m of validTurns) {
+        const role = m.role === 'user' ? 'user' : 'model';
+        const text = (m.raw_answer || '').trim();
+        if (!text) continue;
+
+        // Skip consecutive same-role messages
+        if (cleanPayload.length > 0 && cleanPayload[cleanPayload.length - 1].role === role) {
+            cleanPayload[cleanPayload.length - 1].content += `\n${text}`;
+        } else {
+            cleanPayload.push({ role, content: text });
+        }
+    }
+
+    // Ensure conversation starts with 'user'
+    while (cleanPayload.length > 0 && cleanPayload[0].role !== 'user') {
+        cleanPayload.shift();
+    }
+
+    return cleanPayload;
+}
+
 function renderChatHistory() {
     const chat = document.getElementById('eko-chat');
     if (!chat) return;
 
     chat.innerHTML = chatHistory.map((msg, idx) => {
         let actionCardHtml = '';
-        if (msg.suggested_action && !msg.failure) {
+        if (msg.suggested_action && !msg.errorType) {
             actionCardHtml = renderAiActionCard(msg, idx);
+        }
+
+        let errorCardHtml = '';
+        if (msg.errorType) {
+            errorCardHtml = `
+            <div style="margin-top:8px; display:flex; align-items:center; justify-content:space-between; gap:8px;">
+                <span style="font-size:0.75rem; color:var(--danger); font-weight:600;">${escapeHtml(msg.errorLabel || 'Request Error')}</span>
+                ${msg.retryQuestion ? `<button class="btn-secondary" style="font-size:0.75rem; padding:3px 10px;" onclick="retryAiMessage('${escapeHtml(msg.retryQuestion).replace(/'/g, "\\'")}')">🔄 Retry</button>` : ''}
+                ${msg.errorType === 'AUTH_ERROR' ? `<button class="btn-primary" style="font-size:0.75rem; padding:3px 10px;" onclick="navigateTo('profile')">Sign In →</button>` : ''}
+            </div>`;
         }
 
         return `
         <div class="chat-bubble ${msg.role}">
             <div>${msg.html}</div>
             ${actionCardHtml}
-            ${msg.failure ? '<div style="font-size:0.75rem; color:var(--danger); margin-top:8px; font-weight:600;">⚠️ Offline / Server fallback message</div>' : ''}
+            ${errorCardHtml}
         </div>`;
     }).join('');
 
     chat.scrollTop = chat.scrollHeight;
 }
+
 
 function renderAiActionCard(msg, idx) {
     const action = msg.suggested_action;
@@ -231,26 +274,36 @@ function executeAiSendWhatsApp(idx) {
 }
 
 function sendQuickPrompt(q) {
+    if (isAiRequestInProgress) return;
     const input = document.getElementById('eko-input');
     if (input) input.value = q;
     sendToEko();
 }
 
+function retryAiMessage(question) {
+    if (isAiRequestInProgress) return;
+    const input = document.getElementById('eko-input');
+    if (input) input.value = question;
+    sendToEko();
+}
+
 async function sendToEko() {
+    if (isAiRequestInProgress) return;
+
     const input = document.getElementById('eko-input');
     const question = input ? input.value.trim() : '';
     if (!question) return;
 
+    // Concurrency lock
+    isAiRequestInProgress = true;
     input.value = '';
+    input.disabled = true;
 
-    // Build structured conversation history payload (excluding loading/errors)
-    const historyPayload = chatHistory
-        .filter(m => !m.isLoading && !m.failure && m.raw_answer)
-        .slice(-10)
-        .map(m => ({
-            role: m.role === 'user' ? 'user' : 'model',
-            content: m.raw_answer
-        }));
+    const sendBtn = document.getElementById('eko-send');
+    if (sendBtn) sendBtn.disabled = true;
+
+    // Build clean multi-turn history
+    const historyPayload = buildSanitizedHistoryPayload();
 
     // Add user message to UI
     chatHistory.push({
@@ -260,28 +313,29 @@ async function sendToEko() {
     });
     renderChatHistory();
 
-    const sendBtn = document.getElementById('eko-send');
-    if (sendBtn) sendBtn.disabled = true;
-
-    // Offline scenario
+    // Offline check
     if (!navigator.onLine) {
         chatHistory.push({
             role: 'eko',
-            raw_answer: 'Internet connection nahi hai abhi.',
-            html: `Internet connection nahi hai abhi. 📵<br>Aapka business data device mein safe hai. Online aate hi Eko dobara active ho jayega.`,
-            failure: true,
+            errorType: 'OFFLINE',
+            errorLabel: '📡 Offline Mode',
+            retryQuestion: question,
+            raw_answer: "You're offline. Your message is saved. Try again when you're connected.",
+            html: `📡 <strong>You're offline.</strong> Your message is saved. Try again when you're connected.`
         });
         renderChatHistory();
+        isAiRequestInProgress = false;
+        input.disabled = false;
         if (sendBtn) sendBtn.disabled = false;
         return;
     }
 
-    // Add typing loader
+    // Add visible loading indicator
     chatHistory.push({
         role: 'eko',
         html: `<div style="display:flex; align-items:center; gap:8px; color:var(--text-muted);">
             <div class="spinner" style="width:16px; height:16px; margin:0; border-width:2px;"></div>
-            <span>Eko is thinking...</span>
+            <span>⏳ Eko AI soch raha hai...</span>
         </div>`,
         isLoading: true
     });
@@ -298,14 +352,7 @@ async function sendToEko() {
         // Remove loading state
         chatHistory = chatHistory.filter(m => !m.isLoading);
 
-        if (result.failure) {
-            chatHistory.push({
-                role: 'eko',
-                html: escapeHtml(result.answer),
-                raw_answer: result.answer,
-                failure: true,
-            });
-        } else {
+        if (result && result.answer) {
             chatHistory.push({
                 role: 'eko',
                 html: formatAiResponse(result.answer),
@@ -314,22 +361,58 @@ async function sendToEko() {
                 action_title: result.action_title || null,
                 related_customer: result.related_customer || null,
                 priority: result.priority || null,
-                failure: false,
+                ai_engine: result.ai_engine || null,
+            });
+        } else {
+            chatHistory.push({
+                role: 'eko',
+                errorType: 'SERVER_ERROR',
+                errorLabel: '⚠️ Server response empty',
+                retryQuestion: question,
+                raw_answer: 'Server se response nahi mila. Kripya retry karein.',
+                html: `⚠️ Eko AI server is temporarily busy. Please try again.`
             });
         }
     } catch (e) {
         chatHistory = chatHistory.filter(m => !m.isLoading);
+
+        let errorMsg = '⚠️ Eko AI server is temporarily unavailable. Please try again.';
+        let errorType = e.type || 'SERVER_ERROR';
+        let errorLabel = '⚠️ Technical Issue';
+
+        if (e.type === 'OFFLINE' || !navigator.onLine) {
+            errorType = 'OFFLINE';
+            errorLabel = '📡 Offline';
+            errorMsg = "📡 You're offline. Your message is saved. Try again when you're connected.";
+        } else if (e.type === 'TIMEOUT' || e.name === 'AbortError') {
+            errorType = 'TIMEOUT';
+            errorLabel = '⏱️ Request Timed Out';
+            errorMsg = '⏱️ Eko AI is taking longer than usual. Please retry.';
+        } else if (e.type === 'AUTH_ERROR' || e.status === 401) {
+            errorType = 'AUTH_ERROR';
+            errorLabel = '🔐 Auth Required';
+            errorMsg = '🔐 Your session has expired. Please sign in again.';
+        } else if (e.message) {
+            errorMsg = escapeHtml(e.message);
+        }
+
         chatHistory.push({
             role: 'eko',
-            raw_answer: 'Error: Technical problem',
-            html: `Kuch technical samasya aa gayi. Kripya thodi der baad koshish karein. 🔄`,
-            failure: true,
+            errorType: errorType,
+            errorLabel: errorLabel,
+            retryQuestion: errorType !== 'AUTH_ERROR' ? question : null,
+            raw_answer: errorMsg,
+            html: errorMsg
         });
+    } finally {
+        isAiRequestInProgress = false;
+        input.disabled = false;
+        if (sendBtn) sendBtn.disabled = false;
+        renderChatHistory();
+        if (input) input.focus();
     }
-
-    renderChatHistory();
-    if (sendBtn) sendBtn.disabled = false;
 }
+
 
 
 function formatAiResponse(text) {

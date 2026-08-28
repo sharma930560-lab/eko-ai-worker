@@ -7,7 +7,8 @@
  * Production: uses window.EKO_API_BASE set by auth.js (HTTPS production URL).
  */
 
-const API_TIMEOUT_MS = 15000;  // 15 second timeout
+const DEFAULT_API_TIMEOUT_MS = 15000;  // 15 second default timeout for standard CRUD
+const AI_API_TIMEOUT_MS = 60000;       // 60 second timeout for AI operations (Gemini / Render cold start)
 const API_MAX_RETRIES = 3;
 const API_RETRY_DELAYS = [1000, 2000, 4000]; // exponential backoff
 
@@ -23,11 +24,14 @@ function getHeaders() {
 }
 
 /**
- * Fetch with timeout support.
+ * Fetch with timeout support using AbortController.
  */
-async function fetchWithTimeout(url, options, timeoutMs = API_TIMEOUT_MS) {
+async function fetchWithTimeout(url, options, timeoutMs = DEFAULT_API_TIMEOUT_MS) {
     const controller = new AbortController();
-    const timer = setTimeout(() => controller.abort(), timeoutMs);
+    const timer = setTimeout(() => {
+        controller.abort();
+    }, timeoutMs);
+
     try {
         const res = await fetch(url, { ...options, signal: controller.signal });
         return res;
@@ -37,11 +41,9 @@ async function fetchWithTimeout(url, options, timeoutMs = API_TIMEOUT_MS) {
 }
 
 /**
- * Core API request — with retry and offline queue.
- * GET requests: served from cache if offline.
- * Mutations (POST/PATCH/DELETE): queued when offline, retried when reconnected.
+ * Core API request — with intelligent timeout, retry, and offline support.
  */
-async function apiRequest(method, path, body = null) {
+async function apiRequest(method, path, body = null, customTimeout = null) {
     if (!navigator.onLine) {
         if (method !== 'GET' && typeof AndroidBridge !== 'undefined') {
             AndroidBridge.queueSync(path, method, JSON.stringify(body));
@@ -52,55 +54,107 @@ async function apiRequest(method, path, body = null) {
             const cached = await offlineCache.get(path);
             if (cached) return cached;
         }
-        throw { offline: true, message: 'You are offline.' };
+        throw { type: 'OFFLINE', offline: true, message: "You're offline. Your message is saved. Try again when you're connected." };
     }
 
     // EKO_API_BASE is set by auth.js — production HTTPS URL (no localhost, no emulator)
-    const base = window.EKO_API_BASE || 'http://localhost:8000';
+    const base = window.EKO_API_BASE || 'https://eko-field-worker-api.onrender.com';
     const url = `${base}${path}`;
     const opts = { method, headers: getHeaders() };
     if (body) opts.body = JSON.stringify(body);
 
-    let lastError = null;
-    const attempts = method === 'GET' ? API_MAX_RETRIES : 1;
+    const isAiEndpoint = path.startsWith('/api/ai/');
+    const timeoutMs = customTimeout || (isAiEndpoint ? AI_API_TIMEOUT_MS : DEFAULT_API_TIMEOUT_MS);
+    const maxAttempts = isAiEndpoint ? 2 : (method === 'GET' ? API_MAX_RETRIES : 1);
 
-    for (let attempt = 0; attempt < attempts; attempt++) {
+    let lastError = null;
+
+    for (let attempt = 0; attempt < maxAttempts; attempt++) {
         if (attempt > 0) {
-            await new Promise(r => setTimeout(r, API_RETRY_DELAYS[attempt - 1]));
+            const delay = isAiEndpoint ? 1500 : (API_RETRY_DELAYS[attempt - 1] || 2000);
+            await new Promise(r => setTimeout(r, delay));
         }
+
         try {
-            const res = await fetchWithTimeout(url, opts);
+            const res = await fetchWithTimeout(url, opts, timeoutMs);
+
             if (!res.ok) {
-                const err = await res.json().catch(() => ({}));
-                // Don't retry client errors (4xx)
-                if (res.status >= 400 && res.status < 500) {
-                    throw { status: res.status, message: err.detail || 'Request failed.' };
+                const errData = await res.json().catch(() => ({}));
+                const errMsg = errData.detail || errData.message || 'Request failed.';
+
+                // Auth error
+                if (res.status === 401 || res.status === 403) {
+                    throw {
+                        type: 'AUTH_ERROR',
+                        status: res.status,
+                        message: 'Your session has expired. Please sign in again.'
+                    };
                 }
-                lastError = { status: res.status, message: err.detail || 'Server error.' };
+
+                // Client validation errors (4xx) - do not retry
+                if (res.status >= 400 && res.status < 500) {
+                    throw {
+                        type: 'CLIENT_ERROR',
+                        status: res.status,
+                        message: errMsg
+                    };
+                }
+
+                // Server error (5xx) - allow retry for transient issues
+                lastError = {
+                    type: 'SERVER_ERROR',
+                    status: res.status,
+                    message: isAiEndpoint
+                        ? 'Eko AI server is temporarily busy. Retrying...'
+                        : 'Server error. Please try again.'
+                };
                 continue;
             }
+
             const data = await res.json();
+
             // Cache successful GET responses
             if (method === 'GET') {
                 await offlineCache.set(path, data);
             }
             return data;
+
         } catch (e) {
-            if (e.offline || e.status) throw e; // don't retry known errors
-            lastError = e;
+            if (e.type === 'AUTH_ERROR' || e.type === 'CLIENT_ERROR' || e.offline) {
+                throw e; // Do not retry auth or client validation failures
+            }
+
             if (e.name === 'AbortError') {
-                lastError = { message: 'Request timed out. Please try again.' };
+                lastError = {
+                    type: 'TIMEOUT',
+                    message: isAiEndpoint
+                        ? 'Eko AI is taking longer than usual. Please retry.'
+                        : 'Request timed out. Please try again.'
+                };
+            } else if (!navigator.onLine) {
+                throw {
+                    type: 'OFFLINE',
+                    offline: true,
+                    message: "You're offline. Please check your internet connection."
+                };
+            } else {
+                lastError = {
+                    type: 'NETWORK_ERROR',
+                    message: e.message || 'Connection problem. Please try again.'
+                };
             }
         }
     }
 
-    // All retries failed — queue mutation for later
-    if (method !== 'GET' && typeof AndroidBridge !== 'undefined') {
+    // All retries exhausted
+    if (method !== 'GET' && !isAiEndpoint && typeof AndroidBridge !== 'undefined') {
         AndroidBridge.queueSync(path, method, JSON.stringify(body));
         return { queued: true, message: 'Backend unreachable. Saved locally.' };
     }
-    throw lastError || { message: 'Request failed after retries.' };
+
+    throw lastError || { type: 'SERVER_ERROR', message: 'Request failed. Please try again.' };
 }
+
 
 const api = {
     // Customers

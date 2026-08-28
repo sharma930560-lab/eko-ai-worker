@@ -356,23 +356,26 @@
 <div id="global-toast" class="toast"></div>
 
 <!-- ── Scripts ───────────────────────────────────────────────────────────────── -->
-<script src="js/auth.js?v=15"></script>
-<script src="js/offline.js?v=15"></script>
-<script src="js/api.js?v=15"></script>
-<script src="js/screens/customers.js?v=15"></script>
-<script src="js/screens/inventory.js?v=15"></script>
-<script src="js/screens/tasks.js?v=15"></script>
-<script src="js/screens/notes.js?v=15"></script>
-<script src="js/screens/ask-eko.js?v=15"></script>
-<script src="js/screens/ai-tools.js?v=15"></script>
-<script src="js/app.js?v=15"></script>
-
-
+<script src="js/auth.js?v=16"></script>
+<script src="js/offline.js?v=16"></script>
+<script src="js/api.js?v=16"></script>
+<script src="js/screens/customers.js?v=16"></script>
+<script src="js/screens/inventory.js?v=16"></script>
+<script src="js/screens/tasks.js?v=16"></script>
+<script src="js/screens/notes.js?v=16"></script>
+<script src="js/screens/ask-eko.js?v=16"></script>
+<script src="js/screens/ai-tools.js?v=16"></script>
+<script src="js/app.js?v=16"></script>
 
 <script>
 if ('serviceWorker' in navigator) {
-    navigator.serviceWorker.register('/sw.js').catch(e => console.log('SW:', e));
+    navigator.serviceWorker.register('/sw.js').then(reg => {
+        if (reg) {
+            reg.update().catch(() => {});
+        }
+    }).catch(e => console.log('SW:', e));
 }
 </script>
 </body>
 </html>
+

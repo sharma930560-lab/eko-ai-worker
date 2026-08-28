@@ -1,8 +1,8 @@
 /**
- * Eko Service Worker — Offline Support (Network-First Strategy)
+ * Eko Service Worker — Offline Support (Network-First Strategy for Static Assets)
  */
 
-const CACHE_NAME = 'eko-cache-v3';
+const CACHE_NAME = 'eko-cache-v4';
 
 self.addEventListener('install', e => {
     self.skipWaiting();
@@ -11,17 +11,22 @@ self.addEventListener('install', e => {
 self.addEventListener('activate', e => {
     e.waitUntil(
         caches.keys().then(keys =>
-            Promise.all(keys.map(k => caches.delete(k)))
+            Promise.all(keys.filter(k => k !== CACHE_NAME).map(k => caches.delete(k)))
         )
     );
     self.clients.claim();
 });
 
 self.addEventListener('fetch', e => {
+    // Only handle GET requests
+    if (e.request.method !== 'GET') {
+        return;
+    }
+
     const url = new URL(e.request.url);
 
-    // API calls always go straight to network
-    if (url.port === '8000' || url.pathname.startsWith('/api/')) {
+    // Bypass SW entirely for all API requests and cross-origin requests
+    if (url.pathname.startsWith('/api/') || url.origin !== self.location.origin || url.port === '8000') {
         return;
     }
 
@@ -38,3 +43,4 @@ self.addEventListener('fetch', e => {
             .catch(() => caches.match(e.request))
     );
 });
+
