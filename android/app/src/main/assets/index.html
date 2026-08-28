@@ -15,31 +15,173 @@
 </head>
 <body>
 
-<!-- ── Login / Welcome Screen ───────────────────────────────────────────────── -->
-<div id="login-screen" class="login-screen">
-    <div class="login-card">
-        <div class="login-brand-icon">E</div>
-        <h1 class="login-title">Eko Worker</h1>
-        <p class="login-subtitle">Simple AI help for everyday business.<br><span style="font-size:0.82rem; color:var(--text-light)">Manage customers, tasks, notes & growth.</span></p>
-
-        <div id="google-btn-container" style="width:100%; display:flex; justify-content:center;">
-            <button class="eko-native-auth-btn" id="trigger-native-login" onclick="handleGoogleSignIn()">
-                <div style="display:flex; align-items:center; gap:12px;">
-                    <img src="https://www.gstatic.com/images/branding/product/1x/gsa_512dp.png" width="18" height="18" alt="">
-                    <span>Continue with Google</span>
-                </div>
-            </button>
+<!-- ── Public Marketing Homepage & Authentication Gateway ───────────────────── -->
+<div id="login-screen" class="public-landing">
+    <!-- Sticky Navigation Bar -->
+    <header class="landing-nav">
+        <div class="landing-nav-inner">
+            <a href="/" class="landing-brand">
+                <div class="landing-brand-icon">E</div>
+                <span class="landing-brand-text">Eko Worker</span>
+                <span class="landing-brand-tag">AI OS</span>
+            </a>
+            <nav class="landing-nav-links">
+                <a href="#features" class="landing-nav-link">Features</a>
+                <a href="#ai-superpowers" class="landing-nav-link">AI Superpowers</a>
+                <a href="#offline" class="landing-nav-link">Offline-First</a>
+                <a href="/privacy" class="landing-nav-link">Privacy Policy</a>
+                <a href="/terms" class="landing-nav-link">Terms</a>
+                <a href="https://github.com/sharma930560-lab/eko-ai-worker/releases/download/v1.0.0/eko-field-worker-v1.0.0.apk" class="landing-nav-link" style="color:var(--primary); font-weight:700;">Download APK</a>
+            </nav>
         </div>
+    </header>
 
-        <div id="auth-error" class="auth-error hidden"></div>
+    <!-- Hero Section -->
+    <main>
+        <section class="landing-hero">
+            <div class="landing-hero-content">
+                <div class="landing-badge-pill">
+                    <span>⚡ Empowering Micro-Entrepreneurs Across India</span>
+                </div>
+                <h1 class="landing-hero-title">
+                    The Smart <span>AI Operating System</span> for Everyday Business
+                </h1>
+                <p class="landing-hero-desc">
+                    Eko Worker is an offline-first, multimodal AI business assistant designed for kirana stores, field facilitators, and local merchants. Manage customer credit khata, scan paper bills with Gemini Vision, record voice transactions in Hindi, and automate WhatsApp payment reminders with ease.
+                </p>
+                <div class="landing-hero-badges">
+                    <span class="feature-pill">🎙️ Vernacular Voice Khata</span>
+                    <span class="feature-pill">📷 Gemini Bill OCR</span>
+                    <span class="feature-pill">💬 WhatsApp Studio</span>
+                    <span class="feature-pill">🛡️ 100% Offline-First</span>
+                    <span class="feature-pill">🔒 DPDP Compliant</span>
+                </div>
+            </div>
 
-        <div class="login-divider"><span>or explore</span></div>
-        <button class="demo-btn" onclick="enterDemoMode()">Try Demo Mode</button>
+            <!-- Auth Gateway Card -->
+            <div class="landing-auth-card">
+                <div class="login-brand-icon" style="margin: 0 auto 16px;">E</div>
+                <h3>Get Started with Eko</h3>
+                <p>Sign in with your Google account to sync your business ledger across devices.</p>
 
-        <p class="login-legal">
-            100% Private &bull; Device-Constrained &bull; Offline-First
-        </p>
-    </div>
+                <div id="google-btn-container" style="width:100%; display:flex; justify-content:center; margin-bottom: 12px;">
+                    <button class="eko-native-auth-btn" id="trigger-native-login" onclick="handleGoogleSignIn()">
+                        <div style="display:flex; align-items:center; gap:12px;">
+                            <img src="https://www.gstatic.com/images/branding/product/1x/gsa_512dp.png" width="18" height="18" alt="">
+                            <span>Continue with Google</span>
+                        </div>
+                    </button>
+                </div>
+
+                <div id="auth-error" class="auth-error hidden"></div>
+
+                <div class="login-divider" style="margin: 16px 0;"><span>or explore</span></div>
+                <button class="demo-btn" onclick="enterDemoMode()" style="width:100%; padding:12px; font-weight:600; border:1px solid var(--border); border-radius:var(--radius-md); background:var(--surface-hover); color:var(--text-main); cursor:pointer;">Try Interactive Demo</button>
+
+                <p class="login-legal" style="margin-top:16px; font-size:0.78rem; color:var(--text-light)">
+                    By continuing, you agree to our <a href="/terms" style="color:var(--primary)">Terms of Service</a> & <a href="/privacy" style="color:var(--primary)">Privacy Policy</a>.
+                </p>
+            </div>
+        </section>
+
+        <!-- Product Features Section -->
+        <section id="features" class="landing-section">
+            <div class="landing-section-inner">
+                <div class="section-header">
+                    <h2 class="section-title">Built for Real-World Retail & Commerce</h2>
+                    <p class="section-subtitle">Everything you need to digitize, manage, and scale your micro-enterprise without complex accounting software.</p>
+                </div>
+
+                <div class="features-grid">
+                    <div class="feature-card">
+                        <div class="feature-icon-box" style="background:#EEF2FF; color:#4F46E5">👥</div>
+                        <h4>Smart Customer Khata</h4>
+                        <p>Track customer credit and debit balances, transaction histories, and contact info with instant ledger balance tallies and settlement receipts.</p>
+                    </div>
+
+                    <div class="feature-card" id="ai-superpowers">
+                        <div class="feature-icon-box" style="background:#ECFEFF; color:#0891B2">📷</div>
+                        <h4>Multimodal Bill Scanner</h4>
+                        <p>Powered by Google Gemini 1.5 Flash Vision. Snap a photo of handwritten supplier slips or paper bills to instantly parse items, quantities, and totals.</p>
+                    </div>
+
+                    <div class="feature-card">
+                        <div class="feature-icon-box" style="background:#F0FDF4; color:#16A34A">🎙️</div>
+                        <h4>Vernacular Voice Khata</h4>
+                        <p>Speak naturally in Hindi or Hinglish (e.g., <em>"Ramesh ko 500 rupaye udhaar diye"</em>). Eko’s AI automatically records the ledger entry.</p>
+                    </div>
+
+                    <div class="feature-card">
+                        <div class="feature-icon-box" style="background:#FFFBEB; color:#D97706">💬</div>
+                        <h4>WhatsApp Reminder Studio</h4>
+                        <p>Generate polite, friendly, or formal payment reminders in Hindi & English and send them directly to customer WhatsApp chats with 1 tap.</p>
+                    </div>
+
+                    <div class="feature-card">
+                        <div class="feature-icon-box" style="background:#FEF2F2; color:#DC2626">🛡️</div>
+                        <h4>Credit Trust Underwriting</h4>
+                        <p>Evaluate customer repayment habits with an AI-generated Trust Score (1-100) and suggested safe credit limits to prevent bad debts.</p>
+                    </div>
+
+                    <div class="feature-card">
+                        <div class="feature-icon-box" style="background:#F5F3FF; color:#7C3AED">⚡</div>
+                        <h4>Offline-First Architecture</h4>
+                        <p>Never lose a sale. Local IndexedDB & SQLite storage keeps the app running at full speed without internet, auto-syncing when connectivity returns.</p>
+                    </div>
+                </div>
+            </div>
+        </section>
+
+        <!-- Android App Section -->
+        <section id="offline" class="landing-section alt-bg">
+            <div class="landing-section-inner">
+                <div class="landing-apk-cta">
+                    <div>
+                        <h3>Get Eko Worker for Android</h3>
+                        <p>Experience ultra-fast native performance, hardware biometric authentication, native camera bill scanning, and background synchronization.</p>
+                        <p style="margin-top:8px; font-size:0.82rem; opacity:0.85">Package: <code>com.eko.fieldworker</code> &bull; Version: <code>v1.0.0</code> &bull; Size: <code>5.64 MB</code></p>
+                    </div>
+                    <a href="https://github.com/sharma930560-lab/eko-ai-worker/releases/download/v1.0.0/eko-field-worker-v1.0.0.apk" class="apk-download-btn">
+                        <svg width="24" height="24" viewBox="0 0 24 24" fill="currentColor"><path d="M17.523 15.3414c-.5511 0-.9993-.4486-.9993-.9997s.4482-.9993.9993-.9993c.551 0 .9993.4482.9993.9993.0001.5511-.4483.9997-.9993.9997m-11.046 0c-.5511 0-.9993-.4486-.9993-.9997s.4482-.9993.9993-.9993c.551 0 .9993.4482.9993.9993 0 .5511-.4483.9997-.9993.9997m11.4045-6.02l1.996-3.4572c.1568-.2716.064-.6184-.2076-.7752-.2717-.1568-.6185-.064-.7753.2076l-2.0235 3.5048c-1.4276-.6532-3.0232-1.0204-4.7311-1.0204-1.7079 0-3.3035.3672-4.7311 1.0204l-2.0235-3.5048c-.1568-.2716-.5036-.3644-.7753-.2076-.2716.1568-.3644.5036-.2076.7752l1.996 3.4572c-3.1368 1.7056-5.2892 4.8716-5.5264 8.6016h22.0308c-.2372-3.73-2.3896-6.896-5.5265-8.6016"/></svg>
+                        <span>Download Release APK</span>
+                    </a>
+                </div>
+            </div>
+        </section>
+    </main>
+
+    <!-- Public Footer -->
+    <footer class="landing-footer">
+        <div class="landing-footer-inner">
+            <div class="footer-brand">
+                <h4>Eko Worker</h4>
+                <p>Simple, grounded AI operating system empowering Indian micro-entrepreneurs and local businesses. 100% private, offline-first, and built for scale.</p>
+                <p style="margin-top:12px; font-size:0.8rem; color:#64748B">Developer: Paras Sharma &bull; Email: <a href="mailto:ps9110831@gmail.com" style="color:#818CF8">ps9110831@gmail.com</a></p>
+            </div>
+            <div class="footer-col">
+                <h5>Compliance & Legal</h5>
+                <ul class="footer-links">
+                    <li><a href="/privacy" class="footer-link">Privacy Policy</a></li>
+                    <li><a href="/terms" class="footer-link">Terms of Service</a></li>
+                    <li><a href="/privacy" class="footer-link">Google Data Policy</a></li>
+                    <li><a href="/privacy" class="footer-link">Data Deletion Request</a></li>
+                </ul>
+            </div>
+            <div class="footer-col">
+                <h5>Product & Releases</h5>
+                <ul class="footer-links">
+                    <li><a href="https://github.com/sharma930560-lab/eko-ai-worker" target="_blank" class="footer-link">GitHub Repository</a></li>
+                    <li><a href="https://github.com/sharma930560-lab/eko-ai-worker/releases/tag/v1.0.0" target="_blank" class="footer-link">Release v1.0.0</a></li>
+                    <li><a href="https://eko-field-worker-api.onrender.com/api/health" target="_blank" class="footer-link">API Health Status</a></li>
+                    <li><a href="https://eko-field-worker.netlify.app" class="footer-link">PWA Web App</a></li>
+                </ul>
+            </div>
+        </div>
+        <div class="footer-bottom">
+            <span>&copy; 2026 Eko Worker. All rights reserved.</span>
+            <span>Digital Personal Data Protection (DPDP) Act 2023 & Google API Services User Data Policy Compliant</span>
+        </div>
+    </footer>
 </div>
 
 <!-- ── Onboarding ───────────────────────────────────────────────────────────── -->

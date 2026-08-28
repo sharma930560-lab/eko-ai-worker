@@ -248,7 +248,7 @@ function showLoginScreen() {
 
   if (loginScreen) {
     loginScreen.classList.remove('hidden');
-    loginScreen.style.display = 'flex';
+    loginScreen.style.display = '';
   }
   if (appContainer) {
     appContainer.classList.add('hidden');
