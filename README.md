@@ -176,12 +176,11 @@ The APK will be generated at `android/app/build/outputs/apk/release/app-release.
 
 ## Android APK Downloads
 
-Direct APK downloads are hosted on GitHub Releases:
-
-- 📱 **Direct APK Download**: [Download app-release.apk (v1.0.0)](https://github.com/sharma930560-lab/eko-ai-worker/releases/download/v1.0.0/app-release.apk)
-- 📦 **Direct AAB Bundle**: [Download app-release.aab (v1.0.0)](https://github.com/sharma930560-lab/eko-ai-worker/releases/download/v1.0.0/app-release.aab)
 - 🏷️ **GitHub Releases Hub**: [https://github.com/sharma930560-lab/eko-ai-worker/releases](https://github.com/sharma930560-lab/eko-ai-worker/releases)
-- 🔨 **Local Build Path**: `android/app/build/outputs/apk/release/app-release.apk`
+- 📱 **Direct APK Download (GitHub Release Asset)**: [Download app-release.apk](https://github.com/sharma930560-lab/eko-ai-worker/releases/download/v1.0.0/app-release.apk)
+- 📦 **Direct AAB Bundle (GitHub Release Asset)**: [Download app-release.aab](https://github.com/sharma930560-lab/eko-ai-worker/releases/download/v1.0.0/app-release.aab)
+- 🔨 **Local Build Path (v1.1.0)**: `android/app/build/outputs/apk/release/app-release.apk` (`versionName 1.1.0`, `versionCode 2`, 5.67 MB)
+
 
 
 ---
