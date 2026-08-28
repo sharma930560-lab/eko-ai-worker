@@ -118,3 +118,27 @@ class Conversation(Base):
     created_at = Column(DateTime(timezone=True), server_default=func.now())
     updated_at = Column(DateTime(timezone=True), onupdate=func.now())
 
+
+class AIMemory(Base):
+    __tablename__ = "ai_memories"
+
+    id = Column(String, primary_key=True, default=new_id)
+    user_id = Column(String, index=True, nullable=False)
+    category = Column(String, default="general")  # business_goal | preference | commitment | insight | rule
+    content = Column(Text, nullable=False)
+    active = Column(Boolean, default=True)
+    created_at = Column(DateTime(timezone=True), server_default=func.now())
+    updated_at = Column(DateTime(timezone=True), onupdate=func.now())
+
+
+class BusinessEvent(Base):
+    __tablename__ = "business_events"
+
+    id = Column(String, primary_key=True, default=new_id)
+    user_id = Column(String, index=True, nullable=False)
+    event_type = Column(String, nullable=False)  # action_approved | follow_up_completed | reminder_sent | stock_reordered
+    title = Column(String, nullable=False)
+    details = Column(Text, nullable=True)
+    created_at = Column(DateTime(timezone=True), server_default=func.now())
+
+

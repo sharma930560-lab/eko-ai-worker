@@ -1,179 +1,125 @@
-# Eko Micro-Entrepreneur AI Worker
+# Eko Field Worker
 
-> **A Production-Grade, Offline-First AI Operating System for Indian Small Businesses & Field Agents**
+An offline-first AI business assistant for micro-entrepreneurs, small retail shopkeepers, and field operators.
 
-[![FastAPI](https://img.shields.io/badge/Backend-FastAPI%200.115-009688.svg?logo=fastapi&logoColor=white)](https://fastapi.tiangolo.com)
-[![PostgreSQL](https://img.shields.io/badge/Database-PostgreSQL%2016-336791.svg?logo=postgresql&logoColor=white)](https://www.postgresql.org)
-[![Gemini 1.5 Flash](https://img.shields.io/badge/AI%20Engine-Gemini%201.5%20Flash-4285F4.svg?logo=google&logoColor=white)](https://ai.google.dev)
-[![Android](https://img.shields.io/badge/Platform-Android%20Native%20APK-3DDC84.svg?logo=android&logoColor=white)](https://github.com/sharma930560-lab/eko-ai-worker/releases)
-[![Offline First](https://img.shields.io/badge/Architecture-Offline--First%20IndexedDB%2BRoom-FFA000.svg)](#-offline-first-architecture)
-[![DPDP Act 2023](https://img.shields.io/badge/Compliance-DPDP%20Act%202023-10B981.svg)](#-privacy--security)
+Eko helps business owners track credit balances (khata), follow up on pending customer payments, manage daily tasks, monitor inventory levels, and get contextual business suggestions on both web and Android.
 
 ---
 
-## 🌐 Live Web App & Direct Android Downloads
+## Live Links & Downloads
 
-- **Live Web App / PWA**: **[https://eko-field-worker.netlify.app](https://eko-field-worker.netlify.app)**
-- **Latest GitHub Release**: **[https://github.com/sharma930560-lab/eko-ai-worker/releases/latest](https://github.com/sharma930560-lab/eko-ai-worker/releases/latest)**
+- **Web App / PWA**: [https://eko-field-worker.netlify.app](https://eko-field-worker.netlify.app)
+- **Backend API**: [https://eko-field-worker-api.onrender.com](https://eko-field-worker-api.onrender.com)
+- **Latest GitHub Release**: [v1.0.0 Releases](https://github.com/sharma930560-lab/eko-ai-worker/releases/latest)
 
-| Package | Version | Architecture | Direct Download Link |
+| Asset | Type | Description | Link |
 |---|---|---|---|
-| **Eko Field Worker Release APK** | `v1.0.0` | Universal Android (ARM64, ARMv7, x86_64) | [**Download APK (5.6 MB)**](https://github.com/sharma930560-lab/eko-ai-worker/releases/download/v1.0.0/eko-field-worker-v1.0.0.apk) |
-| **Direct Mirror APK** | `v1.0.0` | Universal Android | [**Download app-release.apk**](https://github.com/sharma930560-lab/eko-ai-worker/releases/download/v1.0.0/app-release.apk) |
-| **Play Store Bundle (AAB)** | `v1.0.0` | Android App Bundle | [**Download app-release.aab (5.0 MB)**](https://github.com/sharma930560-lab/eko-ai-worker/releases/download/v1.0.0/app-release.aab) |
-
-### 📱 Android Installation Instructions
-1. Download the APK file directly to your Android device using Chrome or any mobile browser.
-2. Tap the downloaded file in your notification bar or **Downloads** folder.
-3. If Android prompts *"For your security, your phone is not allowed to install unknown apps from this source"*, tap **Settings** and enable **"Allow from this source"**.
-4. Tap **Install** and open **Eko Worker**.
+| **Eko Field Worker APK** | Android APK | Universal release build (ARM64, ARMv7, x86_64) | [Download APK](https://github.com/sharma930560-lab/eko-ai-worker/releases/download/v1.0.0/eko-field-worker-v1.0.0.apk) |
+| **Play Store Bundle** | Android AAB | Production App Bundle | [Download AAB](https://github.com/sharma930560-lab/eko-ai-worker/releases/download/v1.0.0/app-release.aab) |
 
 ---
 
-## 🎯 Mission Alignment
+## Features
 
-In semi-urban, rural, and deep rural markets across India, micro-entrepreneurs (kirana store owners, mobile recharge agents, ration distributors, local facilitators) represent the financial backbone of local commerce. 
-
-Traditional software fails them because:
-1. **Low digital comfort**: Store owners do not type on desktop keyboards or fill 10-field forms.
-2. **Device constraints**: They operate on $70–$150 Android phones with intermittent 2G/3G/4G connectivity.
-3. **Complex credit/khata chaos**: Transactions happen via messy handwritten parchii, Hindi voice notes, and informal WhatsApp promises.
-
-**Eko Micro-Entrepreneur Worker** solves these exact problems by pairing lightweight, zero-dependency frontend architecture with **True Multimodal & Generative AI superpowers** and **complete offline-first reliability**.
+- **Google Sign-In**: Authentication via Google Identity Services on Web and Android Credential Manager on mobile.
+- **Customer & Khata Management**: Track customer records, outstanding credit balances, and due dates.
+- **Task Management**: Create, prioritize, and track daily operational to-dos.
+- **Business Notes**: Log daily commercial notes and observations.
+- **Inventory & Stock Tracking**: Monitor product stock levels with low-stock reorder warnings.
+- **Payment History**: Record received and pending payments with settlement statuses.
+- **Ask Eko AI**: Contextual assistant that analyzes your current ledger to suggest prioritized follow-ups and draft WhatsApp messages.
+- **Bill OCR**: Scan handwritten store receipts and invoices to extract structured line items and totals.
+- **Voice Khata**: Speech-to-text ledger entry supporting spoken Hindi and Hinglish phrases.
+- **WhatsApp Tools**: Generate culturally appropriate payment reminders (polite, standard, or firm) ready to send in one tap.
+- **Offline-First Support**: Loads instantly from local storage (IndexedDB / Room SQLite) and queues offline changes to sync when connection resumes.
 
 ---
 
-## ⚡ 5 True Generative & Multimodal AI Superpowers
+## Architecture
 
 ```
-┌─────────────────────────────────────────────────────────────────────────────────────────────────┐
-│                                   EKO AI SUPERPOWERS SUITE                                      │
-├────────────────────────────────┬────────────────────────────────┬──────────────────────────────┤
-│ 📷 Multimodal Bill Scanner     │ 🎙️ Vernacular Voice Khata      │ 💬 WhatsApp Studio & Debt    │
-│ Gemini 1.5 Flash Vision reads  │ Web Speech API + Gemini NLP    │ Culturally nuanced tone-     │
-│ messy handwritten Hindi/Eng    │ transforms unstructured Hindi  │ tuned messages (gentle,      │
-│ parchment, receipts, and line  │ voice into structured ledger   │ firm overdue, festive combo) │
-│ items with 1-click ledger save.│ items & follow-up reminders.   │ with direct 1-tap WhatsApp.  │
-├────────────────────────────────┴────────────────────────────────┴──────────────────────────────┤
-│ 🛡️ Khata Credit Risk & Trust Underwriting Scorer                                               │
-│ Evaluates customer payment punctuality, delay days, and ticket volatility to generate a        │
-│ Trust Score (1-100), safe credit limits, and delinquency warnings for micro-lending.          │
-├─────────────────────────────────────────────────────────────────────────────────────────────────┤
-│ 🎨 Generative Marketing Flyer & Status Creator                                                  │
-│ Automatically crafts high-converting WhatsApp Status promo copy and renders a downloadable     │
-│ HTML5 Canvas poster for instant local customer broadcast.                                      │
-└─────────────────────────────────────────────────────────────────────────────────────────────────┘
+┌─────────────────────────────────────────────────────────────┐
+│                       Client Layer                          │
+│   Web (HTML / Vanilla JS / Service Worker / IndexedDB)      │
+│   Android App (Kotlin + WebView + Room SQLite)              │
+└──────────────────────────────┬──────────────────────────────┘
+                               │ HTTPS REST API
+┌──────────────────────────────▼──────────────────────────────┐
+│                      Backend Layer                          │
+│   FastAPI Gateway + SQLAlchemy                              │
+│   PostgreSQL (Production) / SQLite (Local Dev)              │
+└──────────────────────────────┬──────────────────────────────┘
+                               │ Structured Prompts
+┌──────────────────────────────▼──────────────────────────────┐
+│                        AI Layer                             │
+│   Google Gemini API (Multi-turn Chat & Vision OCR)          │
+└─────────────────────────────────────────────────────────────┘
 ```
 
----
-
-## 📡 Offline-First Architecture & Auto-Sync
-
-The app is built from the ground up to guarantee **zero blank screens** and **instant startup** even in zero-connectivity environments:
-
-1. **Instant Startup**: All application UI and cached data (Customers, Tasks, Notes, Offers, AI history) load immediately from **IndexedDB** / **Room SQLite** without waiting for the network.
-2. **Session Persistence**: Authentication profile persists safely across device restarts, reboots, and app lifecycle changes via hardened local persistence.
-3. **Optimistic Offline Mutations**: Creating, editing, or deleting ledger items while offline queues the mutations in the background sync queue and optimistically updates the UI.
-4. **Automatic Reconnection Sync**: When network connectivity returns, the engine automatically drains the sync queue with exponential backoff and refreshes all views seamlessly.
+- **Frontend**: Vanilla ES6 JavaScript, HTML5, CSS3. Zero external build dependencies.
+- **Storage**: IndexedDB in browser, Room SQLite on Android, PostgreSQL on Render.
+- **Backend**: Python 3.11 with FastAPI, Pydantic v2, and SQLAlchemy.
+- **AI Integration**: Google Gemini API for multi-turn conversational assistance, receipt parsing, and message drafting.
 
 ---
 
-## 🏗️ Production System Architecture
+## Getting Started
 
-```mermaid
-graph TD
-    A[Android Native Device / PWA Client] -->|HTTPS Asset Loader| B[Vanilla ES6 Frontend UI]
-    B -->|Offline-First Cache & Queue| C[(IndexedDB / Room SQLite)]
-    B -->|HTTPS REST API + X-User-Id| D[FastAPI Production Gateway]
-    D -->|PostgreSQL Connection Pool| E[(Production PostgreSQL DB)]
-    D -->|Topic Filter & Context Builder| F[AI Gateway Engine]
-    F -->|In-Memory LRU Cache TTL 5m| G{Cache Hit?}
-    G -->|Yes 1ms| B
-    G -->|No| H[Gemini 1.5 Flash / Vision API]
-    H -->|Structured Output JSON Mode| I[Post-Response Anti-Hallucination Validator]
-    I -->|Valid Response| B
-    I -->|Discrepancy Detected| J[Grounded Local Logic Engine]
-    J --> B
+### Prerequisites
+
+- Python 3.10+
+- Node.js / `http-server` (or any static web server for local frontend)
+- Android Studio (for native Android builds)
+
+### 1. Run Backend Locally
+
+```bash
+cd backend
+python -m venv venv
+source venv/bin/activate  # On Windows: venv\Scripts\activate
+pip install -r requirements.txt
+
+# Copy environment template and set variables
+cp .env.example .env
+
+# Run FastAPI server
+uvicorn main:app --reload --port 8000
 ```
 
----
+### 2. Run Frontend Locally
 
-## 🛡️ Production Security & AI Guardrails
-
-| Feature | Implementation | Production Guardrail |
-|---|---|---|
-| **HTTPS Only** | Android Network Security Config + SSL | Completely blocks all cleartext HTTP traffic in production builds. |
-| **Native Google Auth** | AndroidX Credential Manager | Native bottom sheet picker; no OAuth WebView redirection vulnerabilities. |
-| **Session Persistence** | Hardened Local Storage | User session survives phone reboots, app closes, and offline restarts. |
-| **Structured Output** | `response_mime_type="application/json"` | Guarantees reliable JSON rendering without client regex crashes. |
-| **Rate Limiting** | SlowAPI Token Bucket | 30 req/min for Ask Eko, 20 req/min for Vision & Multimodal endpoints. |
-| **Anti-Hallucination** | System prompt contract + `validate_no_hallucinated_names()` | Rejects phantom customer names not present in the user's actual database. |
-| **PostgreSQL Support** | SQLAlchemy + Psycopg2 + Pool pre-ping | Production-ready connection pooling for concurrent requests. |
-
----
-
-## 🚀 Deployment & Cloud Setup
-
-### 1. Backend Deployment (Render.com + PostgreSQL)
-
-The repository includes a ready-to-deploy [`render.yaml`](file:///c:/Users/naman/OneDrive/Desktop/Eko%20Field%20Worker/render.yaml) specification for 1-click cloud deployment.
-
-#### Environment Variables for Production
-```env
-GOOGLE_CLIENT_ID=258255119262-hl7e15h4ohciliroc29gcpbfa6i1sf2l.apps.googleusercontent.com
-GEMINI_API_KEY=your_gemini_api_key
-ENVIRONMENT=production
-ALLOWED_ORIGINS=https://appassets.androidplatform.net,http://localhost:3000
-DATABASE_URL=postgresql://user:password@hostname:5432/eko_db
+```bash
+cd frontend
+npx http-server -p 3000
 ```
 
-#### Production Endpoints
-- **Health Check**: `GET /api/health`
-- **Interactive Swagger Docs**: `GET /docs` (available in development/staging)
-- **Google Auth**: `POST /api/auth/google`
-- **Customer Khata**: `GET|POST|PATCH|DELETE /api/customers`
-- **Tasks & Reminders**: `GET|POST|PATCH|DELETE /api/tasks`
-- **AI Superpowers**:
-  - `POST /api/ai/ask`
-  - `POST /api/ai/scan-bill`
-  - `POST /api/ai/voice-parse`
-  - `POST /api/ai/generate-message`
-  - `POST /api/ai/credit-score`
-  - `POST /api/ai/generate-flyer`
+Open `http://localhost:3000` in your browser.
 
----
-
-## 📱 Building Android APK Locally
+### 3. Build Android APK
 
 ```bash
 cd android
+./gradlew assembleRelease
+```
 
-# Build both Release and Debug APKs
-./gradlew.bat assembleRelease assembleDebug
+The release APK will be generated at `android/app/build/outputs/apk/release/app-release.apk`.
 
-# Output APKs:
-# app/build/outputs/apk/release/app-release.apk
-# app/build/outputs/apk/debug/app-debug.apk
+---
 
-# Install directly on device/emulator
-adb install app/build/outputs/apk/release/app-release.apk
+## Configuration
+
+Set the following environment variables in `backend/.env` or in your deployment settings:
+
+```env
+GOOGLE_CLIENT_ID=your_google_client_id
+GEMINI_API_KEY=your_gemini_api_key
+DATABASE_URL=postgresql://user:password@hostname:5432/eko_db
+ALLOWED_ORIGINS=https://eko-field-worker.netlify.app,https://appassets.androidplatform.net
+ENVIRONMENT=production
 ```
 
 ---
 
-## 🧪 Recruiter Evaluation Walkthrough
+## License
 
-1. **Option A: Native Android APK**: Install `app-release.apk` on any Android device or emulator.
-2. **Option B: Web Demo Mode**: Run `docker-compose up` or start frontend and click **"Try Demo Mode"** for instant 1-click evaluation.
-3. **Test 1: 📷 Parchii Scanner**: Click **AI Tools** → **Parchii Scanner** → Click test receipt *"Ramesh Khata Parchii"*. Observe Vision AI extracting items and totals with 1-click save.
-4. **Test 2: 🎙️ Voice Khata**: Click **Voice Khata** → Click test sample *"Sharma ji 10 packet atta le gaye..."* → Observe natural language entity extraction and auto-create task.
-5. **Test 3: 💬 WhatsApp Studio**: Click **WhatsApp Studio** → Switch tone to *"⚡ Firm & Professional Recovery"* → Click *"Open in WhatsApp"*.
-6. **Test 4: 🛡️ Credit Risk Scorer**: Click **Credit Scorer** → Adjust delay slider → Observe real-time Micro-Lending Trust Score (1-100) and recommended credit cap.
-7. **Test 5: 🎨 Flyer Creator**: Click **Flyer Creator** → Modify offer text → Observe real-time HTML5 canvas render and download PNG.
-8. **Test 6: 🤖 Ask Eko Assistant**: Open **Ask Eko AI** → Click *"Daily plan summary"* → Click the **"Add to Tasks"** action button on the structured response card.
-9. **Test 7: 📴 Offline Resilience**: Turn on Airplane mode on your device/emulator. Open app, navigate khata, add a task. Observe optimistic instant update, offline banner, and automatic sync upon disabling Airplane mode.
-
----
-
-## 📜 License
-Built with ❤️ by Paras Sharma for Eko Micro-Entrepreneur Operations. Open Source MIT License.
+MIT License

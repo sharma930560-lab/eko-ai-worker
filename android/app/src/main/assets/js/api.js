@@ -192,12 +192,17 @@ const api = {
     updatePayment: (id, data) => apiRequest('PATCH', `/api/payments/${id}`, data),
     deletePayment: (id) => apiRequest('DELETE', `/api/payments/${id}`),
 
-    // AI Superpowers & Multi-turn Conversational Assistant
+    // AI Business Partner, Memories, Daily Brief & Action Approvals
     askEko: (question, history = [], conversationId = null) => apiRequest('POST', '/api/ai/ask', {
         question,
         history,
         conversation_id: conversationId
     }),
+    getDailyBrief: () => apiRequest('GET', '/api/ai/brief'),
+    getMemories: () => apiRequest('GET', '/api/ai/memories'),
+    createMemory: (data) => apiRequest('POST', '/api/ai/memories', data),
+    deleteMemory: (id) => apiRequest('DELETE', `/api/ai/memories/${id}`),
+    approveAction: (data) => apiRequest('POST', '/api/ai/approve-action', data),
     logActionTaken: (action, source_question = null) => apiRequest('POST', '/api/ai/action-taken', { action, source_question }).catch(() => {}),
     scanBill: (data) => apiRequest('POST', '/api/ai/scan-bill', data),
     voiceParse: (data) => apiRequest('POST', '/api/ai/voice-parse', data),
@@ -205,6 +210,7 @@ const api = {
     getCreditScore: (data) => apiRequest('POST', '/api/ai/credit-score', data),
     generateFlyer: (data) => apiRequest('POST', '/api/ai/generate-flyer', data),
 };
+
 
 
 

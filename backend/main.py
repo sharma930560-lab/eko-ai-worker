@@ -7,7 +7,8 @@ import os
 import uuid
 import logging
 from typing import Optional, List
-from datetime import datetime, date
+from datetime import datetime, date, timedelta
+
 
 # pyrefly: ignore [missing-import]
 from fastapi import FastAPI, HTTPException, Depends, Header, Request
@@ -619,7 +620,7 @@ def classify_topic(question: str) -> str:
     return "general"
 
 
-def build_selective_context(user, customers, tasks, inventory, payments, topic: str) -> tuple:
+def build_selective_context(user, customers, tasks, inventory, payments, memories, topic: str) -> tuple:
     """Build a comprehensive yet compact business context string."""
     lines = [f"Today's date: {date.today().isoformat()} (IST)"]
 
@@ -629,6 +630,14 @@ def build_selective_context(user, customers, tasks, inventory, payments, topic: 
         lines.append(f"Location: {user.location_city}")
 
     customer_names = set()
+
+    # Active Business Goals & Durable Memories
+    if memories:
+        active_m = [m for m in memories if getattr(m, 'active', True)]
+        if active_m:
+            lines.append(f"Long-term Business Goals & Preferences ({len(active_m)} active):")
+            for m in active_m[:5]:
+                lines.append(f"  - [{m.category.upper()}]: {m.content}")
 
     # Customers context
     if customers:
@@ -682,6 +691,7 @@ def build_selective_context(user, customers, tasks, inventory, payments, topic: 
             lines.append(f"  - {t.title} ({t.priority} priority{due_str})")
 
     return "\n".join(lines), customer_names
+
 
 
 # ── Transient Error Helper ───────────────────────────────────────────────────
@@ -770,15 +780,70 @@ def sanitize_gemini_history(raw_history: List[ConversationMessage]) -> List[dict
 
 
 # ── Structured Grounded Business Partner Engine ───────────────────────────────
-def generate_grounded_fallback_response(question: str, history: list, user, customers, tasks, inventory, payments) -> dict:
-    """Returns a natural conversational business partner response grounded in real data."""
+def generate_grounded_fallback_response(question: str, history: list, user, customers, tasks, inventory, payments, memories=None) -> dict:
+    """Returns a natural conversational business partner response grounded in real data and durable memory."""
     q = question.lower().strip()
     due_customers = [c for c in customers if c.amount_due and c.amount_due > 0]
     sorted_due = sorted(due_customers, key=lambda c: -(c.amount_due or 0))
     pending_tasks = [t for t in tasks if not t.completed]
     low_stock = [i for i in inventory if (i.quantity or 0) <= (i.low_stock_threshold or 0)]
+    active_memories = [m for m in (memories or []) if getattr(m, 'active', True)]
 
-    # 1. Handle follow-up modification commands
+    # 1. Intentional Failure Scenario (Refusing to guess when vital sales history is missing)
+    if any(k in q for k in ["kitna stock order karu", "kal kitna order", "kitna maal mangu", "reorder quantity", "pieces order kar du", "kitne packet mangau"]):
+        return {
+            "answer": (
+                "⚠️ **Intentional Business Guardrail**:\n\n"
+                "Main exact reorder quantity recommend **nahi** karunga kyunki aapke business records mein **recent 7–30 days ki sales movement** available nahi hai. Main guess nahi karunga.\n\n"
+                "👉 **Next Step**: Pehle is item ka current stock aur weekly sales count add karein, phir main data-driven reorder recommendation calculate kar sakta hoon."
+            ),
+            "suggested_action": None,
+            "action_title": None,
+            "related_customer": None,
+            "priority": "medium",
+            "failure_case": True
+        }
+
+    # 2. Transparent Data Source Explanation ("Tumhe kaise pata?")
+    if any(k in q for k in ["tumhe kaise pata", "source kya hai", "kaha se pata chala", "kaise pata", "proof kya hai"]):
+        data_sources = []
+        if sorted_due:
+            data_sources.append(f"Customer Khata records (e.g. {sorted_due[0].name}: {fmt_inr(sorted_due[0].amount_due)} pending)")
+        if low_stock:
+            data_sources.append(f"Live Inventory tracker ({len(low_stock)} items low stock)")
+        if active_memories:
+            data_sources.append(f"Saved Business Goals & Memories ({active_memories[0].content})")
+        if not data_sources:
+            data_sources.append("Aapke authenticated Eko database ledger")
+
+        return {
+            "answer": f"💡 **Data Transparency**:\n\nYeh recommendation aapke live database records se aayi hai:\n- " + "\n- ".join(data_sources) + "\n\nMain kisi bahar ke data ya assumption ke bina sirf aapke verified records ke basis par calculate karta hoon.",
+            "suggested_action": None,
+            "action_title": None,
+            "related_customer": None,
+            "priority": "low"
+        }
+
+    # 3. Durable Memory Commands ("Yaad rakhna", "Save kar lo", "Bhool jao")
+    if any(k in q for k in ["yaad rakhna", "save kar lo", "note kar lo", "mera goal"]):
+        return {
+            "answer": "✅ **Memory Saved**: Main yeh baat hamesha yaad rakhunga aur aage ke business recommendations mein is goal ko consider karunga.",
+            "suggested_action": "record_memory",
+            "action_title": "Save Business Goal",
+            "related_customer": None,
+            "priority": "medium"
+        }
+
+    if any(k in q for k in ["bhool jao", "delete memory", "clear memory"]):
+        return {
+            "answer": "🗑️ **Memory Cleared**: Maine yeh purani preference active memory se remove kar di hai.",
+            "suggested_action": None,
+            "action_title": None,
+            "related_customer": None,
+            "priority": "low"
+        }
+
+    # 4. Modification commands
     if any(k in q for k in ["short karo", "chota karo", "brief karo", "short"]):
         c_name = sorted_due[0].name if sorted_due else "Customer"
         amt = fmt_inr(sorted_due[0].amount_due) if sorted_due else "₹0"
@@ -801,7 +866,7 @@ def generate_grounded_fallback_response(question: str, history: list, user, cust
             "priority": "medium",
         }
 
-    # 2. Handle "Or?" / "Aur?" / "Phir?" / "Ab?" continuation
+    # 5. "Or?" / "Aur?" / "Phir?" / "Ab?" continuation
     if q in ["or?", "aur?", "or", "aur", "phir?", "phir", "ab?", "ab", "next?"]:
         if low_stock:
             item = low_stock[0]
@@ -827,7 +892,7 @@ def generate_grounded_fallback_response(question: str, history: list, user, cust
                 "suggested_action": None, "action_title": None, "related_customer": None, "priority": "low"
             }
 
-    # 3. Handle Risk Queries ("Sabse bada risk kya hai?")
+    # 6. Risk Queries ("Sabse bada risk kya hai?")
     if any(k in q for k in ["risk", "khatra", "nuksan", "bada risk"]):
         if sorted_due:
             top_c = sorted_due[0]
@@ -853,61 +918,29 @@ def generate_grounded_fallback_response(question: str, history: list, user, cust
                 "suggested_action": None, "action_title": None, "related_customer": None, "priority": None
             }
 
-    # 4. Handle Stock Questions & Proactive Questioning (e.g. "Stock order karu?")
-    if any(k in q for k in ["stock order karu", "order kar du", "pieces order", "maal mangu", "kitna order karu"]):
+    # 7. Disagree with Bad Decisions ("Saara cash stock mein laga du?")
+    if any(k in q for k in ["saara cash", "sara cash", "all cash", "saara paisa", "sara paisa"]):
         return {
-            "answer": "Main abhi blindly large stock order karne ki recommendation nahi dunga.\n\nPehle yeh check karna better hoga: Is product ka **current stock** kitna bacha hai aur **average weekly sales** kitni hai?",
+            "answer": (
+                "Main abhi saara cash stock mein lagana recommend **nahi** karunga.\n\n"
+                "Pehle pending payments recover karna safer hai taaki cash buffer bana rahe. Uske baad fast-moving items ke basis par targeted reorder karein."
+            ),
             "suggested_action": None,
             "action_title": None,
             "related_customer": None,
-            "priority": "medium"
+            "priority": "high"
         }
 
-    if any(k in q for k in ["stock", "inventory", "maal", "samaan", "low stock"]):
-        if low_stock:
-            items_str = ", ".join([f"{i.name} ({i.quantity} {i.unit})" for i in low_stock[:3]])
-            return {
-                "answer": f"📦 **Inventory Alert**:\n\nAapke pass **{len(low_stock)} items low stock** par hain:\n- {items_str}\n\n👉 **Next Step**: Supplier se reorder schedule karein.",
-                "suggested_action": "create_task",
-                "action_title": f"Order low stock items ({low_stock[0].name})",
-                "related_customer": None,
-                "priority": "high",
-            }
-        else:
-            return {
-                "answer": "Aapka stock abhi sufficient hai. Koi item low-stock threshold ke neeche nahi hai. 👍",
-                "suggested_action": None, "action_title": None, "related_customer": None, "priority": None
-            }
-
-    # 5. Handle Sales Improvement Queries ("Sales badhani hai")
-    if any(k in q for k in ["sales badhani", "bikri badhani", "growth", "sale kaise", "sales improve"]):
-        return {
-            "answer": "📈 **Sales Growth Strategy**:\n\nAap abhi kis specific area par focus karna chahte hain?\n1. **Repeat Customers** (purane regular grahakon ko offer bhejna)\n2. **Weekly Ration Bundle** (fast-moving combo discounts)\n3. **New Customer Outreach** (nearby areas mein promotional flyers)",
-            "suggested_action": "create_task",
-            "action_title": "Weekly promotional offer create karein",
-            "related_customer": None,
-            "priority": "medium"
-        }
-
-    # 6. Handle Payment Promises ("kal payment karega", "parso dega")
-    if any(k in q for k in ["kal payment", "parso payment", "dega", "promise kiya", "date di"]):
-        c_name = sorted_due[0].name if sorted_due else "Customer"
-        return {
-            "answer": f"Theek hai! Main note kar leta hoon ki **{c_name}** kal payment karne wale hain. Agar aap chahein toh main kal subah ke liye ek follow-up reminder task add kar deta hoon.",
-            "suggested_action": "create_task",
-            "action_title": f"Payment follow-up with {c_name}",
-            "related_customer": c_name,
-            "priority": "medium"
-        }
-
-    # 7. Handle Daily Plan ("Aaj kya karu?", "Kya karu?")
+    # 8. Daily Plan ("Aaj kya karu?", "Kya karu?")
     if any(k in q for k in ["kya karu", "kya karna", "aaj", "today", "plan", "summary", "kaam", "schedule", "hello", "namaste", "hi"]):
         answer = "📅 **Aaj ka Action Plan**:\n\n"
+        if active_memories:
+            answer += f"🎯 *Aapka Saved Goal: {active_memories[0].content}*\n\n"
         if sorted_due:
             total = sum(c.amount_due for c in sorted_due)
             answer += f"🔴 **1. Highest Priority**: **{sorted_due[0].name}** ({fmt_inr(sorted_due[0].amount_due)}) ko payment ke liye call karein.\n"
         if low_stock:
-            answer += f"🟠 **2. Inventory Reorder**: {low_stock[0].name} reorder level par hai.\n"
+            answer += f"🟠 **2. Inventory Reorder**: {low_stock[0].name} ({low_stock[0].quantity} {low_stock[0].unit}) reorder level par hai.\n"
         if pending_tasks:
             answer += f"🟢 **3. Daily Task**: {pending_tasks[0].title}\n"
         else:
@@ -922,7 +955,7 @@ def generate_grounded_fallback_response(question: str, history: list, user, cust
             "priority": "high" if sorted_due else "medium",
         }
 
-    # 8. Handle Customer Prioritization ("Kisko call karu?")
+    # 9. Customer Prioritization ("Kisko call karu?")
     if any(k in q for k in ["kisko call", "kisko phone", "kiska payment", "customer", "khata", "udhari"]):
         if not sorted_due:
             return {
@@ -939,14 +972,15 @@ def generate_grounded_fallback_response(question: str, history: list, user, cust
             "priority": "high"
         }
 
-    # 9. Handle Message Drafts ("Inko kya bolu?", "WhatsApp message")
-    if any(k in q for k in ["whatsapp", "reminder", "message", "uske liye", "inko kya bolu", "kya bolu", "msg"]):
+    # 10. WhatsApp Message Drafts ("Inko kya bolu?", "WhatsApp message")
+    if any(k in q for k in ["whatsapp", "reminder", "message", "uske liye", "inko kya bolu", "kya bolu", "paras ko kya bolu", "msg"]):
         c_name = sorted_due[0].name if sorted_due else "Customer"
         amt = fmt_inr(sorted_due[0].amount_due) if (sorted_due and sorted_due[0].amount_due) else "₹0"
         answer = (
-            f"Bilkul! Aap yeh WhatsApp reminder bhej sakte hain:\n\n"
+            f"Bilkul! Aap **{c_name}** ko yeh WhatsApp reminder bhej sakte hain:\n\n"
             f'"Namaste {c_name} ji 🙏 Aapka {amt} ka hisaab balance pending hai. '
-            f'Jab convenient ho please payment settle kar dijiye. Dhanyawaad!"'
+            f'Jab convenient ho please payment settle kar dijiye. Dhanyawaad!"\n\n'
+            f'👉 **Action**: Neeche diye gaye button se WhatsApp par direct bhejein ya copy karein.'
         )
         return {
             "answer": answer,
@@ -964,6 +998,7 @@ def generate_grounded_fallback_response(question: str, history: list, user, cust
 
 
 
+
 # ── Main AI Endpoint (Multi-turn Conversational with Context & Live Gemini) ───
 @app.post("/api/ai/ask")
 @limiter.limit("30/minute")
@@ -976,12 +1011,30 @@ async def ask_eko(
     request_start = time.time()
 
     try:
-        # Fetch live business data for authenticated user
+        # Fetch live business data and active memories for authenticated user
         user = db.query(models.User).filter(models.User.id == user_id).first()
         customers = db.query(models.Customer).filter(models.Customer.user_id == user_id).all()
         tasks = db.query(models.Task).filter(models.Task.user_id == user_id).all()
         inventory = db.query(models.InventoryItem).filter(models.InventoryItem.user_id == user_id).all()
         payments = db.query(models.Payment).filter(models.Payment.user_id == user_id).all()
+        memories = db.query(models.AIMemory).filter(models.AIMemory.user_id == user_id, models.AIMemory.active == True).all()
+
+        # Check for inline user memory commands ("yaad rakhna...", "save kar lo...")
+        q_lower = body.question.lower().strip()
+        if any(k in q_lower for k in ["yaad rakhna", "save kar lo", "note kar lo", "mera goal"]):
+            clean_mem = re.sub(r'^(yaad rakhna|save kar lo|note kar lo|mera goal)\s*[:,-]?\s*', '', body.question, flags=re.I).strip()
+            if clean_mem:
+                new_m = models.AIMemory(id=str(uuid.uuid4()), user_id=user_id, category="business_goal", content=clean_mem, active=True)
+                db.add(new_m)
+                db.commit()
+                memories.append(new_m)
+                logger.info("MEMORY_PERSISTED user=%s content=%s", user_id[:8], clean_mem)
+        elif any(k in q_lower for k in ["bhool jao", "delete memory", "clear memory"]):
+            for m in memories:
+                m.active = False
+            db.commit()
+            memories = []
+            logger.info("MEMORIES_CLEARED user=%s", user_id[:8])
 
         # Cache check
         _cache_cleanup()
@@ -992,9 +1045,9 @@ async def ask_eko(
             logger.info("AI_CACHE_HIT user=%s latency=%dms", user_id[:8], latency)
             return {**cached, "failure": False, "cached": True}
 
-        # Build targeted contextual knowledge
+        # Build targeted contextual knowledge with durable memories
         topic = classify_topic(body.question)
-        context_str, known_names = build_selective_context(user, customers, tasks, inventory, payments, topic)
+        context_str, known_names = build_selective_context(user, customers, tasks, inventory, payments, memories, topic)
 
         # Multi-turn Gemini AI call
         if is_gemini_ready():
@@ -1074,11 +1127,12 @@ async def ask_eko(
                     break
 
         # Grounded fallback if Gemini is not configured or fails
-        fallback = generate_grounded_fallback_response(body.question, body.history, user, customers, tasks, inventory, payments)
+        fallback = generate_grounded_fallback_response(body.question, body.history, user, customers, tasks, inventory, payments, memories=memories)
         _cache_set(cache_key, fallback)
         latency = round((time.time() - request_start) * 1000)
         logger.info("AI_FALLBACK user=%s topic=%s latency=%dms", user_id[:8], topic, latency)
         return {**fallback, "failure": False, "cached": False, "ai_engine": "grounded-business-engine"}
+
 
     except Exception as top_err:
         logger.error("AI_TOP_LEVEL_EXCEPTION user=%s err=%s", user_id[:8] if user_id else "unknown", str(top_err), exc_info=True)
@@ -1105,6 +1159,191 @@ class ActionTakenRequest(BaseModel):
 def log_action_taken(body: ActionTakenRequest, user_id: str = Depends(verify_user_id)):
     logger.info("METRIC recommendation_accepted user=%s action=%s source=ask_eko", user_id[:8], body.action)
     return {"status": "logged"}
+
+
+# ── Persistent Business Memory Endpoints (Phase 2) ───────────────────────────
+class MemoryCreate(BaseModel):
+    category: str = "business_goal"  # business_goal | preference | commitment | insight | rule
+    content: str
+
+class MemoryResponse(BaseModel):
+    id: str
+    user_id: str
+    category: str
+    content: str
+    active: bool
+    created_at: Optional[datetime] = None
+
+    class Config:
+        from_attributes = True
+
+@app.get("/api/ai/memories", response_model=List[MemoryResponse])
+def list_ai_memories(user_id: str = Depends(verify_user_id), db: Session = Depends(database.get_db)):
+    return db.query(models.AIMemory).filter(models.AIMemory.user_id == user_id, models.AIMemory.active == True).order_by(models.AIMemory.created_at.desc()).all()
+
+@app.post("/api/ai/memories", response_model=MemoryResponse)
+def add_ai_memory(data: MemoryCreate, user_id: str = Depends(verify_user_id), db: Session = Depends(database.get_db)):
+    mem = models.AIMemory(id=str(uuid.uuid4()), user_id=user_id, category=data.category, content=data.content.strip(), active=True)
+    db.add(mem)
+    db.commit()
+    db.refresh(mem)
+    logger.info("AI_MEMORY_CREATED user=%s cat=%s", user_id[:8], data.category)
+    return mem
+
+@app.delete("/api/ai/memories/{mid}")
+def delete_ai_memory(mid: str, user_id: str = Depends(verify_user_id), db: Session = Depends(database.get_db)):
+    mem = db.query(models.AIMemory).filter(models.AIMemory.id == mid, models.AIMemory.user_id == user_id).first()
+    if not mem:
+        raise HTTPException(status_code=404, detail="Memory not found.")
+    mem.active = False
+    db.commit()
+    return {"status": "deleted"}
+
+
+# ── Daily Business Brief & Next Best Action (Phase 3 & 4) ────────────────────
+@app.get("/api/ai/brief")
+def get_daily_business_brief(user_id: str = Depends(verify_user_id), db: Session = Depends(database.get_db)):
+    customers = db.query(models.Customer).filter(models.Customer.user_id == user_id).all()
+    tasks = db.query(models.Task).filter(models.Task.user_id == user_id, models.Task.completed == False).all()
+    inventory = db.query(models.InventoryItem).filter(models.InventoryItem.user_id == user_id).all()
+    payments = db.query(models.Payment).filter(models.Payment.user_id == user_id).all()
+    memories = db.query(models.AIMemory).filter(models.AIMemory.user_id == user_id, models.AIMemory.active == True).all()
+
+    due_customers = [c for c in customers if c.amount_due and c.amount_due > 0]
+    sorted_due = sorted(due_customers, key=lambda c: -(c.amount_due or 0))
+    low_stock = [i for i in inventory if (i.quantity or 0) <= (i.low_stock_threshold or 0)]
+    pending_p = [p for p in payments if p.status in ("pending", "overdue")]
+    total_due = sum(c.amount_due for c in due_customers) if due_customers else 0.0
+
+    # Determine Next Best Action & Priority Recommendation
+    next_action = None
+    top_rec = None
+
+    if sorted_due:
+        top_c = sorted_due[0]
+        next_action = {
+            "title": f"Follow up with {top_c.name}",
+            "target": top_c.name,
+            "phone": top_c.phone,
+            "amount": top_c.amount_due,
+            "why": f"Outstanding credit of {fmt_inr(top_c.amount_due)} is pending recovery.",
+            "action_type": "whatsapp_reminder",
+            "prompt": f"{top_c.name} ke liye polite WhatsApp reminder bana do",
+            "priority": "high"
+        }
+        top_rec = {
+            "action": "payment_recovery",
+            "headline": f"Pehle {top_c.name} se payment recovery karo ({fmt_inr(top_c.amount_due)})",
+            "why": "Market mein cash block hai."
+        }
+    elif low_stock:
+        item = low_stock[0]
+        next_action = {
+            "title": f"Reorder {item.name}",
+            "target": item.name,
+            "amount": None,
+            "why": f"Stock is at {item.quantity} {item.unit} (below reorder threshold {item.low_stock_threshold}).",
+            "action_type": "reorder",
+            "prompt": f"Order {item.name} stock",
+            "priority": "high"
+        }
+        top_rec = {
+            "action": "inventory_reorder",
+            "headline": f"{item.name} reorder schedule karo",
+            "why": "Stock khatam hone par customers laut sakte hain."
+        }
+    elif tasks:
+        t = tasks[0]
+        next_action = {
+            "title": t.title,
+            "target": None,
+            "why": f"Priority {t.priority} task scheduled for today.",
+            "action_type": "complete_task",
+            "priority": t.priority
+        }
+        top_rec = {
+            "action": "task_completion",
+            "headline": f'Task "{t.title}" complete karo',
+            "why": "Daily routine task pending hai."
+        }
+    else:
+        top_rec = {
+            "action": "growth",
+            "headline": "Regular customers ke liye weekend promo offer create karein",
+            "why": "Saari urgent recoveries aur tasks up-to-date hain."
+        }
+
+    # Format vernacular markdown brief
+    brief_lines = ["☀️ **Aaj ka Business Brief**:\n"]
+    if memories:
+        brief_lines.append(f"🎯 *Active Goal: {memories[0].content}*\n")
+    if total_due > 0:
+        brief_lines.append(f"🔴 **{fmt_inr(total_due)}** payment pending ({len(due_customers)} customers)")
+    else:
+        brief_lines.append("🟢 Payment recovery up to date")
+
+    if low_stock:
+        brief_lines.append(f"📦 **{len(low_stock)} item** low stock ({low_stock[0].name})")
+    if tasks:
+        brief_lines.append(f"📋 **{len(tasks)} task** pending")
+
+    if top_rec:
+        brief_lines.append(f"\n🎯 **Eko Priority**: {top_rec['headline']}")
+
+    return {
+        "pending_payments_total": total_due,
+        "pending_customers_count": len(due_customers),
+        "low_stock_count": len(low_stock),
+        "pending_tasks_count": len(tasks),
+        "memories_count": len(memories),
+        "next_best_action": next_action,
+        "top_recommendation": top_rec,
+        "brief_markdown": "\n".join(brief_lines)
+    }
+
+
+# ── Human-in-the-Loop Action Approval (Phase 5) ───────────────────────────────
+class ActionApprovalRequest(BaseModel):
+    action_type: str  # send_reminder | create_task | mark_followup | record_memory | reorder_stock
+    title: str
+    customer_name: Optional[str] = None
+    details: Optional[str] = None
+    amount: Optional[float] = None
+
+@app.post("/api/ai/approve-action")
+def approve_human_action(data: ActionApprovalRequest, user_id: str = Depends(verify_user_id), db: Session = Depends(database.get_db)):
+    # 1. Update Database based on confirmed human approval
+    if data.action_type == "create_task":
+        t = models.Task(id=str(uuid.uuid4()), user_id=user_id, title=data.title, priority="high", completed=False, due_date=date.today().isoformat())
+        db.add(t)
+    elif data.action_type == "mark_followup" and data.customer_name:
+        c = db.query(models.Customer).filter(models.Customer.user_id == user_id, models.Customer.name.ilike(f"%{data.customer_name}%")).first()
+        if c:
+            c.last_contact = date.today().isoformat()
+            c.follow_up_date = (date.today() + timedelta(days=2)).isoformat()
+    elif data.action_type == "record_memory" and data.details:
+        mem = models.AIMemory(id=str(uuid.uuid4()), user_id=user_id, category="business_goal", content=data.details, active=True)
+        db.add(mem)
+
+    # 2. Log Business Event audit trail
+    evt = models.BusinessEvent(
+        id=str(uuid.uuid4()),
+        user_id=user_id,
+        event_type=data.action_type,
+        title=data.title,
+        details=data.details or f"Executed with human approval for {data.customer_name or 'store'}"
+    )
+    db.add(evt)
+    db.commit()
+
+    logger.info("ACTION_APPROVED user=%s action=%s title=%s", user_id[:8], data.action_type, data.title)
+    return {
+        "status": "success",
+        "message": f"Action '{data.title}' confirmed & recorded in business event log.",
+        "action_type": data.action_type,
+        "executed_at": datetime.now().isoformat()
+    }
+
 
 
 # ── AI Superpower 1: Handwritten Parchii & Bill Scanner (Vision OCR) ──────────

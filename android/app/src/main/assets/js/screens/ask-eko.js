@@ -4,12 +4,12 @@
  */
 
 const QUICK_PROMPTS = [
-    { label: 'Follow-ups today?', q: 'Kaunse customer ko aaj follow up karna chahiye?' },
-    { label: 'Pending payment', q: 'Kiska payment sabse zyada pending hai?' },
-    { label: 'Low stock check', q: 'Kaunsa stock kam hai?' },
-    { label: 'WhatsApp reminder', q: 'Customer ke liye polite payment reminder message bana do.' },
-    { label: 'Daily business plan', q: 'Aaj ke business priorities aur action plan bata do.' },
-    { label: 'Growth tip', q: 'Aaj ke liye ek practical business improvement tip do.' },
+    { label: '☀️ Daily Brief', q: 'Aaj ka business summary aur action plan bata do.' },
+    { label: '🔴 Payment recovery', q: 'Kiska payment sabse zyada pending hai aur kisko pehle call karein?' },
+    { label: '⚠️ Guardrail Demo', q: 'Kal kitna stock order karu?' },
+    { label: '💬 WhatsApp reminder', q: 'Sabse urgent customer ke liye polite WhatsApp reminder bana do.' },
+    { label: '🎯 Set Business Goal', q: 'Yaad rakhna: Mera goal outstanding credit jaldi recover karna hai.' },
+    { label: '🔍 Data Source?', q: 'Tumhe kaise pata? Kis data ke basis par bol rahe ho?' },
 ];
 
 let chatHistory = [];
@@ -17,6 +17,9 @@ let chatHistory = [];
 function renderAskEkoScreen() {
     return `
     <div class="ask-eko-container">
+        <!-- Live Daily Business Brief & Next Best Action Card -->
+        <div id="ask-eko-brief-banner" style="margin-bottom:12px;"></div>
+
         <!-- Quick Prompts Chips -->
         <div class="prompt-chips-wrap">
             ${QUICK_PROMPTS.map(p => `
@@ -32,7 +35,7 @@ function renderAskEkoScreen() {
 
         <!-- Input Row -->
         <div class="chat-input-row">
-            <input type="text" id="eko-input" class="chat-input" placeholder="Kuch bhi puchho... (e.g. 'Aaj kya karu?', 'Uske liye message bana do', 'Short karo')" onkeydown="if(event.key==='Enter') sendToEko()">
+            <input type="text" id="eko-input" class="chat-input" placeholder="Poochhein... (e.g. 'Aaj kya karu?', 'Or?', 'Tumhe kaise pata?', 'Kal kitna stock order karu?')" onkeydown="if(event.key==='Enter') sendToEko()">
             <button class="chat-send-btn" onclick="sendToEko()" id="eko-send" title="Send Question">
                 <svg class="icon" viewBox="0 0 24 24"><line x1="22" y1="2" x2="11" y2="13"></line><polygon points="22 2 15 22 11 13 2 9 22 2"></polygon></svg>
             </button>
@@ -40,28 +43,60 @@ function renderAskEkoScreen() {
     </div>`;
 }
 
-function loadAskEko() {
+async function loadAskEko() {
+    // Load dynamic Daily Brief banner
+    try {
+        const bannerEl = document.getElementById('ask-eko-brief-banner');
+        if (bannerEl && !isDemoMode) {
+            const brief = await api.getDailyBrief();
+            if (brief && brief.next_best_action) {
+                const nba = brief.next_best_action;
+                bannerEl.innerHTML = `
+                <div style="background:linear-gradient(135deg, rgba(79, 70, 229, 0.08) 0%, rgba(6, 182, 212, 0.08) 100%); border:1px solid rgba(79, 70, 229, 0.25); border-radius:var(--radius-md); padding:12px 14px; box-shadow:var(--shadow-xs); display:flex; justify-content:space-between; align-items:center; gap:10px;">
+                    <div>
+                        <div style="display:flex; align-items:center; gap:6px; margin-bottom:2px;">
+                            <span class="ai-header-badge" style="font-size:0.7rem;">Next Best Action</span>
+                            <span style="font-weight:700; font-size:0.88rem; color:var(--text-main);">${escapeHtml(nba.title)}</span>
+                        </div>
+                        <div style="font-size:0.8rem; color:var(--text-muted);">${escapeHtml(nba.why)}</div>
+                    </div>
+                    <button class="btn-primary" style="font-size:0.78rem; padding:6px 14px; white-space:nowrap;" onclick="sendQuickPrompt('${escapeHtml(nba.prompt || nba.title).replace(/'/g, "\\'")}')">
+                        Take Action →
+                    </button>
+                </div>`;
+            }
+        }
+    } catch (e) {}
+
     if (chatHistory.length === 0) {
         chatHistory = [
             {
                 role: 'eko',
                 isWelcome: true,
-                raw_answer: "Namaste! Main Eko hoon — aapka AI business assistant. Aap mujhse customer follow-ups, payment reminders, stock planning ya daily summary ke baare mein pooch sakte hain.",
+                raw_answer: "Namaste! Main Eko hoon — aapka AI business partner. Main aapke ledger, stock aur pending payments ke basis par prioritized advice deta hoon.",
                 html: `
                     <div style="display:flex; align-items:center; gap:8px; margin-bottom:8px;">
                         <span class="ai-header-badge">
                             <svg class="icon icon-sm" viewBox="0 0 24 24"><rect x="3" y="11" width="18" height="10" rx="2"></rect><circle cx="12" cy="5" r="2"></circle><path d="M12 7v4"></path></svg>
-                            <span>Eko Business Assistant (Multi-turn AI)</span>
+                            <span>Eko Business Partner (Reasoning & Memory AI)</span>
                         </span>
                     </div>
-                    <strong>Namaste! Main Eko hoon — aapka AI business assistant.</strong><br>
-                    Aap mujhse customer follow-ups, payment reminders, stock planning ya daily summary ke baare mein pooch sakte hain. Follow-up instruction jaise <em>"Uske liye message bana do"</em> ya <em>"Short karo"</em> bhi bol sakte hain!
+                    <strong>Namaste! Main Eko hoon — aapka AI business partner.</strong><br>
+                    Main aapke verified customer records, payments aur stock data ke mutabik decision lene mein madad karta hoon.<br><br>
+                    Try asking:
+                    <ul style="margin-left:16px; margin-top:4px; font-size:0.85rem; line-height:1.6;">
+                        <li><em>"Aaj kya karu?"</em> (Prioritized daily action plan)</li>
+                        <li><em>"Or?"</em> (Next highest priority)</li>
+                        <li><em>"Tumhe kaise pata?"</em> (Transparent database source proof)</li>
+                        <li><em>"Kal kitna stock order karu?"</em> (Intentional guardrail demo)</li>
+                    </ul>
                 `
             }
         ];
     }
     renderChatHistory();
 }
+
 
 
 let isAiRequestInProgress = false;
@@ -128,31 +163,76 @@ function renderChatHistory() {
 
 function renderAiActionCard(msg, idx) {
     const action = msg.suggested_action;
-    const title = msg.action_title || 'Follow up on business item';
+    const title = msg.action_title || (msg.related_customer ? `Follow up with ${msg.related_customer}` : 'Business Action');
     const customer = msg.related_customer || '';
     const priority = msg.priority || 'medium';
+    const isApproved = msg._actionApproved;
 
     if (action === 'create_task') {
-        const isCompleted = msg._actionDone;
         return `
         <div style="margin-top:12px; padding:12px 14px; background:rgba(79, 70, 229, 0.05); border:1px solid rgba(79, 70, 229, 0.2); border-radius:var(--radius-md); display:flex; flex-direction:column; gap:8px;">
             <div style="display:flex; justify-content:space-between; align-items:center;">
                 <div style="font-weight:700; font-size:0.84rem; color:var(--primary); display:flex; align-items:center; gap:6px;">
                     <svg class="icon icon-sm" viewBox="0 0 24 24"><polyline points="9 11 12 14 22 4"></polyline><path d="M21 12v7a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h11"></path></svg>
-                    <span>Suggested Action</span>
+                    <span>Suggested Action (Requires Approval)</span>
                 </div>
                 <span class="badge ${priority === 'high' ? 'badge-danger' : 'badge-neutral'}" style="font-size:0.7rem; text-transform:uppercase;">${priority}</span>
             </div>
             <div style="font-size:0.88rem; color:var(--text-main); font-weight:600;">${escapeHtml(title)}</div>
-            <div style="display:flex; justify-content:flex-end; margin-top:4px;">
-                ${isCompleted
-                    ? `<button class="btn-secondary" disabled style="font-size:0.8rem; padding:5px 12px; opacity:0.8; color:var(--success);"><svg class="icon icon-sm" viewBox="0 0 24 24"><polyline points="20 6 9 17 4 12"></polyline></svg> Task Added ✓</button>`
-                    : `<button class="btn-primary" style="font-size:0.8rem; padding:6px 14px;" onclick="executeAiCreateTask(${idx}, '${escapeHtml(title).replace(/'/g, "\\'")}', '${priority}')">
-                        <svg class="icon icon-sm" viewBox="0 0 24 24"><line x1="12" y1="5" x2="12" y2="19"></line><line x1="5" y1="12" x2="19" y2="12"></line></svg>
-                        <span>Add to Tasks</span>
+            <div style="display:flex; justify-content:flex-end; gap:8px; margin-top:4px;">
+                ${isApproved
+                    ? `<button class="btn-secondary" disabled style="font-size:0.8rem; padding:5px 12px; opacity:0.9; color:var(--success);">✓ Approved & Executed</button>`
+                    : `<button class="btn-primary" style="font-size:0.8rem; padding:6px 14px;" onclick="executeAiApproveAction(${idx}, 'create_task', '${escapeHtml(title).replace(/'/g, "\\'")}', '${escapeHtml(customer).replace(/'/g, "\\'")}')">
+                        <span>✅ Approve & Add Task</span>
                     </button>`
                 }
             </div>
+        </div>`;
+    }
+
+    if (action === 'send_reminder') {
+        return `
+        <div style="margin-top:12px; padding:12px 14px; background:rgba(34, 197, 94, 0.06); border:1px solid rgba(34, 197, 94, 0.25); border-radius:var(--radius-md); display:flex; flex-direction:column; gap:8px;">
+            <div style="display:flex; justify-content:space-between; align-items:center;">
+                <div style="font-size:0.84rem; color:var(--text-main); font-weight:600; display:flex; align-items:center; gap:6px;">
+                    <svg class="icon icon-sm" style="color:var(--success);" viewBox="0 0 24 24"><path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"></path></svg>
+                    <span>WhatsApp Reminder (Human-in-the-Loop)</span>
+                </div>
+                <span class="badge badge-success" style="font-size:0.7rem;">Draft Ready</span>
+            </div>
+            <div style="display:flex; justify-content:space-between; align-items:center; flex-wrap:wrap; gap:6px; margin-top:4px;">
+                <div style="display:flex; gap:6px;">
+                    <button class="btn-secondary" style="font-size:0.8rem; padding:5px 10px;" onclick="executeAiCopyMessage(${idx})">
+                        <svg class="icon icon-sm" viewBox="0 0 24 24"><rect x="9" y="9" width="13" height="13" rx="2" ry="2"></rect><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"></path></svg>
+                        <span>Copy</span>
+                    </button>
+                    <button class="btn-primary" style="font-size:0.8rem; padding:5px 12px; background:#22C55E; border-color:#22C55E;" onclick="executeAiSendWhatsApp(${idx})">
+                        <svg class="icon icon-sm" viewBox="0 0 24 24"><path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"></path></svg>
+                        <span>Send WhatsApp</span>
+                    </button>
+                </div>
+                ${isApproved
+                    ? `<span style="font-size:0.78rem; color:var(--success); font-weight:700;">✓ Follow-up Logged</span>`
+                    : `<button class="btn-ghost" style="font-size:0.78rem; padding:4px 10px; color:var(--text-muted);" onclick="executeAiApproveAction(${idx}, 'mark_followup', 'WhatsApp Reminder Sent', '${escapeHtml(customer).replace(/'/g, "\\'")}')">
+                        ✅ Log as Done
+                    </button>`
+                }
+            </div>
+        </div>`;
+    }
+
+    if (action === 'record_memory') {
+        return `
+        <div style="margin-top:12px; padding:10px 14px; background:rgba(245, 158, 11, 0.08); border:1px solid rgba(245, 158, 11, 0.3); border-radius:var(--radius-md); display:flex; justify-content:space-between; align-items:center;">
+            <div style="font-size:0.84rem; color:var(--text-main); font-weight:600; display:flex; align-items:center; gap:6px;">
+                <span>🎯 <strong>Durable Memory:</strong> Goal / preference acknowledged</span>
+            </div>
+            ${isApproved
+                ? `<span style="font-size:0.78rem; color:var(--success); font-weight:700;">✓ Saved in Memory</span>`
+                : `<button class="btn-primary" style="font-size:0.78rem; padding:5px 12px;" onclick="executeAiApproveAction(${idx}, 'record_memory', 'Business Goal', '${escapeHtml(customer).replace(/'/g, "\\'")}', msg.raw_answer)">
+                    <span>💾 Confirm Memory</span>
+                </button>`
+            }
         </div>`;
     }
 
@@ -169,28 +249,29 @@ function renderAiActionCard(msg, idx) {
         </div>`;
     }
 
-    if (action === 'send_reminder') {
-        return `
-        <div style="margin-top:12px; padding:10px 14px; background:rgba(34, 197, 94, 0.06); border:1px solid rgba(34, 197, 94, 0.25); border-radius:var(--radius-md); display:flex; justify-content:space-between; align-items:center; gap:8px;">
-            <div style="font-size:0.84rem; color:var(--text-main); font-weight:600; display:flex; align-items:center; gap:6px;">
-                <svg class="icon icon-sm" style="color:var(--success);" viewBox="0 0 24 24"><path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"></path></svg>
-                <span>WhatsApp Reminder</span>
-            </div>
-            <div style="display:flex; gap:6px;">
-                <button class="btn-secondary" style="font-size:0.8rem; padding:5px 10px;" onclick="executeAiCopyMessage(${idx})">
-                    <svg class="icon icon-sm" viewBox="0 0 24 24"><rect x="9" y="9" width="13" height="13" rx="2" ry="2"></rect><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"></path></svg>
-                    <span>Copy Text</span>
-                </button>
-                <button class="btn-primary" style="font-size:0.8rem; padding:5px 12px; background:#22C55E; border-color:#22C55E;" onclick="executeAiSendWhatsApp(${idx})">
-                    <svg class="icon icon-sm" viewBox="0 0 24 24"><path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"></path></svg>
-                    <span>Send</span>
-                </button>
-            </div>
-        </div>`;
-    }
-
     return '';
 }
+
+async function executeAiApproveAction(idx, actionType, title, customerName, details) {
+    try {
+        if (!isDemoMode) {
+            await api.approveAction({
+                action_type: actionType,
+                title: title,
+                customer_name: customerName || null,
+                details: details || `Human approved execution: ${title}`
+            });
+        }
+        if (chatHistory[idx]) {
+            chatHistory[idx]._actionApproved = true;
+        }
+        renderChatHistory();
+        showToast('Action confirmed & recorded in business event log! ✅');
+    } catch (e) {
+        showToast('Could not record action.', 'error');
+    }
+}
+
 
 async function executeAiCreateTask(idx, title, priority) {
     try {
