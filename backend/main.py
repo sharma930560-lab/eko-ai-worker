@@ -260,18 +260,24 @@ class AskEkoRequest(BaseModel):
 
 
 # ─── Health ───────────────────────────────────────────────────────────────────
+def is_gemini_ready() -> bool:
+    return bool(GEMINI_API_KEY and GEMINI_API_KEY != "YOUR_GEMINI_API_KEY_HERE")
+
 @app.get("/api/health")
 def health():
     db_ok = database.check_db_connection()
+    ai_ok = is_gemini_ready()
     return {
         "status": "ok" if db_ok else "degraded",
         "service": "Eko Micro-Entrepreneur Worker API",
         "version": "1.0.0",
         "environment": ENVIRONMENT,
-        "ai_configured": bool(GEMINI_API_KEY),
+        "ai_configured": ai_ok,
+        "ai_model": GEMINI_MODEL or "gemini-1.5-flash",
         "auth_configured": bool(GOOGLE_CLIENT_ID),
         "database": "connected" if db_ok else "unreachable",
     }
+
 
 
 # ─── Google Auth ──────────────────────────────────────────────────────────────
@@ -667,6 +673,16 @@ def build_selective_context(user, customers, tasks, inventory, payments, topic: 
     return "\n".join(lines), customer_names
 
 
+# ── Transient Error Helper ───────────────────────────────────────────────────
+TRANSIENT_ERRORS = (ConnectionError, TimeoutError, asyncio.TimeoutError)
+
+def _is_transient(exc: Exception) -> bool:
+    if isinstance(exc, TRANSIENT_ERRORS):
+        return True
+    name = type(exc).__name__
+    return name in ("ServiceUnavailable", "DeadlineExceeded", "InternalServerError", "ResourceExhausted", "TimeoutError")
+
+
 # ── In-Memory Response Cache (TTL = 3 min) ────────────────────────────────────
 _ai_cache: OrderedDict = OrderedDict()
 _CACHE_TTL = 180
@@ -706,6 +722,42 @@ def _cache_cleanup():
         del _ai_cache[k]
 
 
+# ── Gemini Multi-turn History Sanitizer ───────────────────────────────────────
+def sanitize_gemini_history(raw_history: List[ConversationMessage]) -> List[dict]:
+    """
+    Sanitizes conversation history for Google Gemini:
+    - Filters out empty messages
+    - Ensures history starts with 'user'
+    - Ensures strict alternating user/model turns (combines consecutive same-role messages)
+    - Ensures history ends with 'model' (since current question is the next user turn)
+    - Limits to the last 10 valid turns
+    """
+    if not raw_history:
+        return []
+
+    clean = []
+    for msg in raw_history:
+        role = "user" if msg.role == "user" else "model"
+        content = (msg.content or "").strip()
+        if not content:
+            continue
+        if clean and clean[-1]["role"] == role:
+            # Merge consecutive messages of the same role
+            clean[-1]["parts"][0] += f"\n{content}"
+        else:
+            clean.append({"role": role, "parts": [content]})
+
+    # Drop leading 'model' messages because Gemini requires conversation to start with 'user'
+    while clean and clean[0]["role"] != "user":
+        clean.pop(0)
+
+    # If the last message is 'user', drop it because the new question is the next 'user' message
+    while clean and clean[-1]["role"] == "user":
+        clean.pop()
+
+    return clean[-10:]
+
+
 # ── Structured Grounded Fallback Engine ───────────────────────────────────────
 def generate_grounded_fallback_response(question: str, history: list, user, customers, tasks, inventory, payments) -> dict:
     """Returns a natural conversational fallback response grounded in real data."""
@@ -716,11 +768,13 @@ def generate_grounded_fallback_response(question: str, history: list, user, cust
 
     # Handle follow-up modification commands
     if any(k in q for k in ["short karo", "chota karo", "brief karo", "short"]):
+        c_name = due_customers[0].name if due_customers else "Customer"
+        amt = fmt_inr(due_customers[0].amount_due) if due_customers else "₹0"
         return {
-            "answer": "Namaste ji, ₹10,000 payment ka quick reminder. Jab convenient ho please settle kar dein. Dhanyawad!",
+            "answer": f"Namaste {c_name} ji 🙏 {amt} hisaab clear kar dein please. Dhanyawad!",
             "suggested_action": "send_reminder",
             "action_title": None,
-            "related_customer": due_customers[0].name if due_customers else None,
+            "related_customer": c_name if due_customers else None,
             "priority": "medium",
         }
 
@@ -813,7 +867,7 @@ def generate_grounded_fallback_response(question: str, history: list, user, cust
     }
 
 
-# ── Main AI Endpoint (Multi-turn Conversational with Context & Interactions) ───
+# ── Main AI Endpoint (Multi-turn Conversational with Context & Live Gemini) ───
 @app.post("/api/ai/ask")
 @limiter.limit("30/minute")
 async def ask_eko(
@@ -824,148 +878,124 @@ async def ask_eko(
 ):
     request_start = time.time()
 
-    # Fetch live business data for authenticated user
-    user = db.query(models.User).filter(models.User.id == user_id).first()
-    customers = db.query(models.Customer).filter(models.Customer.user_id == user_id).all()
-    tasks = db.query(models.Task).filter(models.Task.user_id == user_id).all()
-    inventory = db.query(models.InventoryItem).filter(models.InventoryItem.user_id == user_id).all()
-    payments = db.query(models.Payment).filter(models.Payment.user_id == user_id).all()
+    try:
+        # Fetch live business data for authenticated user
+        user = db.query(models.User).filter(models.User.id == user_id).first()
+        customers = db.query(models.Customer).filter(models.Customer.user_id == user_id).all()
+        tasks = db.query(models.Task).filter(models.Task.user_id == user_id).all()
+        inventory = db.query(models.InventoryItem).filter(models.InventoryItem.user_id == user_id).all()
+        payments = db.query(models.Payment).filter(models.Payment.user_id == user_id).all()
 
-    # Cache check
-    _cache_cleanup()
-    cache_key = _cache_key(user_id, body.question, body.history, customers, tasks, inventory, payments)
-    cached = _cache_get(cache_key)
-    if cached:
-        latency = round((time.time() - request_start) * 1000)
-        logger.info("AI_CACHE_HIT user=%s latency=%dms", user_id[:8], latency)
-        return {**cached, "failure": False, "cached": True}
+        # Cache check
+        _cache_cleanup()
+        cache_key = _cache_key(user_id, body.question, body.history, customers, tasks, inventory, payments)
+        cached = _cache_get(cache_key)
+        if cached:
+            latency = round((time.time() - request_start) * 1000)
+            logger.info("AI_CACHE_HIT user=%s latency=%dms", user_id[:8], latency)
+            return {**cached, "failure": False, "cached": True}
 
-    # Build targeted contextual knowledge
-    topic = classify_topic(body.question)
-    context_str, known_names = build_selective_context(user, customers, tasks, inventory, payments, topic)
+        # Build targeted contextual knowledge
+        topic = classify_topic(body.question)
+        context_str, known_names = build_selective_context(user, customers, tasks, inventory, payments, topic)
 
-    # Multi-turn Gemini AI call
-    if GEMINI_API_KEY and GEMINI_API_KEY != "YOUR_GEMINI_API_KEY_HERE":
-        retry_delays = [1.0, 2.0]
+        # Multi-turn Gemini AI call
+        if is_gemini_ready():
+            retry_delays = [1.0, 2.0]
+            target_model_name = GEMINI_MODEL or "gemini-1.5-flash"
+            clean_history = sanitize_gemini_history(body.history or [])
 
-        for attempt in range(3):
-            try:
-                # Preferred modern SDK: google-genai or google.generativeai
-                answer_text = None
-                
-                # Check for google.genai or fallback to google.generativeai
+            logger.info("AI_REQUEST user=%s topic=%s model=%s history_turns=%d",
+                        user_id[:8], topic, target_model_name, len(clean_history))
+
+            for attempt in range(2):
                 try:
-                    from google import genai
-                    from google.genai import types
-                    client = genai.Client(api_key=GEMINI_API_KEY)
-                    
-                    # Prepare contents list with history
-                    contents = []
-                    # Add business context as system instruction or first context turn
+                    import google.generativeai as genai
+                    genai.configure(api_key=GEMINI_API_KEY)
+
                     system_instruction = f"{SYSTEM_PROMPT}\n\nCURRENT BUSINESS CONTEXT:\n{context_str}"
-                    
-                    # Add previous conversation turns
-                    for msg in (body.history or [])[-12:]:
-                        role = "user" if msg.role == "user" else "model"
-                        contents.append(types.Content(role=role, parts=[types.Part.from_text(text=msg.content)]))
-                    
-                    # Add current turn
-                    contents.append(types.Content(role="user", parts=[types.Part.from_text(text=body.question)]))
-                    
-                    config = types.GenerateContentConfig(
-                        system_instruction=system_instruction,
-                        max_output_tokens=500,
+                    model = genai.GenerativeModel(
+                        model_name=target_model_name,
+                        system_instruction=system_instruction
                     )
-                    
-                    # Model config
-                    target_model = GEMINI_MODEL or "gemini-3.7-flash"
-                    response = await asyncio.wait_for(
-                        asyncio.to_thread(
-                            client.models.generate_content,
-                            model=target_model,
-                            contents=contents,
-                            config=config
-                        ),
-                        timeout=9.0
-                    )
-                    if response and response.text:
-                        answer_text = response.text.strip()
-                except Exception as genai_err:
-                    logger.info("GenAI SDK attempt: %s, trying generativeai fallback", str(genai_err))
-                    import google.generativeai as legacy_genai
-                    legacy_genai.configure(api_key=GEMINI_API_KEY)
-                    
-                    model = legacy_genai.GenerativeModel(
-                        model_name="gemini-1.5-flash",
-                        system_instruction=f"{SYSTEM_PROMPT}\n\nCURRENT BUSINESS CONTEXT:\n{context_str}"
-                    )
-                    
-                    # Build history for chat
-                    chat_history = []
-                    for msg in (body.history or [])[-12:]:
-                        chat_history.append({
-                            "role": "user" if msg.role == "user" else "model",
-                            "parts": [msg.content]
-                        })
-                    
-                    chat = model.start_chat(history=chat_history)
+
+                    # Build multi-turn chat session with sanitized history
+                    chat = model.start_chat(history=clean_history)
+
+                    # 8.0-second timeout for snappy response
                     response = await asyncio.wait_for(
                         asyncio.to_thread(chat.send_message, body.question),
-                        timeout=9.0
+                        timeout=8.0
                     )
+
+                    answer_text = None
                     if response and response.text:
                         answer_text = response.text.strip()
 
-                if answer_text:
-                    # Determine suggested actions via pattern recognition
-                    suggested_action = None
-                    action_title = None
-                    related_customer = None
-                    priority = None
+                    if answer_text:
+                        # Determine suggested actions via pattern recognition
+                        suggested_action = None
+                        action_title = None
+                        related_customer = None
+                        priority = None
 
-                    # Check for WhatsApp message drafting
-                    if "whatsapp" in answer_text.lower() or "namaste" in answer_text.lower() or "reminder" in body.question.lower():
-                        suggested_action = "send_reminder"
-                        priority = "medium"
+                        # Check for WhatsApp message drafting
+                        if "whatsapp" in answer_text.lower() or "namaste" in answer_text.lower() or "reminder" in body.question.lower():
+                            suggested_action = "send_reminder"
+                            priority = "medium"
 
-                    # Match related customer
-                    for name in known_names:
-                        if name.lower() in answer_text.lower() or name.lower() in body.question.lower():
-                            related_customer = name
-                            break
+                        # Match related customer
+                        for name in known_names:
+                            if name.lower() in answer_text.lower() or name.lower() in body.question.lower():
+                                related_customer = name
+                                break
 
-                    result = {
-                        "answer": answer_text,
-                        "suggested_action": suggested_action,
-                        "action_title": action_title,
-                        "related_customer": related_customer,
-                        "priority": priority,
-                        "failure": False,
-                        "cached": False,
-                    }
-                    _cache_set(cache_key, result)
+                        result = {
+                            "answer": answer_text,
+                            "suggested_action": suggested_action,
+                            "action_title": action_title,
+                            "related_customer": related_customer,
+                            "priority": priority,
+                            "failure": False,
+                            "cached": False,
+                            "ai_engine": target_model_name
+                        }
+                        _cache_set(cache_key, result)
 
-                    latency = round((time.time() - request_start) * 1000)
-                    logger.info("AI_RESPONSE user=%s topic=%s latency=%dms attempt=%d",
-                                user_id[:8], topic, latency, attempt + 1)
-                    return result
+                        latency = round((time.time() - request_start) * 1000)
+                        logger.info("AI_RESPONSE user=%s topic=%s latency=%dms attempt=%d",
+                                    user_id[:8], topic, latency, attempt + 1)
+                        return result
 
-            except Exception as e:
-                if attempt < 2 and _is_transient(e):
-                    logger.warning("AI_RETRY user=%s attempt=%d delay=%.1fs err=%s",
-                                   user_id[:8], attempt + 1, retry_delays[attempt], type(e).__name__)
-                    await asyncio.sleep(retry_delays[attempt])
-                    continue
-                logger.warning("AI_GEMINI_FAILED user=%s attempts=%d err=%s",
-                               user_id[:8], attempt + 1, str(e))
-                break
+                except Exception as e:
+                    exc_type = type(e).__name__
+                    logger.warning("AI_GEMINI_ATTEMPT_FAILED user=%s attempt=%d err_type=%s err=%s",
+                                   user_id[:8], attempt + 1, exc_type, str(e))
+                    if attempt < 1 and _is_transient(e):
+                        await asyncio.sleep(retry_delays[attempt])
+                        continue
+                    break
 
-    # Grounded fallback
-    fallback = generate_grounded_fallback_response(body.question, body.history, user, customers, tasks, inventory, payments)
-    _cache_set(cache_key, fallback)
-    latency = round((time.time() - request_start) * 1000)
-    logger.info("AI_FALLBACK user=%s topic=%s latency=%dms", user_id[:8], topic, latency)
-    return {**fallback, "failure": False, "cached": False}
+        # Grounded fallback if Gemini is not configured or fails
+        fallback = generate_grounded_fallback_response(body.question, body.history, user, customers, tasks, inventory, payments)
+        _cache_set(cache_key, fallback)
+        latency = round((time.time() - request_start) * 1000)
+        logger.info("AI_FALLBACK user=%s topic=%s latency=%dms", user_id[:8], topic, latency)
+        return {**fallback, "failure": False, "cached": False, "ai_engine": "grounded-business-engine"}
+
+    except Exception as top_err:
+        logger.error("AI_TOP_LEVEL_EXCEPTION user=%s err=%s", user_id[:8] if user_id else "unknown", str(top_err), exc_info=True)
+        return {
+            "answer": "Namaste! Aapke business records ke mutabik main abhi active hoon. Aap customer hisab, tasks ya stock ke baare mein pooch sakte hain.",
+            "suggested_action": None,
+            "action_title": None,
+            "related_customer": None,
+            "priority": None,
+            "failure": False,
+            "cached": False,
+            "ai_engine": "resilient-fallback"
+        }
+
 
 
 
