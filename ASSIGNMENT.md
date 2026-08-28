@@ -251,5 +251,8 @@ To maintain engineering honesty, here is what is implemented vs. what remains fu
 - **Production API**: [https://eko-field-worker-api.onrender.com](https://eko-field-worker-api.onrender.com)
 - **Health Endpoint**: [https://eko-field-worker-api.onrender.com/api/health](https://eko-field-worker-api.onrender.com/api/health)
 - **GitHub Releases Hub**: [https://github.com/sharma930560-lab/eko-ai-worker/releases](https://github.com/sharma930560-lab/eko-ai-worker/releases)
-- **Direct APK (v1.0.0)**: [Download app-release.apk](https://github.com/sharma930560-lab/eko-ai-worker/releases/download/v1.0.0/app-release.apk)
-- **Release APK (v1.1.0)**: `android/app/build/outputs/apk/release/app-release.apk`
+- **Latest Release (v1.1.0)**: [https://github.com/sharma930560-lab/eko-ai-worker/releases/tag/v1.1.0](https://github.com/sharma930560-lab/eko-ai-worker/releases/tag/v1.1.0)
+- **Direct APK (v1.1.0)**: [Download app-release.apk (v1.1.0)](https://github.com/sharma930560-lab/eko-ai-worker/releases/download/v1.1.0/app-release.apk)
+- **Direct AAB (v1.1.0)**: [Download app-release.aab (v1.1.0)](https://github.com/sharma930560-lab/eko-ai-worker/releases/download/v1.1.0/app-release.aab)
+- **Local Release Build**: `android/app/build/outputs/apk/release/app-release.apk`
+

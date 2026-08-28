@@ -174,12 +174,14 @@ The APK will be generated at `android/app/build/outputs/apk/release/app-release.
 
 ---
 
-## Android APK Downloads
+## Latest Android Release (v1.1.0)
 
 - 🏷️ **GitHub Releases Hub**: [https://github.com/sharma930560-lab/eko-ai-worker/releases](https://github.com/sharma930560-lab/eko-ai-worker/releases)
-- 📱 **Direct APK Download (GitHub Release Asset)**: [Download app-release.apk](https://github.com/sharma930560-lab/eko-ai-worker/releases/download/v1.0.0/app-release.apk)
-- 📦 **Direct AAB Bundle (GitHub Release Asset)**: [Download app-release.aab](https://github.com/sharma930560-lab/eko-ai-worker/releases/download/v1.0.0/app-release.aab)
-- 🔨 **Local Build Path (v1.1.0)**: `android/app/build/outputs/apk/release/app-release.apk` (`versionName 1.1.0`, `versionCode 2`, 5.67 MB)
+- 📱 **Direct APK Download**: [Download app-release.apk (v1.1.0)](https://github.com/sharma930560-lab/eko-ai-worker/releases/download/v1.1.0/app-release.apk)
+- 📦 **Direct AAB Bundle**: [Download app-release.aab (v1.1.0)](https://github.com/sharma930560-lab/eko-ai-worker/releases/download/v1.1.0/app-release.aab)
+- 🏷️ **Release Page**: [Eko Field Worker v1.1.0](https://github.com/sharma930560-lab/eko-ai-worker/releases/tag/v1.1.0)
+- 🔨 **Local Build Path**: `android/app/build/outputs/apk/release/app-release.apk` (`versionName 1.1.0`, `versionCode 2`, 5.67 MB)
+
 
 
 
