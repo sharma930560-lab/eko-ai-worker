@@ -152,6 +152,7 @@ function closeModal(id) {
 const SCREENS = {
     home:       { title: 'Home', subtitle: "Here's your business at a glance.", render: renderHomeScreen, load: loadHomeScreen },
     customers:  { title: 'Customers', subtitle: 'Manage accounts, credit balances & follow-ups.', render: renderCustomersScreen, load: loadCustomers },
+    inventory:  { title: 'Inventory & Stock', subtitle: 'Live product stock levels and low-stock reorder alerts.', render: renderInventoryScreen, load: loadInventory },
     tasks:      { title: 'Tasks', subtitle: 'Prioritize daily operations & supplier orders.', render: renderTasksScreen, load: loadTasks },
     notes:      { title: 'Business Notes', subtitle: 'Your daily commercial journal & stock logs.', render: renderNotesScreen, load: loadNotes },
     'ai-tools': { title: 'AI Superpowers Suite', subtitle: '5 True Multimodal & Generative AI tools for retail operations.', render: renderAiToolsScreen, load: () => {} },
@@ -176,6 +177,7 @@ function navigateTo(screen) {
     let headerTitle = def.title;
     if (screen === 'home') headerTitle = t.home;
     if (screen === 'customers') headerTitle = t.customers;
+    if (screen === 'inventory') headerTitle = 'Inventory';
     if (screen === 'tasks') headerTitle = t.tasks;
     if (screen === 'notes') headerTitle = t.notes;
     if (screen === 'ai-tools') headerTitle = 'AI Superpowers';
@@ -190,6 +192,7 @@ function navigateTo(screen) {
     content.innerHTML = def.render();
     def.load();
 }
+
 
 // ── Home Dashboard ─────────────────────────────────────────────────────────────
 function renderHomeScreen() {
@@ -368,9 +371,14 @@ async function loadHomeScreen() {
     try {
         const tasks = isDemoMode ? DEMO_DATA.tasks : await api.getTasks();
         const customers = isDemoMode ? DEMO_DATA.customers : await api.getCustomers();
+        let inventory = [];
+        try {
+            inventory = isDemoMode ? [] : await api.getInventory();
+        } catch (e) {}
 
         const pending = tasks.filter(t => !t.completed);
-        const followups = customers.filter(c => (c.follow_up_date && c.follow_up_date <= today()) || c.amount_due > 0);
+        const followups = customers.filter(c => (c.follow_up_date && c.follow_up_date <= today()) || (c.amount_due && c.amount_due > 0));
+        const lowStock = inventory.filter(i => (i.quantity || 0) <= (i.low_stock_threshold || 0));
 
         // Update metric values
         const cEl = document.getElementById('stat-customers');
@@ -380,25 +388,31 @@ async function loadHomeScreen() {
         if (tEl) tEl.textContent = pending.length;
         if (fEl) fEl.textContent = followups.length;
 
-        // Update Proactive Insights text
+        // Update Proactive Insights text with rich live context
         const insightCard = document.getElementById('home-insights-card');
         const insightHead = document.getElementById('insights-headline');
         const insightBody = document.getElementById('insights-body');
         if (insightCard && insightHead && insightBody) {
             if (followups.length > 0) {
-                insightHead.textContent = `Eko noticed ${followups.length} follow-ups are due.`;
-                insightBody.textContent = `Prioritize contacting ${followups[0].name}${followups[0].amount_due ? ` (₹${followups[0].amount_due} due)` : ''}.`;
+                const totalDue = followups.reduce((sum, c) => sum + (c.amount_due || 0), 0);
+                insightHead.textContent = `Eko: ${followups.length} payment follow-ups pending (₹${totalDue.toLocaleString('en-IN')})`;
+                insightBody.textContent = `Top priority: ${followups[0].name} (${followups[0].amount_due ? '₹' + followups[0].amount_due.toLocaleString('en-IN') + ' due' : 'scheduled'}). Ask Eko to draft a WhatsApp reminder!`;
                 insightCard.style.borderLeft = "4px solid var(--warning)";
+            } else if (lowStock.length > 0) {
+                insightHead.textContent = `Low Stock Alert: ${lowStock.length} items need reordering`;
+                insightBody.textContent = `${lowStock[0].name} is at ${lowStock[0].quantity} ${lowStock[0].unit || 'units'}. Restock soon.`;
+                insightCard.style.borderLeft = "4px solid var(--danger)";
             } else if (pending.length > 0) {
-                insightHead.textContent = `You have ${pending.length} pending tasks.`;
-                insightBody.textContent = `Top priority: "${pending[0].title}". Finish it to stay ahead.`;
+                insightHead.textContent = `You have ${pending.length} pending tasks today.`;
+                insightBody.textContent = `Top priority: "${pending[0].title}". Complete it to stay on track.`;
                 insightCard.style.borderLeft = "4px solid var(--primary)";
             } else {
                 insightHead.textContent = `All caught up! 🎉`;
-                insightBody.textContent = `Everything is on track. Why not add a new note or plan for tomorrow?`;
+                insightBody.textContent = `Everything is on track. Ask Eko for weekly promotion offers or new customer growth tips!`;
                 insightCard.style.borderLeft = "4px solid var(--success)";
             }
         }
+
 
         // Render upcoming task items
         const listEl = document.getElementById('home-tasks-list');

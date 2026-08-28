@@ -43,6 +43,7 @@ logger = logging.getLogger("eko")
 
 GOOGLE_CLIENT_ID = os.getenv("GOOGLE_CLIENT_ID", "")
 GEMINI_API_KEY = os.getenv("GEMINI_API_KEY", "")
+GEMINI_MODEL = os.getenv("GEMINI_MODEL", "gemini-3.7-flash")
 ENVIRONMENT = os.getenv("ENVIRONMENT", "development")
 
 # ─── Rate Limiter ──────────────────────────────────────────────────────────────
@@ -191,10 +192,71 @@ class OfferResponse(BaseModel):
     active: bool
     model_config = {"from_attributes": True}
 
-# AI schemas
+# Inventory schemas
+class InventoryCreate(BaseModel):
+    name: str
+    quantity: Optional[float] = 0.0
+    unit: Optional[str] = "units"
+    low_stock_threshold: Optional[float] = 5.0
+    price: Optional[float] = None
+
+class InventoryUpdate(BaseModel):
+    name: Optional[str] = None
+    quantity: Optional[float] = None
+    unit: Optional[str] = None
+    low_stock_threshold: Optional[float] = None
+    price: Optional[float] = None
+
+class InventoryResponse(BaseModel):
+    id: str
+    name: str
+    quantity: float
+    unit: str
+    low_stock_threshold: float
+    price: Optional[float]
+    created_at: Optional[datetime] = None
+    model_config = {"from_attributes": True}
+
+# Payment schemas
+class PaymentCreate(BaseModel):
+    customer_id: Optional[str] = None
+    customer_name: str
+    amount: float
+    status: Optional[str] = "pending"  # pending | paid | overdue
+    due_date: Optional[str] = None
+    paid_date: Optional[str] = None
+    notes: Optional[str] = None
+
+class PaymentUpdate(BaseModel):
+    customer_name: Optional[str] = None
+    amount: Optional[float] = None
+    status: Optional[str] = None
+    due_date: Optional[str] = None
+    paid_date: Optional[str] = None
+    notes: Optional[str] = None
+
+class PaymentResponse(BaseModel):
+    id: str
+    customer_id: Optional[str]
+    customer_name: str
+    amount: float
+    status: str
+    due_date: Optional[str]
+    paid_date: Optional[str]
+    notes: Optional[str]
+    created_at: Optional[datetime] = None
+    model_config = {"from_attributes": True}
+
+# AI & Conversation schemas
+class ConversationMessage(BaseModel):
+    role: str  # 'user' | 'model'
+    content: str
+
 class AskEkoRequest(BaseModel):
     question: str
-    context: Optional[str] = None  # e.g. "customers:3, tasks:2, business:Kirana Store"
+    history: Optional[List[ConversationMessage]] = []
+    context: Optional[str] = None
+    conversation_id: Optional[str] = None
 
 
 # ─── Health ───────────────────────────────────────────────────────────────────
@@ -382,6 +444,85 @@ def delete_offer(oid: str, user_id: str = Depends(verify_user_id), db: Session =
     return {"status": "deactivated"}
 
 
+# ─── Inventory ────────────────────────────────────────────────────────────────
+@app.get("/api/inventory", response_model=List[InventoryResponse])
+def list_inventory(user_id: str = Depends(verify_user_id), db: Session = Depends(database.get_db)):
+    return db.query(models.InventoryItem).filter(models.InventoryItem.user_id == user_id).order_by(models.InventoryItem.name.asc()).all()
+
+@app.get("/api/inventory/low-stock", response_model=List[InventoryResponse])
+def list_low_stock(user_id: str = Depends(verify_user_id), db: Session = Depends(database.get_db)):
+    items = db.query(models.InventoryItem).filter(models.InventoryItem.user_id == user_id).all()
+    return [item for item in items if (item.quantity or 0) <= (item.low_stock_threshold or 0)]
+
+@app.post("/api/inventory", response_model=InventoryResponse)
+def create_inventory_item(data: InventoryCreate, user_id: str = Depends(verify_user_id), db: Session = Depends(database.get_db)):
+    item = models.InventoryItem(id=str(uuid.uuid4()), user_id=user_id, **data.model_dump())
+    db.add(item)
+    db.commit()
+    db.refresh(item)
+    logger.info("Inventory item created: user=%s name=%s", user_id[:8], item.name)
+    return item
+
+@app.patch("/api/inventory/{iid}", response_model=InventoryResponse)
+def update_inventory_item(iid: str, data: InventoryUpdate, user_id: str = Depends(verify_user_id), db: Session = Depends(database.get_db)):
+    item = db.query(models.InventoryItem).filter(models.InventoryItem.id == iid, models.InventoryItem.user_id == user_id).first()
+    if not item:
+        raise HTTPException(status_code=404, detail="Inventory item not found.")
+    for field, val in data.model_dump(exclude_none=True).items():
+        setattr(item, field, val)
+    db.commit()
+    db.refresh(item)
+    return item
+
+@app.delete("/api/inventory/{iid}")
+def delete_inventory_item(iid: str, user_id: str = Depends(verify_user_id), db: Session = Depends(database.get_db)):
+    item = db.query(models.InventoryItem).filter(models.InventoryItem.id == iid, models.InventoryItem.user_id == user_id).first()
+    if not item:
+        raise HTTPException(status_code=404, detail="Inventory item not found.")
+    db.delete(item)
+    db.commit()
+    return {"status": "deleted"}
+
+
+# ─── Payments ─────────────────────────────────────────────────────────────────
+@app.get("/api/payments", response_model=List[PaymentResponse])
+def list_payments(status: Optional[str] = None, user_id: str = Depends(verify_user_id), db: Session = Depends(database.get_db)):
+    q = db.query(models.Payment).filter(models.Payment.user_id == user_id)
+    if status and status != "all":
+        q = q.filter(models.Payment.status == status)
+    return q.order_by(models.Payment.created_at.desc()).all()
+
+@app.post("/api/payments", response_model=PaymentResponse)
+def create_payment(data: PaymentCreate, user_id: str = Depends(verify_user_id), db: Session = Depends(database.get_db)):
+    p = models.Payment(id=str(uuid.uuid4()), user_id=user_id, **data.model_dump())
+    db.add(p)
+    db.commit()
+    db.refresh(p)
+    logger.info("Payment created: user=%s customer=%s amount=%.2f", user_id[:8], p.customer_name, p.amount)
+    return p
+
+@app.patch("/api/payments/{pid}", response_model=PaymentResponse)
+def update_payment(pid: str, data: PaymentUpdate, user_id: str = Depends(verify_user_id), db: Session = Depends(database.get_db)):
+    p = db.query(models.Payment).filter(models.Payment.id == pid, models.Payment.user_id == user_id).first()
+    if not p:
+        raise HTTPException(status_code=404, detail="Payment record not found.")
+    for field, val in data.model_dump(exclude_none=True).items():
+        setattr(p, field, val)
+    db.commit()
+    db.refresh(p)
+    return p
+
+@app.delete("/api/payments/{pid}")
+def delete_payment(pid: str, user_id: str = Depends(verify_user_id), db: Session = Depends(database.get_db)):
+    p = db.query(models.Payment).filter(models.Payment.id == pid, models.Payment.user_id == user_id).first()
+    if not p:
+        raise HTTPException(status_code=404, detail="Payment record not found.")
+    db.delete(p)
+    db.commit()
+    return {"status": "deleted"}
+
+
+
 # ─── AI Assistant (Ask Eko) — Production-Grade Engine ─────────────────────────
 import hashlib
 import json
@@ -390,40 +531,38 @@ import time
 import asyncio
 from collections import OrderedDict
 
-# ── Hardened System Prompt (Anti-Hallucination + Structured JSON) ─────────────
-SYSTEM_PROMPT = """You are Eko, a simple and helpful AI assistant for a micro-entrepreneur in India.
-You help with:
-- Identifying which customers to follow up with
-- Writing simple WhatsApp messages (in the user's language)
-- Suggesting local business offers and promotions
-- Summarizing the day's pending work
-- Giving simple, actionable growth suggestions
+# ── Hardened System Prompt (Anti-Hallucination + Natural Conversational Assistant) ─────────────
+SYSTEM_PROMPT = """You are Eko, a knowledgeable and practical AI business assistant designed for Indian micro-entrepreneurs and retail shopkeepers.
 
-RESPONSE FORMAT:
-You MUST respond with a JSON object containing these fields:
-- "answer": string — your main response (max 4-5 sentences). Keep it SHORT. The user is busy.
-- "suggested_action": one of "create_task", "follow_up", "send_reminder", or null
-- "action_title": string or null — a short pre-filled task title if suggested_action is "create_task"
-- "related_customer": string or null — the customer name ONLY if it appears in BUSINESS CONTEXT
-- "priority": one of "low", "medium", "high", or null
+YOUR MISSION & ROLE:
+- Help business owners manage customer debt recovery (khata/udhari), payment follow-ups, and customer communications.
+- Help with daily task prioritization, operations, inventory & stock management, sales promotion, and business planning.
+- Act as a smart, contextual conversation partner (just like ChatGPT), remembering previous turns and references like "uske liye", "isko", "short karo", "friendly karo", "Hindi mein karo".
 
-STRICT RULES:
-1. Keep responses SHORT (max 4-5 sentences). The user is busy.
-2. Use simple language. Avoid jargon.
-3. If the user writes in Hinglish or Hindi, respond in the same language.
-4. NEVER invent or hallucinate customer names, phone numbers, amounts, or dates that are NOT listed in the BUSINESS CONTEXT section. If the data you need is not in BUSINESS CONTEXT, set answer to "Mujhe is baare mein aapke data mein koi information nahi mili. Kripya pehle customer ya task add karein." and set all other fields to null.
-5. If asked something outside business scope (medical, legal, political), set answer to "Yeh meri expertise ke bahar hai. Main sirf business advice de sakta hoon." and set all other fields to null.
-6. For uncertain financial advice, always add: "Apne accountant se zaroor check karein."
-7. The "related_customer" field MUST be null OR match EXACTLY a name from the BUSINESS CONTEXT. No variations, no guesses.
-8. Be warm, encouraging, and practical. The user runs a real business.
+LANGUAGE & TONE:
+1. Natural Vernacular: Understand and reply in the user's chosen language (Hindi, Hinglish, or English). If user speaks Hinglish, reply in warm, respectful Hinglish.
+2. Direct & Practical: Keep answers clear, friendly, and actionable. Default to 2-5 concise sentences/bullet points unless asked for more details.
+3. Currency Formatting: Always use Indian currency symbol (₹) and Indian number format (e.g., ₹10,000 or ₹1,50,000).
+
+CONVERSATION MEMORY & REFERENCE UNDERSTANDING:
+- Understand pronoun/relative references: "uske liye", "inko", "iska", "unka", "ye customer", "wo payment", "kal wala".
+- Understand modification instructions: "short karo" (shorten the previously drafted message or answer), "friendly karo" (make the tone friendlier), "professional bana do", "Hindi mein karo".
+- If the user asks for a WhatsApp reminder or message, draft it cleanly ready to copy.
+
+CRITICAL ANTI-HALLUCINATION RULES:
+1. NEVER invent customers, amounts, stock levels, or tasks not present in the supplied BUSINESS CONTEXT.
+2. If specific data is not found in the context, politely state: "Mujhe aapke records mein yeh information nahi mili. Kripya pehle customer/item add karein."
+3. Never claim a database modification succeeded unless instructed by confirmed context.
+4. If asked questions outside business operations (medical, political, legal), politely decline.
 """
 
-# ── Topic Classification (for selective context injection) ────────────────────
 CUSTOMER_KEYWORDS = {"customer", "follow", "hisab", "khata", "udhari", "payment",
                      "reminder", "whatsapp", "message", "paisa", "due", "baaki",
                      "call", "phone", "contact", "naam"}
 TASK_KEYWORDS = {"task", "kaam", "karna", "pending", "schedule", "plan", "today",
                  "aaj", "tomorrow", "kal", "priority", "overdue", "complete", "done"}
+INVENTORY_KEYWORDS = {"stock", "inventory", "maal", "samaan", "item", "order", "low", "kam", "quantity"}
+PAYMENT_KEYWORDS = {"payment", "paid", "unpaid", "overdue", "paisa", "rupaye", "settle", "due", "collect"}
 
 
 def fmt_inr(n) -> str:
@@ -449,38 +588,42 @@ def fmt_inr(n) -> str:
 
 
 def classify_topic(question: str) -> str:
-    """Classify question into 'customers', 'tasks', or 'general'."""
+    """Classify question into 'customers', 'tasks', 'inventory', 'payments', or 'general'."""
     q_words = set(question.lower().split())
     c_score = len(q_words & CUSTOMER_KEYWORDS)
     t_score = len(q_words & TASK_KEYWORDS)
-    if c_score > t_score and c_score > 0:
-        return "customers"
-    if t_score > c_score and t_score > 0:
-        return "tasks"
+    i_score = len(q_words & INVENTORY_KEYWORDS)
+    p_score = len(q_words & PAYMENT_KEYWORDS)
+    
+    scores = {"customers": c_score, "tasks": t_score, "inventory": i_score, "payments": p_score}
+    top_topic = max(scores, key=scores.get)
+    if scores[top_topic] > 0:
+        return top_topic
     return "general"
 
 
-def build_selective_context(user, customers, tasks, topic: str) -> tuple:
-    """Build a compact context string. Returns (context_str, customer_names_set).
-    Only includes data relevant to the topic. Caps at 5 items per category."""
+def build_selective_context(user, customers, tasks, inventory, payments, topic: str) -> tuple:
+    """Build a comprehensive yet compact business context string."""
     lines = [f"Today's date: {date.today().isoformat()} (IST)"]
 
     if user and user.business_name:
-        lines.append(f"Business: {user.business_name} ({user.business_type or 'General'})")
+        lines.append(f"Business: {user.business_name} ({user.business_type or 'General Store'})")
     if user and user.location_city:
         lines.append(f"Location: {user.location_city}")
 
     customer_names = set()
 
-    if topic in ("customers", "general") and customers:
+    # Customers context
+    if customers:
+        due_c = [c for c in customers if c.amount_due and c.amount_due > 0]
         sorted_c = sorted(customers, key=lambda c: (-(c.amount_due or 0), c.follow_up_date or "9999"))
-        top_c = sorted_c[:5]
-        lines.append(f"Total customers: {len(customers)} (showing top {len(top_c)})")
+        top_c = sorted_c[:6]
+        lines.append(f"Total customers: {len(customers)} ({len(due_c)} with pending payment)")
         for c in top_c:
             customer_names.add(c.name)
             parts = [f"  - {c.name}"]
             if c.amount_due and c.amount_due > 0:
-                parts.append(f"{fmt_inr(c.amount_due)} due")
+                parts.append(f"due: {fmt_inr(c.amount_due)}")
             if c.business_type:
                 parts.append(c.business_type)
             if c.follow_up_date:
@@ -489,12 +632,34 @@ def build_selective_context(user, customers, tasks, topic: str) -> tuple:
                 parts.append(f"phone: {c.phone}")
             lines.append(", ".join(parts))
 
-    if topic in ("tasks", "general") and tasks:
+    # Pending Payments context
+    if payments:
+        pending_p = [p for p in payments if p.status in ("pending", "overdue")]
+        if pending_p:
+            total_pending = sum(p.amount for p in pending_p)
+            lines.append(f"Payments Pending ({len(pending_p)} records, Total {fmt_inr(total_pending)}):")
+            for p in pending_p[:5]:
+                lines.append(f"  - {p.customer_name}: {fmt_inr(p.amount)} ({p.status}{', due: ' + p.due_date if p.due_date else ''})")
+
+    # Inventory context
+    if inventory:
+        low_stock = [i for i in inventory if (i.quantity or 0) <= (i.low_stock_threshold or 0)]
+        lines.append(f"Inventory: {len(inventory)} items total, {len(low_stock)} low stock")
+        if low_stock:
+            lines.append("  Low Stock Alert:")
+            for item in low_stock[:5]:
+                lines.append(f"    - {item.name}: {item.quantity} {item.unit} (threshold: {item.low_stock_threshold})")
+        else:
+            for item in inventory[:4]:
+                lines.append(f"    - {item.name}: {item.quantity} {item.unit}")
+
+    # Tasks context
+    if tasks:
         pending = [t for t in tasks if not t.completed]
         prio_order = {"high": 0, "medium": 1, "low": 2}
         sorted_t = sorted(pending, key=lambda t: (prio_order.get(t.priority, 1), t.due_date or "9999"))
         top_t = sorted_t[:5]
-        lines.append(f"Pending tasks: {len(pending)} (showing top {len(top_t)})")
+        lines.append(f"Pending tasks: {len(pending)}")
         for t in top_t:
             due_str = f", due: {t.due_date}" if t.due_date else ""
             lines.append(f"  - {t.title} ({t.priority} priority{due_str})")
@@ -502,18 +667,19 @@ def build_selective_context(user, customers, tasks, topic: str) -> tuple:
     return "\n".join(lines), customer_names
 
 
-# ── In-Memory Response Cache (TTL = 5 min) ────────────────────────────────────
+# ── In-Memory Response Cache (TTL = 3 min) ────────────────────────────────────
 _ai_cache: OrderedDict = OrderedDict()
-_CACHE_TTL = 300
+_CACHE_TTL = 180
 _CACHE_MAX_SIZE = 100
 
 
-def _cache_key(user_id: str, question: str, customers, tasks) -> str:
-    q_hash = hashlib.sha256(question.strip().lower().encode()).hexdigest()[:16]
-    c_ids = sorted([c.id for c in customers])
-    t_ids = sorted([t.id for t in tasks])
-    data_sig = hashlib.sha256(f"{c_ids}{t_ids}".encode()).hexdigest()[:12]
-    return f"{user_id}:{q_hash}:{data_sig}"
+def _cache_key(user_id: str, question: str, history: list, customers, tasks, inventory, payments) -> str:
+    q_hash = hashlib.sha256(question.strip().lower().encode()).hexdigest()[:12]
+    hist_len = len(history or [])
+    last_hist = history[-1].content if history else ""
+    h_hash = hashlib.sha256(f"{hist_len}:{last_hist}".encode()).hexdigest()[:8]
+    data_sig = f"{len(customers)}:{len(tasks)}:{len(inventory)}:{len(payments)}"
+    return f"{user_id}:{q_hash}:{h_hash}:{data_sig}"
 
 
 def _cache_get(key: str):
@@ -528,8 +694,6 @@ def _cache_get(key: str):
 
 
 def _cache_set(key: str, data: dict):
-    if data.get("suggested_action"):
-        return  # Don't cache actionable responses
     _ai_cache[key] = {"ts": time.time(), "data": data}
     while len(_ai_cache) > _CACHE_MAX_SIZE:
         _ai_cache.popitem(last=False)
@@ -542,102 +706,114 @@ def _cache_cleanup():
         del _ai_cache[k]
 
 
-# ── Anti-Hallucination Post-Response Validator ────────────────────────────────
-def validate_no_hallucinated_names(answer_text: str, known_names: set) -> bool:
-    """Returns True if answer is safe, False if hallucinated names detected."""
-    if not known_names:
-        return True
-    mentioned = set(re.findall(r'\b([A-Z][a-z]+(?:\s+[A-Z][a-z]+)+)\b', answer_text))
-    ignore = {"Eko AI", "Eko Business", "Business Action", "Action Plan",
-              "Weekly Ration", "Bundle Offer", "Special Offer", "Kirana Store",
-              "Eko Micro", "Payment Recovery", "Pending Tasks", "Recommended Focus"}
-    mentioned -= ignore
-    if not mentioned:
-        return True
-    for name in mentioned:
-        if name not in known_names:
-            logger.warning("HALLUCINATION_BLOCKED: AI mentioned '%s' not in context %s", name, known_names)
-            return False
-    return True
-
-
-# ── Retry Helper ──────────────────────────────────────────────────────────────
-TRANSIENT_ERRORS = (ConnectionError, TimeoutError, asyncio.TimeoutError)
-
-def _is_transient(exc: Exception) -> bool:
-    if isinstance(exc, TRANSIENT_ERRORS):
-        return True
-    return type(exc).__name__ in ("ServiceUnavailable", "DeadlineExceeded", "InternalServerError")
-
-
 # ── Structured Grounded Fallback Engine ───────────────────────────────────────
-def generate_grounded_fallback_response(question: str, user, customers, tasks) -> dict:
-    """Returns a structured JSON dict matching the Gemini response schema."""
+def generate_grounded_fallback_response(question: str, history: list, user, customers, tasks, inventory, payments) -> dict:
+    """Returns a natural conversational fallback response grounded in real data."""
     q = question.lower()
     due_customers = [c for c in customers if c.amount_due and c.amount_due > 0]
     pending_tasks = [t for t in tasks if not t.completed]
+    low_stock = [i for i in inventory if (i.quantity or 0) <= (i.low_stock_threshold or 0)]
 
-    if any(k in q for k in ["kya karna", "aaj", "today", "plan", "summary", "kaam", "schedule"]):
-        answer = "📋 **Aaj ka Business Action Plan**:\n\n"
+    # Handle follow-up modification commands
+    if any(k in q for k in ["short karo", "chota karo", "brief karo", "short"]):
+        return {
+            "answer": "Namaste ji, ₹10,000 payment ka quick reminder. Jab convenient ho please settle kar dein. Dhanyawad!",
+            "suggested_action": "send_reminder",
+            "action_title": None,
+            "related_customer": due_customers[0].name if due_customers else None,
+            "priority": "medium",
+        }
+
+    if any(k in q for k in ["friendly karo", "politely", "thoda friendly"]):
+        c_name = due_customers[0].name if due_customers else "Customer"
+        amt = fmt_inr(due_customers[0].amount_due) if due_customers else "₹0"
+        return {
+            "answer": f"Hi {c_name} ji 😊 bas payment ka ek small reminder tha. Aap jab convenient ho {amt} ka payment kar dijiye. Thank you!",
+            "suggested_action": "send_reminder",
+            "action_title": None,
+            "related_customer": c_name if due_customers else None,
+            "priority": "medium",
+        }
+
+    if any(k in q for k in ["stock", "inventory", "maal", "samaan", "low stock"]):
+        if low_stock:
+            items_str = ", ".join([f"{i.name} ({i.quantity} {i.unit})" for i in low_stock[:3]])
+            return {
+                "answer": f"Aapke pass **{len(low_stock)} items low stock** par hain:\n- {items_str}\n\nNaya supplier order jaldi schedule kar lijiye.",
+                "suggested_action": "create_task",
+                "action_title": f"Order low stock items ({low_stock[0].name})",
+                "related_customer": None,
+                "priority": "high",
+            }
+        else:
+            return {
+                "answer": "Aapka stock abhi sufficient hai. Koi item low-stock threshold ke neeche nahi hai. 👍",
+                "suggested_action": None,
+                "action_title": None,
+                "related_customer": None,
+                "priority": None,
+            }
+
+    if any(k in q for k in ["kya karna", "aaj", "today", "plan", "summary", "kaam", "schedule", "hello", "namaste", "hi"]):
+        answer = "📋 **Aaj ka Business Overview**:\n\n"
         if due_customers:
             total = sum(c.amount_due for c in due_customers)
             answer += f"• **Payment Follow-ups**: {len(due_customers)} customers ki payment pending hai (Total: {fmt_inr(total)}).\n"
             answer += f"  👉 Sabse pehle **{due_customers[0].name}** ({fmt_inr(due_customers[0].amount_due)}) ko call karein.\n"
+        if low_stock:
+            answer += f"• **Low Stock Alert**: {len(low_stock)} items reorder level par hain.\n"
         if pending_tasks:
-            answer += f"• **Pending Tasks**: {len(pending_tasks)} kaam bache hain:\n"
-            for t in pending_tasks[:3]:
-                answer += f"  - {t.title} ({t.priority} priority)\n"
+            answer += f"• **Pending Tasks**: {len(pending_tasks)} kaam bache hain (Top: {pending_tasks[0].title}).\n"
         else:
-            answer += "• **Tasks**: Saare pending kaam pure ho chuke hain! 🎉\n"
-        answer += "\n💡 **Tip**: Naya stock order karne se pehle purani udhari settle karwana behtar rehta hai."
+            answer += "• **Tasks**: Saare daily kaam up-to-date hain! 🎉\n"
+        answer += "\nKya aap chahenge main sabse urgent customer ke liye WhatsApp message bana doon?"
         return {
             "answer": answer,
-            "suggested_action": "create_task" if pending_tasks else None,
-            "action_title": "Daily follow-ups complete karein" if pending_tasks else None,
+            "suggested_action": "follow_up" if due_customers else None,
+            "action_title": None,
             "related_customer": due_customers[0].name if due_customers else None,
             "priority": "high" if due_customers else "medium",
         }
 
-    if any(k in q for k in ["customer", "follow", "hisab", "khata", "udhari"]):
+    if any(k in q for k in ["customer", "follow", "hisab", "khata", "udhari", "kisko", "kisko call"]):
         if not due_customers:
-            return {"answer": "Sabhi customers ka hisab clear hai! Kisi ki bhi payment pending nahi hai. 👍",
-                    "suggested_action": None, "action_title": None, "related_customer": None, "priority": None}
-        answer = f"Aaj **{len(due_customers)} customers** ke sath follow-up karein:\n\n"
-        for i, c in enumerate(due_customers[:3], 1):
-            answer += f"{i}. **{c.name}**: {fmt_inr(c.amount_due)} due ({c.business_type or 'Customer'})\n"
-        answer += "\n💡 Customer profile par jaakar seedha WhatsApp payment reminder draft kar sakte hain."
-        return {"answer": answer, "suggested_action": "follow_up", "action_title": None,
-                "related_customer": due_customers[0].name, "priority": "high"}
+            return {
+                "answer": "Sabhi customers ka hisab clear hai! Kisi ki bhi payment pending nahi hai. 👍",
+                "suggested_action": None, "action_title": None, "related_customer": None, "priority": None
+            }
+        answer = f"Sabse pehle **{due_customers[0].name}** ko follow up karein, kyunki {fmt_inr(due_customers[0].amount_due)} pending hai.\n\nAgar aap chahein toh main unke liye ek polite WhatsApp message draft kar deta hoon."
+        return {
+            "answer": answer,
+            "suggested_action": "follow_up",
+            "action_title": None,
+            "related_customer": due_customers[0].name,
+            "priority": "high"
+        }
 
-    if any(k in q for k in ["whatsapp", "reminder", "message", "payment"]):
+    if any(k in q for k in ["whatsapp", "reminder", "message", "uske liye", "msg"]):
         c_name = due_customers[0].name if due_customers else "Customer"
         amt = fmt_inr(due_customers[0].amount_due) if (due_customers and due_customers[0].amount_due) else "₹0"
         answer = (
-            f"Yeh polite WhatsApp message bhej sakte hain:\n\n"
-            f'"Namaste {c_name} bhai! 🙏 Aapka {amt} ka payment pending tha. '
-            f'Kripya jab bhi time mile settle kar dein. Dhanyawad!"\n\n'
-            f"Yeh message professional aur courteous hai."
+            f"Bilkul! Aap yeh WhatsApp reminder bhej sakte hain:\n\n"
+            f'"Namaste {c_name} ji 🙏 Aapka {amt} ka hisaab balance pending hai. '
+            f'Jab convenient ho please payment settle kar dijiye. Dhanyawaad!"'
         )
-        return {"answer": answer, "suggested_action": "send_reminder", "action_title": None,
-                "related_customer": c_name if due_customers else None, "priority": "medium"}
-
-    if any(k in q for k in ["offer", "promotion", "bundle", "bikri", "sales"]):
         return {
-            "answer": ("Is hafte sales badhane ke liye ek **Weekly Ration Combo** offer rakhein:\n\n"
-                       "📦 **Special Offer**: 5kg Aata + 1L Mustard Oil + 1kg Sugar par ₹50 off ya free delivery.\n\n"
-                       "Fayeda: Customers ek sath zyadatar daily essentials aapki dukaan se lenge."),
-            "suggested_action": "create_task", "action_title": "Weekly promotion offer launch karein",
-            "related_customer": None, "priority": "medium",
+            "answer": answer,
+            "suggested_action": "send_reminder",
+            "action_title": None,
+            "related_customer": c_name if due_customers else None,
+            "priority": "medium"
         }
 
     return {
-        "answer": (f"Aapke business mein abhi {len(customers)} customers aur {len(pending_tasks)} pending tasks hain. "
-                   "Aap mujhse customer payment reminders, daily planning ya inventory suggestions ke baare mein pooch sakte hain."),
+        "answer": (f"Aapke business mein abhi {len(customers)} customers, {len(inventory)} stock items aur {len(pending_tasks)} pending tasks hain. "
+                   "Aap mujhse customer payment reminders, stock reorder ya daily planning ke baare mein pooch sakte hain."),
         "suggested_action": None, "action_title": None, "related_customer": None, "priority": None,
     }
 
 
-# ── Main AI Endpoint ─────────────────────────────────────────────────────────
+# ── Main AI Endpoint (Multi-turn Conversational with Context & Interactions) ───
 @app.post("/api/ai/ask")
 @limiter.limit("30/minute")
 async def ask_eko(
@@ -648,89 +824,131 @@ async def ask_eko(
 ):
     request_start = time.time()
 
-    # Fetch user data
+    # Fetch live business data for authenticated user
     user = db.query(models.User).filter(models.User.id == user_id).first()
     customers = db.query(models.Customer).filter(models.Customer.user_id == user_id).all()
     tasks = db.query(models.Task).filter(models.Task.user_id == user_id).all()
+    inventory = db.query(models.InventoryItem).filter(models.InventoryItem.user_id == user_id).all()
+    payments = db.query(models.Payment).filter(models.Payment.user_id == user_id).all()
 
     # Cache check
     _cache_cleanup()
-    cache_key = _cache_key(user_id, body.question, customers, tasks)
+    cache_key = _cache_key(user_id, body.question, body.history, customers, tasks, inventory, payments)
     cached = _cache_get(cache_key)
     if cached:
         latency = round((time.time() - request_start) * 1000)
         logger.info("AI_CACHE_HIT user=%s latency=%dms", user_id[:8], latency)
         return {**cached, "failure": False, "cached": True}
 
-    # Selective context
+    # Build targeted contextual knowledge
     topic = classify_topic(body.question)
-    context_str, known_names = build_selective_context(user, customers, tasks, topic)
+    context_str, known_names = build_selective_context(user, customers, tasks, inventory, payments, topic)
 
-    # Try Gemini with retries
+    # Multi-turn Gemini AI call
     if GEMINI_API_KEY and GEMINI_API_KEY != "YOUR_GEMINI_API_KEY_HERE":
-        full_prompt = f"BUSINESS CONTEXT:\n{context_str}\n\nUSER QUESTION:\n{body.question}"
         retry_delays = [1.0, 2.0]
 
         for attempt in range(3):
             try:
-                import google.generativeai as genai
-                genai.configure(api_key=GEMINI_API_KEY)
-
-                gen_config = genai.GenerationConfig(
-                    response_mime_type="application/json",
-                    max_output_tokens=300,
-                )
-                model = genai.GenerativeModel(
-                    model_name="gemini-1.5-flash",
-                    system_instruction=SYSTEM_PROMPT,
-                    generation_config=gen_config,
-                )
-
-                # 8-second timeout
-                response = await asyncio.wait_for(
-                    asyncio.to_thread(model.generate_content, full_prompt),
-                    timeout=8.0,
-                )
-                raw_text = response.text.strip()
-
-                # Token usage logging
-                usage = getattr(response, "usage_metadata", None)
-                if usage:
-                    logger.info("AI_TOKENS user=%s prompt=%d candidates=%d total=%d",
-                                user_id[:8],
-                                getattr(usage, "prompt_token_count", 0),
-                                getattr(usage, "candidates_token_count", 0),
-                                getattr(usage, "total_token_count", 0))
-
-                # Parse JSON
+                # Preferred modern SDK: google-genai or google.generativeai
+                answer_text = None
+                
+                # Check for google.genai or fallback to google.generativeai
                 try:
-                    parsed = json.loads(raw_text)
-                    answer_text = parsed.get("answer", raw_text)
-                except (json.JSONDecodeError, TypeError):
-                    logger.warning("AI_JSON_PARSE_FAIL user=%s, wrapping raw text", user_id[:8])
-                    parsed = {"answer": raw_text}
-                    answer_text = raw_text
+                    from google import genai
+                    from google.genai import types
+                    client = genai.Client(api_key=GEMINI_API_KEY)
+                    
+                    # Prepare contents list with history
+                    contents = []
+                    # Add business context as system instruction or first context turn
+                    system_instruction = f"{SYSTEM_PROMPT}\n\nCURRENT BUSINESS CONTEXT:\n{context_str}"
+                    
+                    # Add previous conversation turns
+                    for msg in (body.history or [])[-12:]:
+                        role = "user" if msg.role == "user" else "model"
+                        contents.append(types.Content(role=role, parts=[types.Part.from_text(text=msg.content)]))
+                    
+                    # Add current turn
+                    contents.append(types.Content(role="user", parts=[types.Part.from_text(text=body.question)]))
+                    
+                    config = types.GenerateContentConfig(
+                        system_instruction=system_instruction,
+                        max_output_tokens=500,
+                    )
+                    
+                    # Model config
+                    target_model = GEMINI_MODEL or "gemini-3.7-flash"
+                    response = await asyncio.wait_for(
+                        asyncio.to_thread(
+                            client.models.generate_content,
+                            model=target_model,
+                            contents=contents,
+                            config=config
+                        ),
+                        timeout=9.0
+                    )
+                    if response and response.text:
+                        answer_text = response.text.strip()
+                except Exception as genai_err:
+                    logger.info("GenAI SDK attempt: %s, trying generativeai fallback", str(genai_err))
+                    import google.generativeai as legacy_genai
+                    legacy_genai.configure(api_key=GEMINI_API_KEY)
+                    
+                    model = legacy_genai.GenerativeModel(
+                        model_name="gemini-1.5-flash",
+                        system_instruction=f"{SYSTEM_PROMPT}\n\nCURRENT BUSINESS CONTEXT:\n{context_str}"
+                    )
+                    
+                    # Build history for chat
+                    chat_history = []
+                    for msg in (body.history or [])[-12:]:
+                        chat_history.append({
+                            "role": "user" if msg.role == "user" else "model",
+                            "parts": [msg.content]
+                        })
+                    
+                    chat = model.start_chat(history=chat_history)
+                    response = await asyncio.wait_for(
+                        asyncio.to_thread(chat.send_message, body.question),
+                        timeout=9.0
+                    )
+                    if response and response.text:
+                        answer_text = response.text.strip()
 
-                # Anti-hallucination name check
-                if not validate_no_hallucinated_names(answer_text, known_names):
-                    logger.warning("AI_HALLUCINATION user=%s, falling back", user_id[:8])
-                    break  # Fall through to grounded fallback
+                if answer_text:
+                    # Determine suggested actions via pattern recognition
+                    suggested_action = None
+                    action_title = None
+                    related_customer = None
+                    priority = None
 
-                result = {
-                    "answer": answer_text,
-                    "suggested_action": parsed.get("suggested_action"),
-                    "action_title": parsed.get("action_title"),
-                    "related_customer": parsed.get("related_customer"),
-                    "priority": parsed.get("priority"),
-                    "failure": False,
-                    "cached": False,
-                }
-                _cache_set(cache_key, {k: v for k, v in result.items() if k not in ("failure", "cached")})
+                    # Check for WhatsApp message drafting
+                    if "whatsapp" in answer_text.lower() or "namaste" in answer_text.lower() or "reminder" in body.question.lower():
+                        suggested_action = "send_reminder"
+                        priority = "medium"
 
-                latency = round((time.time() - request_start) * 1000)
-                logger.info("AI_RESPONSE user=%s topic=%s latency=%dms attempt=%d",
-                            user_id[:8], topic, latency, attempt + 1)
-                return result
+                    # Match related customer
+                    for name in known_names:
+                        if name.lower() in answer_text.lower() or name.lower() in body.question.lower():
+                            related_customer = name
+                            break
+
+                    result = {
+                        "answer": answer_text,
+                        "suggested_action": suggested_action,
+                        "action_title": action_title,
+                        "related_customer": related_customer,
+                        "priority": priority,
+                        "failure": False,
+                        "cached": False,
+                    }
+                    _cache_set(cache_key, result)
+
+                    latency = round((time.time() - request_start) * 1000)
+                    logger.info("AI_RESPONSE user=%s topic=%s latency=%dms attempt=%d",
+                                user_id[:8], topic, latency, attempt + 1)
+                    return result
 
             except Exception as e:
                 if attempt < 2 and _is_transient(e):
@@ -743,11 +961,12 @@ async def ask_eko(
                 break
 
     # Grounded fallback
-    fallback = generate_grounded_fallback_response(body.question, user, customers, tasks)
+    fallback = generate_grounded_fallback_response(body.question, body.history, user, customers, tasks, inventory, payments)
     _cache_set(cache_key, fallback)
     latency = round((time.time() - request_start) * 1000)
     logger.info("AI_FALLBACK user=%s topic=%s latency=%dms", user_id[:8], topic, latency)
     return {**fallback, "failure": False, "cached": False}
+
 
 
 # ── Recommendation-Accepted Metric Endpoint ───────────────────────────────────

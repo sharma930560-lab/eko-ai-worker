@@ -234,6 +234,10 @@
                     <svg class="icon" viewBox="0 0 24 24"><path d="M17 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2"></path><circle cx="9" cy="7" r="4"></circle><path d="M23 21v-2a4 4 0 0 0-3-3.87"></path><path d="M16 3.13a4 4 0 0 1 0 7.75"></path></svg>
                     <span class="nav-label">Customers</span>
                 </button>
+                <button class="nav-item" data-tab="inventory" onclick="navigateTo('inventory')">
+                    <svg class="icon" viewBox="0 0 24 24"><path d="M21 16V8a2 2 0 0 0-1-1.73l-7-4a2 2 0 0 0-2 0l-7 4A2 2 0 0 0 3 8v8a2 2 0 0 0 1 1.73l7 4a2 2 0 0 0 2 0l7-4A2 2 0 0 0 21 16z"></path><polyline points="3.27 6.96 12 12.01 20.73 6.96"></polyline><line x1="12" y1="22.08" x2="12" y2="12"></line></svg>
+                    <span class="nav-label">Inventory</span>
+                </button>
                 <button class="nav-item" data-tab="tasks" onclick="navigateTo('tasks')">
                     <svg class="icon" viewBox="0 0 24 24"><polyline points="9 11 12 14 22 4"></polyline><path d="M21 12v7a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h11"></path></svg>
                     <span class="nav-label">Tasks</span>
@@ -302,6 +306,10 @@
             <svg class="icon" viewBox="0 0 24 24"><path d="M17 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2"></path><circle cx="9" cy="7" r="4"></circle></svg>
             <span class="nav-label">Customers</span>
         </button>
+        <button class="nav-item" data-tab="inventory" onclick="navigateTo('inventory')">
+            <svg class="icon" viewBox="0 0 24 24"><path d="M21 16V8a2 2 0 0 0-1-1.73l-7-4a2 2 0 0 0-2 0l-7 4A2 2 0 0 0 3 8v8a2 2 0 0 0 1 1.73l7 4a2 2 0 0 0 2 0l7-4A2 2 0 0 0 21 16z"></path><polyline points="3.27 6.96 12 12.01 20.73 6.96"></polyline><line x1="12" y1="22.08" x2="12" y2="12"></line></svg>
+            <span class="nav-label">Stock</span>
+        </button>
         <button class="nav-item nav-item-ai" data-tab="ai-tools" onclick="navigateTo('ai-tools')">
             <svg class="icon" viewBox="0 0 24 24"><polygon points="12 2 15.09 8.26 22 9.27 17 14.14 18.18 21.02 12 17.77 5.82 21.02 7 14.14 2 9.27 8.91 8.26 12 2"></polygon></svg>
             <span class="nav-label">AI Tools</span>
@@ -348,15 +356,17 @@
 <div id="global-toast" class="toast"></div>
 
 <!-- ── Scripts ───────────────────────────────────────────────────────────────── -->
-<script src="js/auth.js?v=14"></script>
-<script src="js/offline.js?v=14"></script>
-<script src="js/api.js?v=14"></script>
-<script src="js/screens/customers.js?v=14"></script>
-<script src="js/screens/tasks.js?v=14"></script>
-<script src="js/screens/notes.js?v=14"></script>
-<script src="js/screens/ask-eko.js?v=14"></script>
-<script src="js/screens/ai-tools.js?v=14"></script>
-<script src="js/app.js?v=14"></script>
+<script src="js/auth.js?v=15"></script>
+<script src="js/offline.js?v=15"></script>
+<script src="js/api.js?v=15"></script>
+<script src="js/screens/customers.js?v=15"></script>
+<script src="js/screens/inventory.js?v=15"></script>
+<script src="js/screens/tasks.js?v=15"></script>
+<script src="js/screens/notes.js?v=15"></script>
+<script src="js/screens/ask-eko.js?v=15"></script>
+<script src="js/screens/ai-tools.js?v=15"></script>
+<script src="js/app.js?v=15"></script>
+
 
 
 <script>

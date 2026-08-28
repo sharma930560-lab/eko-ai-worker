@@ -4,10 +4,12 @@
  */
 
 const QUICK_PROMPTS = [
-    { label: 'Follow-ups today?', q: 'Which customers should I follow up with today?' },
-    { label: 'Payment reminder', q: 'Write a polite WhatsApp message for Ramesh Kumar who has an outstanding payment of 3500.' },
-    { label: 'Weekly promotion', q: 'Suggest a high-margin weekly ration bundle or offer for my store.' },
-    { label: 'Daily plan summary', q: 'Summarize my pending tasks and priorities for today.' },
+    { label: 'Follow-ups today?', q: 'Kaunse customer ko aaj follow up karna chahiye?' },
+    { label: 'Pending payment', q: 'Kiska payment sabse zyada pending hai?' },
+    { label: 'Low stock check', q: 'Kaunsa stock kam hai?' },
+    { label: 'WhatsApp reminder', q: 'Customer ke liye polite payment reminder message bana do.' },
+    { label: 'Daily business plan', q: 'Aaj ke business priorities aur action plan bata do.' },
+    { label: 'Growth tip', q: 'Aaj ke liye ek practical business improvement tip do.' },
 ];
 
 let chatHistory = [];
@@ -30,7 +32,7 @@ function renderAskEkoScreen() {
 
         <!-- Input Row -->
         <div class="chat-input-row">
-            <input type="text" id="eko-input" class="chat-input" placeholder="Kuch bhi puchho... (Ask anything about your business)" onkeydown="if(event.key==='Enter') sendToEko()">
+            <input type="text" id="eko-input" class="chat-input" placeholder="Kuch bhi puchho... (e.g. 'Aaj kya karu?', 'Uske liye message bana do', 'Short karo')" onkeydown="if(event.key==='Enter') sendToEko()">
             <button class="chat-send-btn" onclick="sendToEko()" id="eko-send" title="Send Question">
                 <svg class="icon" viewBox="0 0 24 24"><line x1="22" y1="2" x2="11" y2="13"></line><polygon points="22 2 15 22 11 13 2 9 22 2"></polygon></svg>
             </button>
@@ -43,15 +45,16 @@ function loadAskEko() {
         chatHistory = [
             {
                 role: 'eko',
+                raw_answer: "Namaste! Main Eko hoon — aapka AI business assistant. Aap mujhse customer follow-ups, payment reminders, stock planning ya daily summary ke baare mein pooch sakte hain.",
                 html: `
                     <div style="display:flex; align-items:center; gap:8px; margin-bottom:8px;">
                         <span class="ai-header-badge">
                             <svg class="icon icon-sm" viewBox="0 0 24 24"><rect x="3" y="11" width="18" height="10" rx="2"></rect><circle cx="12" cy="5" r="2"></circle><path d="M12 7v4"></path></svg>
-                            <span>Eko Business Assistant</span>
+                            <span>Eko Business Assistant (Multi-turn AI)</span>
                         </span>
                     </div>
                     <strong>Namaste! Main Eko hoon — aapka AI business assistant.</strong><br>
-                    Aap mujhse customer follow-ups, payment reminders, stock planning ya daily summary ke baare mein pooch sakte hain.
+                    Aap mujhse customer follow-ups, payment reminders, stock planning ya daily summary ke baare mein pooch sakte hain. Follow-up instruction jaise <em>"Uske liye message bana do"</em> ya <em>"Short karo"</em> bhi bol sakte hain!
                 `
             }
         ];
@@ -143,24 +146,6 @@ function renderAiActionCard(msg, idx) {
         </div>`;
     }
 
-    if (action === 'select_customer') {
-        return `
-        <div style="margin-top:12px; padding:12px 14px; background:rgba(220, 38, 38, 0.04); border:1px solid rgba(220, 38, 38, 0.2); border-radius:var(--radius-md); display:flex; flex-direction:column; gap:8px;">
-            <div style="font-weight:700; font-size:0.84rem; color:var(--danger); display:flex; align-items:center; gap:6px;">
-                <svg class="icon icon-sm" viewBox="0 0 24 24"><circle cx="12" cy="12" r="10"></circle><line x1="12" y1="8" x2="12" y2="12"></line><line x1="12" y1="16" x2="12.01" y2="16"></line></svg>
-                <span>Information Missing</span>
-            </div>
-            <div style="display:flex; gap:8px; margin-top:4px;">
-                <button class="btn-primary" style="font-size:0.8rem; padding:6px 14px; background:var(--text-main); border-color:var(--text-main);" onclick="navigateTo('customers')">
-                    <span>Select Customer</span>
-                </button>
-                <button class="btn-ghost" style="font-size:0.8rem; padding:6px 14px;" onclick="showToast('Action cancelled')">
-                    <span>Cancel</span>
-                </button>
-            </div>
-        </div>`;
-    }
-
     return '';
 }
 
@@ -207,12 +192,11 @@ function executeAiViewCustomer(customerName) {
 
 function extractCleanWhatsAppMessage(rawText) {
     if (!rawText) return '';
-    // Look for quoted message inside "..." or “...” or &quot;...&quot;
+    // Look for quoted message inside "..." or “...”
     const quoteMatch = rawText.match(/(?:&quot;|["“])([^"”&]+)(?:&quot;|["”])/);
     if (quoteMatch && quoteMatch[1].trim().length > 10) {
         return quoteMatch[1].trim();
     }
-    // Clean preamble and suffix if quotes are not found
     let text = rawText.replace(/<[^>]+>/g, '').trim();
     text = text.replace(/^[\s\S]*?(?:message bhej sakte hain|message hai|reminder:?)\s*[:：]?\s*/i, '');
     text = text.replace(/Yeh message (?:professional|courteous|polite)[\s\S]*$/i, '').trim();
@@ -259,8 +243,21 @@ async function sendToEko() {
 
     input.value = '';
 
-    // Add user message
-    chatHistory.push({ role: 'user', html: escapeHtml(question) });
+    // Build structured conversation history payload (excluding loading/errors)
+    const historyPayload = chatHistory
+        .filter(m => !m.isLoading && !m.failure && m.raw_answer)
+        .slice(-10)
+        .map(m => ({
+            role: m.role === 'user' ? 'user' : 'model',
+            content: m.raw_answer
+        }));
+
+    // Add user message to UI
+    chatHistory.push({
+        role: 'user',
+        raw_answer: question,
+        html: escapeHtml(question)
+    });
     renderChatHistory();
 
     const sendBtn = document.getElementById('eko-send');
@@ -270,7 +267,8 @@ async function sendToEko() {
     if (!navigator.onLine) {
         chatHistory.push({
             role: 'eko',
-            html: `Internet connection nahi hai abhi. 📵<br>Aapka data device mein safe hai. Online aate hi Eko dobara active ho jayega.`,
+            raw_answer: 'Internet connection nahi hai abhi.',
+            html: `Internet connection nahi hai abhi. 📵<br>Aapka business data device mein safe hai. Online aate hi Eko dobara active ho jayega.`,
             failure: true,
         });
         renderChatHistory();
@@ -294,7 +292,7 @@ async function sendToEko() {
         if (isDemoMode) {
             result = await simulateDemoAI(question);
         } else {
-            result = await api.askEko(question);
+            result = await api.askEko(question, historyPayload);
         }
 
         // Remove loading state
@@ -323,6 +321,7 @@ async function sendToEko() {
         chatHistory = chatHistory.filter(m => !m.isLoading);
         chatHistory.push({
             role: 'eko',
+            raw_answer: 'Error: Technical problem',
             html: `Kuch technical samasya aa gayi. Kripya thodi der baad koshish karein. 🔄`,
             failure: true,
         });
@@ -331,6 +330,7 @@ async function sendToEko() {
     renderChatHistory();
     if (sendBtn) sendBtn.disabled = false;
 }
+
 
 function formatAiResponse(text) {
     if (!text) return '';

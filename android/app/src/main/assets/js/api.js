@@ -125,8 +125,25 @@ const api = {
     createOffer: (data) => apiRequest('POST', '/api/offers', data),
     deleteOffer: (id) => apiRequest('DELETE', `/api/offers/${id}`),
 
-    // AI Superpowers
-    askEko: (question) => apiRequest('POST', '/api/ai/ask', { question }),
+    // Inventory
+    getInventory: () => apiRequest('GET', '/api/inventory'),
+    getLowStock: () => apiRequest('GET', '/api/inventory/low-stock'),
+    createInventoryItem: (data) => apiRequest('POST', '/api/inventory', data),
+    updateInventoryItem: (id, data) => apiRequest('PATCH', `/api/inventory/${id}`, data),
+    deleteInventoryItem: (id) => apiRequest('DELETE', `/api/inventory/${id}`),
+
+    // Payments
+    getPayments: (status = null) => apiRequest('GET', `/api/payments${status ? '?status=' + encodeURIComponent(status) : ''}`),
+    createPayment: (data) => apiRequest('POST', '/api/payments', data),
+    updatePayment: (id, data) => apiRequest('PATCH', `/api/payments/${id}`, data),
+    deletePayment: (id) => apiRequest('DELETE', `/api/payments/${id}`),
+
+    // AI Superpowers & Multi-turn Conversational Assistant
+    askEko: (question, history = [], conversationId = null) => apiRequest('POST', '/api/ai/ask', {
+        question,
+        history,
+        conversation_id: conversationId
+    }),
     logActionTaken: (action, source_question = null) => apiRequest('POST', '/api/ai/action-taken', { action, source_question }).catch(() => {}),
     scanBill: (data) => apiRequest('POST', '/api/ai/scan-bill', data),
     voiceParse: (data) => apiRequest('POST', '/api/ai/voice-parse', data),
@@ -134,6 +151,7 @@ const api = {
     getCreditScore: (data) => apiRequest('POST', '/api/ai/credit-score', data),
     generateFlyer: (data) => apiRequest('POST', '/api/ai/generate-flyer', data),
 };
+
 
 
 

@@ -76,3 +76,45 @@ class Offer(Base):
     valid_until = Column(String, nullable=True)
     active = Column(Boolean, default=True)
     created_at = Column(DateTime(timezone=True), server_default=func.now())
+
+
+class InventoryItem(Base):
+    __tablename__ = "inventory"
+
+    id = Column(String, primary_key=True, default=new_id)
+    user_id = Column(String, index=True, nullable=False)
+    name = Column(String, nullable=False)
+    quantity = Column(Float, default=0.0)
+    unit = Column(String, default="units")  # kg, L, packets, pieces, etc.
+    low_stock_threshold = Column(Float, default=5.0)
+    price = Column(Float, nullable=True)
+    created_at = Column(DateTime(timezone=True), server_default=func.now())
+    updated_at = Column(DateTime(timezone=True), onupdate=func.now())
+
+
+class Payment(Base):
+    __tablename__ = "payments"
+
+    id = Column(String, primary_key=True, default=new_id)
+    user_id = Column(String, index=True, nullable=False)
+    customer_id = Column(String, nullable=True)
+    customer_name = Column(String, nullable=False)
+    amount = Column(Float, nullable=False)
+    status = Column(String, default="pending")  # pending | paid | overdue
+    due_date = Column(String, nullable=True)
+    paid_date = Column(String, nullable=True)
+    notes = Column(Text, nullable=True)
+    created_at = Column(DateTime(timezone=True), server_default=func.now())
+
+
+class Conversation(Base):
+    __tablename__ = "conversations"
+
+    id = Column(String, primary_key=True, default=new_id)
+    user_id = Column(String, index=True, nullable=False)
+    title = Column(String, default="Business Chat")
+    provider = Column(String, default="gemini")
+    latest_interaction_id = Column(String, nullable=True)
+    created_at = Column(DateTime(timezone=True), server_default=func.now())
+    updated_at = Column(DateTime(timezone=True), onupdate=func.now())
+
