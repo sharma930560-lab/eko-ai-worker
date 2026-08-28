@@ -537,30 +537,41 @@ import time
 import asyncio
 from collections import OrderedDict
 
-# ── Hardened System Prompt (Anti-Hallucination + Natural Conversational Assistant) ─────────────
-SYSTEM_PROMPT = """You are Eko, a knowledgeable and practical AI business assistant designed for Indian micro-entrepreneurs and retail shopkeepers.
+# ── Hardened Eko Master Brain System Prompt (Business Partner Engine) ─────────
+SYSTEM_PROMPT = """You are Eko.
+You are the user's intelligent, practical, proactive business partner for micro-entrepreneurs, small retailers, and Kirana shopkeepers in India.
 
-YOUR MISSION & ROLE:
-- Help business owners manage customer debt recovery (khata/udhari), payment follow-ups, and customer communications.
-- Help with daily task prioritization, operations, inventory & stock management, sales promotion, and business planning.
-- Act as a smart, contextual conversation partner (just like ChatGPT), remembering previous turns and references like "uske liye", "isko", "short karo", "friendly karo", "Hindi mein karo".
+YOUR CORE PHILOSOPHY & REASONING:
+Always think in this strict cycle:
+UNDERSTAND → ANALYZE → PRIORITIZE → RECOMMEND → EXPLAIN WHY → ASK IF NEEDED → ACT IF AUTHORIZED
+
+You are NOT a passive chatbot, FAQ bot, or generic assistant.
+Your goal is to help the business owner make optimal decisions about:
+1. What should I do right now / today? (Prioritized daily action plan)
+2. What should I do first? Which customer should I contact/call? Who owes money?
+3. What should I avoid? (e.g. blind large stock orders, excessive credit)
+4. What stock should I reorder or hold?
+5. What business risks or profit opportunities exist in actual data?
+6. Ready-to-send customer WhatsApp communication (polite, professional, or firm).
 
 LANGUAGE & TONE:
-1. Natural Vernacular: Understand and reply in the user's chosen language (Hindi, Hinglish, or English). If user speaks Hinglish, reply in warm, respectful Hinglish.
-2. Direct & Practical: Keep answers clear, friendly, and actionable. Default to 2-5 concise sentences/bullet points unless asked for more details.
-3. Currency Formatting: Always use Indian currency symbol (₹) and Indian number format (e.g., ₹10,000 or ₹1,50,000).
+- Natural Vernacular: Automatically detect Hindi, Hinglish, or English. If the user speaks Hinglish, reply naturally in respectful, warm, crisp Hinglish.
+- Practical, concise, friendly, and honest. Avoid generic MBA jargon or buzzwords.
+- Currency Formatting: Always use Indian Rupee symbol (₹) and Indian number format (e.g. ₹10,000, ₹1,50,000).
 
-CONVERSATION MEMORY & REFERENCE UNDERSTANDING:
-- Understand pronoun/relative references: "uske liye", "inko", "iska", "unka", "ye customer", "wo payment", "kal wala".
-- Understand modification instructions: "short karo" (shorten the previously drafted message or answer), "friendly karo" (make the tone friendlier), "professional bana do", "Hindi mein karo".
-- If the user asks for a WhatsApp reminder or message, draft it cleanly ready to copy.
-
-CRITICAL ANTI-HALLUCINATION RULES:
-1. NEVER invent customers, amounts, stock levels, or tasks not present in the supplied BUSINESS CONTEXT.
-2. If specific data is not found in the context, politely state: "Mujhe aapke records mein yeh information nahi mili. Kripya pehle customer/item add karein."
-3. Never claim a database modification succeeded unless instructed by confirmed context.
-4. If asked questions outside business operations (medical, political, legal), politely decline.
+CRITICAL BUSINESS RULES & CONSTRAINTS:
+1. STRICT ANTI-HALLUCINATION: Never invent customers, payments, amounts, inventory quantities, or dates not present in the supplied BUSINESS CONTEXT. If data is missing, say: "Iska exact answer dene ke liye mere paas abhi enough data nahi hai." Then ask the single most useful question.
+2. BUSINESS PARTNER HONESTY (DON'T BLINDLY AGREE): If an owner suggests a risky decision (e.g. "100 pieces order kar du?"), advise checking current stock, weekly sales velocity, and delivery lead time before ordering.
+3. PROACTIVE ADAPTIVE QUESTIONING: When crucial info is missing to make a recommendation, ask ONE concise, useful question at a time.
+4. EXPLAIN 'WHY': Always explain the rationale behind recommendations (e.g. "Paras ko pehle call karo because ₹10,000 pending hai aur follow-up due hai.").
+5. "OR?" / "AUR?" HANDLING: When the user asks "or?", "aur?", "phir?", "ab?", interpret it as "Iske alawa aur kya useful suggestion hai?" and give the next highest-priority recommendation.
+6. CONVERSATION MEMORY: Resolve references like "usko", "inko", "uska", "ye customer", "kal wala" using previous conversation turns.
+7. ACTION VS RECOMMENDATION: Clearly distinguish recommendations from completed actions. Never claim an action happened unless confirmed.
+8. SUGGESTION FORMATTING:
+   - When suggesting actions, prioritize: 🔴 HIGH, 🟠 MEDIUM, 🟢 LOW.
+   - End actionable advice with "👉 Next Step: ..."
 """
+
 
 CUSTOMER_KEYWORDS = {"customer", "follow", "hisab", "khata", "udhari", "payment",
                      "reminder", "whatsapp", "message", "paisa", "due", "baaki",
@@ -758,42 +769,105 @@ def sanitize_gemini_history(raw_history: List[ConversationMessage]) -> List[dict
     return clean[-10:]
 
 
-# ── Structured Grounded Fallback Engine ───────────────────────────────────────
+# ── Structured Grounded Business Partner Engine ───────────────────────────────
 def generate_grounded_fallback_response(question: str, history: list, user, customers, tasks, inventory, payments) -> dict:
-    """Returns a natural conversational fallback response grounded in real data."""
-    q = question.lower()
+    """Returns a natural conversational business partner response grounded in real data."""
+    q = question.lower().strip()
     due_customers = [c for c in customers if c.amount_due and c.amount_due > 0]
+    sorted_due = sorted(due_customers, key=lambda c: -(c.amount_due or 0))
     pending_tasks = [t for t in tasks if not t.completed]
     low_stock = [i for i in inventory if (i.quantity or 0) <= (i.low_stock_threshold or 0)]
 
-    # Handle follow-up modification commands
+    # 1. Handle follow-up modification commands
     if any(k in q for k in ["short karo", "chota karo", "brief karo", "short"]):
-        c_name = due_customers[0].name if due_customers else "Customer"
-        amt = fmt_inr(due_customers[0].amount_due) if due_customers else "₹0"
+        c_name = sorted_due[0].name if sorted_due else "Customer"
+        amt = fmt_inr(sorted_due[0].amount_due) if sorted_due else "₹0"
         return {
             "answer": f"Namaste {c_name} ji 🙏 {amt} hisaab clear kar dein please. Dhanyawad!",
             "suggested_action": "send_reminder",
             "action_title": None,
-            "related_customer": c_name if due_customers else None,
+            "related_customer": c_name if sorted_due else None,
             "priority": "medium",
         }
 
     if any(k in q for k in ["friendly karo", "politely", "thoda friendly"]):
-        c_name = due_customers[0].name if due_customers else "Customer"
-        amt = fmt_inr(due_customers[0].amount_due) if due_customers else "₹0"
+        c_name = sorted_due[0].name if sorted_due else "Customer"
+        amt = fmt_inr(sorted_due[0].amount_due) if sorted_due else "₹0"
         return {
             "answer": f"Hi {c_name} ji 😊 bas payment ka ek small reminder tha. Aap jab convenient ho {amt} ka payment kar dijiye. Thank you!",
             "suggested_action": "send_reminder",
             "action_title": None,
-            "related_customer": c_name if due_customers else None,
+            "related_customer": c_name if sorted_due else None,
             "priority": "medium",
+        }
+
+    # 2. Handle "Or?" / "Aur?" / "Phir?" / "Ab?" continuation
+    if q in ["or?", "aur?", "or", "aur", "phir?", "phir", "ab?", "ab", "next?"]:
+        if low_stock:
+            item = low_stock[0]
+            return {
+                "answer": f"💡 **Next Priority Recommendation**:\n\n📦 **Low Stock Reorder**: **{item.name}** ka stock sirf {item.quantity} {item.unit} bacha hai (Threshold: {item.low_stock_threshold}).\n\n👉 **Next Step**: Supplier ko reorder request bhejein.",
+                "suggested_action": "create_task",
+                "action_title": f"Reorder low stock: {item.name}",
+                "related_customer": None,
+                "priority": "high"
+            }
+        elif pending_tasks:
+            t = pending_tasks[0]
+            return {
+                "answer": f"💡 **Next Priority Recommendation**:\n\n📋 **Pending Task**: **{t.title}** scheduled hai.\n\n👉 **Next Step**: Is task ko aaj complete karein.",
+                "suggested_action": "create_task",
+                "action_title": t.title,
+                "related_customer": None,
+                "priority": "medium"
+            }
+        else:
+            return {
+                "answer": "💡 **Business Advice**: Saari urgent payments aur tasks up-to-date hain! Aaj regular customers ko special discount offer dekar sales badha sakte hain.",
+                "suggested_action": None, "action_title": None, "related_customer": None, "priority": "low"
+            }
+
+    # 3. Handle Risk Queries ("Sabse bada risk kya hai?")
+    if any(k in q for k in ["risk", "khatra", "nuksan", "bada risk"]):
+        if sorted_due:
+            top_c = sorted_due[0]
+            total_due = sum(c.amount_due for c in sorted_due)
+            return {
+                "answer": f"⚠️ **Sabse Bada Business Risk**:\n\n🔴 **High Outstanding Credit**: Total {fmt_inr(total_due)} market mein phasa hai. Sabse zyada **{top_c.name}** ({fmt_inr(top_c.amount_due)}) ke paas pending hai.\n\n👉 **Next Step**: {top_c.name} ko call karein aur payment date confirm karein.",
+                "suggested_action": "follow_up",
+                "action_title": f"Follow up with {top_c.name}",
+                "related_customer": top_c.name,
+                "priority": "high"
+            }
+        elif low_stock:
+            return {
+                "answer": f"⚠️ **Stock Out Risk**: {len(low_stock)} items critical low level par hain ({low_stock[0].name}). Stock khatam hone par customers laut sakte hain.",
+                "suggested_action": "create_task",
+                "action_title": f"Reorder {low_stock[0].name}",
+                "related_customer": None,
+                "priority": "high"
+            }
+        else:
+            return {
+                "answer": "Aapke business mein koi critical payment ya stock risk detect nahi hua hai. Cash flow stable hai. 👍",
+                "suggested_action": None, "action_title": None, "related_customer": None, "priority": None
+            }
+
+    # 4. Handle Stock Questions & Proactive Questioning (e.g. "Stock order karu?")
+    if any(k in q for k in ["stock order karu", "order kar du", "pieces order", "maal mangu", "kitna order karu"]):
+        return {
+            "answer": "Main abhi blindly large stock order karne ki recommendation nahi dunga.\n\nPehle yeh check karna better hoga: Is product ka **current stock** kitna bacha hai aur **average weekly sales** kitni hai?",
+            "suggested_action": None,
+            "action_title": None,
+            "related_customer": None,
+            "priority": "medium"
         }
 
     if any(k in q for k in ["stock", "inventory", "maal", "samaan", "low stock"]):
         if low_stock:
             items_str = ", ".join([f"{i.name} ({i.quantity} {i.unit})" for i in low_stock[:3]])
             return {
-                "answer": f"Aapke pass **{len(low_stock)} items low stock** par hain:\n- {items_str}\n\nNaya supplier order jaldi schedule kar lijiye.",
+                "answer": f"📦 **Inventory Alert**:\n\nAapke pass **{len(low_stock)} items low stock** par hain:\n- {items_str}\n\n👉 **Next Step**: Supplier se reorder schedule karein.",
                 "suggested_action": "create_task",
                 "action_title": f"Order low stock items ({low_stock[0].name})",
                 "related_customer": None,
@@ -802,51 +876,73 @@ def generate_grounded_fallback_response(question: str, history: list, user, cust
         else:
             return {
                 "answer": "Aapka stock abhi sufficient hai. Koi item low-stock threshold ke neeche nahi hai. 👍",
-                "suggested_action": None,
-                "action_title": None,
-                "related_customer": None,
-                "priority": None,
+                "suggested_action": None, "action_title": None, "related_customer": None, "priority": None
             }
 
-    if any(k in q for k in ["kya karna", "aaj", "today", "plan", "summary", "kaam", "schedule", "hello", "namaste", "hi"]):
-        answer = "📋 **Aaj ka Business Overview**:\n\n"
-        if due_customers:
-            total = sum(c.amount_due for c in due_customers)
-            answer += f"• **Payment Follow-ups**: {len(due_customers)} customers ki payment pending hai (Total: {fmt_inr(total)}).\n"
-            answer += f"  👉 Sabse pehle **{due_customers[0].name}** ({fmt_inr(due_customers[0].amount_due)}) ko call karein.\n"
-        if low_stock:
-            answer += f"• **Low Stock Alert**: {len(low_stock)} items reorder level par hain.\n"
-        if pending_tasks:
-            answer += f"• **Pending Tasks**: {len(pending_tasks)} kaam bache hain (Top: {pending_tasks[0].title}).\n"
-        else:
-            answer += "• **Tasks**: Saare daily kaam up-to-date hain! 🎉\n"
-        answer += "\nKya aap chahenge main sabse urgent customer ke liye WhatsApp message bana doon?"
+    # 5. Handle Sales Improvement Queries ("Sales badhani hai")
+    if any(k in q for k in ["sales badhani", "bikri badhani", "growth", "sale kaise", "sales improve"]):
         return {
-            "answer": answer,
-            "suggested_action": "follow_up" if due_customers else None,
-            "action_title": None,
-            "related_customer": due_customers[0].name if due_customers else None,
-            "priority": "high" if due_customers else "medium",
+            "answer": "📈 **Sales Growth Strategy**:\n\nAap abhi kis specific area par focus karna chahte hain?\n1. **Repeat Customers** (purane regular grahakon ko offer bhejna)\n2. **Weekly Ration Bundle** (fast-moving combo discounts)\n3. **New Customer Outreach** (nearby areas mein promotional flyers)",
+            "suggested_action": "create_task",
+            "action_title": "Weekly promotional offer create karein",
+            "related_customer": None,
+            "priority": "medium"
         }
 
-    if any(k in q for k in ["customer", "follow", "hisab", "khata", "udhari", "kisko", "kisko call"]):
-        if not due_customers:
+    # 6. Handle Payment Promises ("kal payment karega", "parso dega")
+    if any(k in q for k in ["kal payment", "parso payment", "dega", "promise kiya", "date di"]):
+        c_name = sorted_due[0].name if sorted_due else "Customer"
+        return {
+            "answer": f"Theek hai! Main note kar leta hoon ki **{c_name}** kal payment karne wale hain. Agar aap chahein toh main kal subah ke liye ek follow-up reminder task add kar deta hoon.",
+            "suggested_action": "create_task",
+            "action_title": f"Payment follow-up with {c_name}",
+            "related_customer": c_name,
+            "priority": "medium"
+        }
+
+    # 7. Handle Daily Plan ("Aaj kya karu?", "Kya karu?")
+    if any(k in q for k in ["kya karu", "kya karna", "aaj", "today", "plan", "summary", "kaam", "schedule", "hello", "namaste", "hi"]):
+        answer = "📅 **Aaj ka Action Plan**:\n\n"
+        if sorted_due:
+            total = sum(c.amount_due for c in sorted_due)
+            answer += f"🔴 **1. Highest Priority**: **{sorted_due[0].name}** ({fmt_inr(sorted_due[0].amount_due)}) ko payment ke liye call karein.\n"
+        if low_stock:
+            answer += f"🟠 **2. Inventory Reorder**: {low_stock[0].name} reorder level par hai.\n"
+        if pending_tasks:
+            answer += f"🟢 **3. Daily Task**: {pending_tasks[0].title}\n"
+        else:
+            answer += "🟢 **3. Tasks**: Saare daily routine kaam complete hain! 🎉\n"
+        
+        answer += "\n👉 **Next Step**: Kya aap chahenge main sabse urgent customer ke liye ready WhatsApp message bana doon?"
+        return {
+            "answer": answer,
+            "suggested_action": "follow_up" if sorted_due else None,
+            "action_title": None,
+            "related_customer": sorted_due[0].name if sorted_due else None,
+            "priority": "high" if sorted_due else "medium",
+        }
+
+    # 8. Handle Customer Prioritization ("Kisko call karu?")
+    if any(k in q for k in ["kisko call", "kisko phone", "kiska payment", "customer", "khata", "udhari"]):
+        if not sorted_due:
             return {
                 "answer": "Sabhi customers ka hisab clear hai! Kisi ki bhi payment pending nahi hai. 👍",
                 "suggested_action": None, "action_title": None, "related_customer": None, "priority": None
             }
-        answer = f"Sabse pehle **{due_customers[0].name}** ko follow up karein, kyunki {fmt_inr(due_customers[0].amount_due)} pending hai.\n\nAgar aap chahein toh main unke liye ek polite WhatsApp message draft kar deta hoon."
+        top_c = sorted_due[0]
+        answer = f"🔴 Sabse pehle **{top_c.name}** ko call karein, kyunki unka **{fmt_inr(top_c.amount_due)}** pending hai aur follow-up due hai.\n\n👉 **Next Step**: Unhe WhatsApp reminder bhejein ya profile check karein."
         return {
             "answer": answer,
             "suggested_action": "follow_up",
             "action_title": None,
-            "related_customer": due_customers[0].name,
+            "related_customer": top_c.name,
             "priority": "high"
         }
 
-    if any(k in q for k in ["whatsapp", "reminder", "message", "uske liye", "msg"]):
-        c_name = due_customers[0].name if due_customers else "Customer"
-        amt = fmt_inr(due_customers[0].amount_due) if (due_customers and due_customers[0].amount_due) else "₹0"
+    # 9. Handle Message Drafts ("Inko kya bolu?", "WhatsApp message")
+    if any(k in q for k in ["whatsapp", "reminder", "message", "uske liye", "inko kya bolu", "kya bolu", "msg"]):
+        c_name = sorted_due[0].name if sorted_due else "Customer"
+        amt = fmt_inr(sorted_due[0].amount_due) if (sorted_due and sorted_due[0].amount_due) else "₹0"
         answer = (
             f"Bilkul! Aap yeh WhatsApp reminder bhej sakte hain:\n\n"
             f'"Namaste {c_name} ji 🙏 Aapka {amt} ka hisaab balance pending hai. '
@@ -856,7 +952,7 @@ def generate_grounded_fallback_response(question: str, history: list, user, cust
             "answer": answer,
             "suggested_action": "send_reminder",
             "action_title": None,
-            "related_customer": c_name if due_customers else None,
+            "related_customer": c_name if sorted_due else None,
             "priority": "medium"
         }
 
@@ -865,6 +961,7 @@ def generate_grounded_fallback_response(question: str, history: list, user, cust
                    "Aap mujhse customer payment reminders, stock reorder ya daily planning ke baare mein pooch sakte hain."),
         "suggested_action": None, "action_title": None, "related_customer": None, "priority": None,
     }
+
 
 
 # ── Main AI Endpoint (Multi-turn Conversational with Context & Live Gemini) ───

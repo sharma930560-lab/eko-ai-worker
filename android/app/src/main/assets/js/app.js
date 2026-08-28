@@ -310,6 +310,18 @@ function renderHomeScreen() {
             </button>
         </div>
 
+        <!-- Eko Actionable Suggestions Widget (Part 23) -->
+        <div class="section-header" style="margin-top:10px;">
+            <div style="display:flex; align-items:center; gap:8px;">
+                <span class="ai-header-badge">Live Intelligence</span>
+                <h2 class="section-title" style="margin:0;">💡 Eko Suggestions</h2>
+            </div>
+            <button class="btn-ghost" style="padding:4px 10px; font-size:0.8rem;" onclick="navigateTo('ask-eko')">Ask AI Partner →</button>
+        </div>
+        <div id="home-eko-suggestions" style="display:grid; grid-template-columns:repeat(auto-fit, minmax(280px, 1fr)); gap:12px; margin-bottom:18px;">
+            <div class="loading-state" style="padding:16px;"><div class="spinner"></div></div>
+        </div>
+
         <!-- Quick Actions -->
         <div class="section-header">
             <h2 class="section-title">${t.quickActions}</h2>
@@ -387,6 +399,87 @@ async function loadHomeScreen() {
         if (cEl) cEl.textContent = customers.length;
         if (tEl) tEl.textContent = pending.length;
         if (fEl) fEl.textContent = followups.length;
+
+        // Render Dynamic Eko Suggestions (Part 23)
+        const suggestionsEl = document.getElementById('home-eko-suggestions');
+        if (suggestionsEl) {
+            const suggestionCards = [];
+
+            if (followups.length > 0) {
+                const topC = followups[0];
+                const amtStr = topC.amount_due ? `₹${topC.amount_due.toLocaleString('en-IN')}` : 'Credit';
+                suggestionCards.push(`
+                    <div style="background:var(--surface); border:1px solid rgba(220, 38, 38, 0.25); border-left:4px solid var(--danger); border-radius:var(--radius-md); padding:14px; box-shadow:var(--shadow-xs); display:flex; flex-direction:column; justify-content:space-between; gap:10px;">
+                        <div>
+                            <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:4px;">
+                                <span style="font-size:0.75rem; font-weight:800; color:var(--danger); text-transform:uppercase;">🔴 Payment Follow-Up</span>
+                                <span class="badge badge-danger" style="font-size:0.7rem;">High Priority</span>
+                            </div>
+                            <div style="font-weight:700; font-size:0.95rem; color:var(--text-main);">${escapeHtml(topC.name)}</div>
+                            <div style="font-size:0.85rem; color:var(--text-muted); margin-top:2px;"><strong>${amtStr}</strong> pending settlement. Follow-up is due.</div>
+                        </div>
+                        <div style="display:flex; gap:8px; justify-content:flex-end;">
+                            ${topC.phone ? `<a href="tel:${topC.phone}" class="btn-secondary" style="font-size:0.78rem; padding:5px 12px; text-decoration:none;">📞 Call</a>` : ''}
+                            <button class="btn-primary" style="font-size:0.78rem; padding:5px 14px;" onclick="navigateTo('ask-eko'); setTimeout(() => { const inp = document.getElementById('eko-input'); if(inp) { inp.value = '${escapeHtml(topC.name)} ke liye polite payment reminder bana do'; sendToEko(); } }, 200);">
+                                💬 Reminder
+                            </button>
+                        </div>
+                    </div>
+                `);
+            }
+
+            if (lowStock.length > 0) {
+                const topItem = lowStock[0];
+                suggestionCards.push(`
+                    <div style="background:var(--surface); border:1px solid rgba(245, 158, 11, 0.25); border-left:4px solid var(--warning); border-radius:var(--radius-md); padding:14px; box-shadow:var(--shadow-xs); display:flex; flex-direction:column; justify-content:space-between; gap:10px;">
+                        <div>
+                            <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:4px;">
+                                <span style="font-size:0.75rem; font-weight:800; color:var(--warning); text-transform:uppercase;">📦 Low Stock Alert</span>
+                                <span class="badge badge-warning" style="font-size:0.7rem;">Reorder</span>
+                            </div>
+                            <div style="font-weight:700; font-size:0.95rem; color:var(--text-main);">${escapeHtml(topItem.name)}</div>
+                            <div style="font-size:0.85rem; color:var(--text-muted); margin-top:2px;">Only <strong>${topItem.quantity} ${topItem.unit}</strong> remaining (Threshold: ${topItem.low_stock_threshold}).</div>
+                        </div>
+                        <div style="display:flex; gap:8px; justify-content:flex-end;">
+                            <button class="btn-secondary" style="font-size:0.78rem; padding:5px 14px;" onclick="navigateTo('inventory')">
+                                View Stock →
+                            </button>
+                        </div>
+                    </div>
+                `);
+            }
+
+            if (pending.length > 0) {
+                const topTask = pending[0];
+                suggestionCards.push(`
+                    <div style="background:var(--surface); border:1px solid rgba(79, 70, 229, 0.25); border-left:4px solid var(--primary); border-radius:var(--radius-md); padding:14px; box-shadow:var(--shadow-xs); display:flex; flex-direction:column; justify-content:space-between; gap:10px;">
+                        <div>
+                            <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:4px;">
+                                <span style="font-size:0.75rem; font-weight:800; color:var(--primary); text-transform:uppercase;">📋 Priority Task</span>
+                                <span class="badge ${topTask.priority === 'high' ? 'badge-danger' : 'badge-neutral'}" style="font-size:0.7rem;">${topTask.priority}</span>
+                            </div>
+                            <div style="font-weight:700; font-size:0.95rem; color:var(--text-main);">${escapeHtml(topTask.title)}</div>
+                            <div style="font-size:0.85rem; color:var(--text-muted); margin-top:2px;">Scheduled for completion today.</div>
+                        </div>
+                        <div style="display:flex; gap:8px; justify-content:flex-end;">
+                            <button class="btn-primary" style="font-size:0.78rem; padding:5px 14px;" onclick="navigateTo('tasks')">
+                                View Task →
+                            </button>
+                        </div>
+                    </div>
+                `);
+            }
+
+            if (suggestionCards.length === 0) {
+                suggestionsEl.innerHTML = `
+                    <div style="grid-column:1/-1; background:var(--surface); border:1px dashed var(--border); border-radius:var(--radius-md); padding:16px; text-align:center; color:var(--text-muted);">
+                        ✨ <strong>All caught up!</strong> No urgent payment recoveries or low-stock alerts. Ask Eko AI for business growth advice.
+                    </div>`;
+            } else {
+                suggestionsEl.innerHTML = suggestionCards.join('');
+            }
+        }
+
 
         // Update Proactive Insights text with rich live context
         const insightCard = document.getElementById('home-insights-card');

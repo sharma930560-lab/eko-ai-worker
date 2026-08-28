@@ -121,15 +121,70 @@ class MainActivity : AppCompatActivity() {
                 view: WebView,
                 request: android.webkit.WebResourceRequest
             ): Boolean {
-                val url = request.url.toString()
+                val uri = request.url
+                val url = uri.toString()
                 Log.d(TAG, "shouldOverrideUrlLoading: $url")
+
                 if (url.contains("accounts.google.com")) {
                     Log.e(TAG, "BLOCKING navigation to Google login page in WebView!")
                     return true // Block web Google login — use native Credential Manager
                 }
+
+                // Handle Phone Calls (tel: URLs) via Android Dialer
+                if (url.startsWith("tel:")) {
+                    try {
+                        val dialIntent = android.content.Intent(android.content.Intent.ACTION_DIAL, uri)
+                        startActivity(dialIntent)
+                    } catch (e: Exception) {
+                        Log.e(TAG, "Failed to launch dialer for $url", e)
+                        Toast.makeText(this@MainActivity, "Could not open dialer", Toast.LENGTH_SHORT).show()
+                    }
+                    return true
+                }
+
+                // Handle Email (mailto: URLs)
+                if (url.startsWith("mailto:")) {
+                    try {
+                        val mailIntent = android.content.Intent(android.content.Intent.ACTION_SENDTO, uri)
+                        startActivity(mailIntent)
+                    } catch (e: Exception) {
+                        Log.e(TAG, "Failed to launch email client for $url", e)
+                    }
+                    return true
+                }
+
+                // Handle WhatsApp & External Web Links
+                if (url.startsWith("https://wa.me/") || url.startsWith("whatsapp://") || url.startsWith("https://api.whatsapp.com/")) {
+                    try {
+                        val waIntent = android.content.Intent(android.content.Intent.ACTION_VIEW, uri)
+                        startActivity(waIntent)
+                    } catch (e: Exception) {
+                        Log.e(TAG, "Failed to launch WhatsApp for $url", e)
+                        Toast.makeText(this@MainActivity, "WhatsApp not installed", Toast.LENGTH_SHORT).show()
+                    }
+                    return true
+                }
+
+                // Keep local app assets within WebView
+                if (url.startsWith("https://appassets.androidplatform.net/")) {
+                    return false
+                }
+
+                // External HTTP/HTTPS links (e.g. privacy policy on netlify) open in external browser
+                if (url.startsWith("http://") || url.startsWith("https://")) {
+                    try {
+                        val browserIntent = android.content.Intent(android.content.Intent.ACTION_VIEW, uri)
+                        startActivity(browserIntent)
+                        return true
+                    } catch (e: Exception) {
+                        Log.e(TAG, "Failed to open external URL $url", e)
+                    }
+                }
+
                 return false
             }
         }
+
 
         // Load via HTTPS asset loader
         webView.loadUrl("https://appassets.androidplatform.net/assets/index.html")
