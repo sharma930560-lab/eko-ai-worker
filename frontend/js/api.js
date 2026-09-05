@@ -17,7 +17,15 @@ function getHeaders() {
 }
 
 async function apiRequest(method, path, body = null) {
-    const base = window.EKO_API_BASE || 'https://eko-field-worker-api.onrender.com';
+    let base = window.EKO_API_BASE || 'https://eko-field-worker-api.onrender.com';
+
+    // Explicit emulator override if running in Android and base is still default/localhost
+    if (typeof AndroidBridge !== 'undefined') {
+        if (base.includes('localhost') || base.includes('127.0.0.1')) {
+            base = 'http://10.0.2.2:8000';
+        }
+    }
+
     const url = `${base}${path}`;
     const opts = { method, headers: getHeaders() };
     if (body) opts.body = JSON.stringify(body);
@@ -25,8 +33,13 @@ async function apiRequest(method, path, body = null) {
     try {
         const res = await fetch(url, opts);
         if (!res.ok) {
+            if (res.status === 401 && !path.includes('/api/auth/')) {
+                console.warn(`API Error 401 on ${path}: Clearing invalid session and returning to login.`);
+                if (typeof clearSession === 'function') clearSession();
+                if (typeof showLoginScreen === 'function') showLoginScreen();
+            }
             const err = await res.json().catch(() => ({}));
-            throw { status: res.status, message: err.message || 'Request failed' };
+            throw { status: res.status, message: err.detail || err.message || 'Request failed' };
         }
         return await res.json();
     } catch (e) {

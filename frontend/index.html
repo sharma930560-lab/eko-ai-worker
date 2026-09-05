@@ -2,19 +2,19 @@
 <html lang="en">
 <head>
     <meta charset="UTF-8">
-    <meta http-equiv="Content-Security-Policy" content="default-src 'self' https://appassets.androidplatform.net https://fonts.googleapis.com https://fonts.gstatic.com; script-src 'self' 'unsafe-inline' https://accounts.google.com; style-src 'self' 'unsafe-inline' https://fonts.googleapis.com; img-src 'self' data: https: http:; connect-src 'self' https://eko-field-worker-api.onrender.com http://localhost:8000 http://127.0.0.1:8000 http://10.0.2.2:8000 http://10.0.2.2:* https://appassets.androidplatform.net; frame-src https://accounts.google.com;">
+    <meta http-equiv="Content-Security-Policy" content="default-src 'self' http://appassets.androidplatform.net https://appassets.androidplatform.net https://fonts.googleapis.com https://fonts.gstatic.com; script-src 'self' 'unsafe-inline' https://accounts.google.com; style-src 'self' 'unsafe-inline' https://fonts.googleapis.com https://accounts.google.com; img-src 'self' data: https: http:; connect-src 'self' https://eko-field-worker-api.onrender.com http://localhost:* http://127.0.0.1:* http://10.0.2.2:* http://appassets.androidplatform.net https://appassets.androidplatform.net; frame-src https://accounts.google.com;">
     <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover">
-    <title>Eko AI Operations — Premium Fintech Assistant</title>
-    <meta name="description" content="An intelligent mobile operations assistant for Eko's financial-services ecosystem. Manage customers, transactions, and operational tasks with grounded AI.">
+    <title>Eko Partner Operations — Smarter Financial Operations</title>
+    <meta name="description" content="Eko Partner Operations: the intelligent mobile assistant for Eko financial-services partners. Manage customers, transactions, and operations with grounded AI.">
     <meta name="google-site-verification" content="T7vw_FvyPG_jZj9AI9ro_rpBeYUTiBJ4th4uBuudTy4" />
-    <meta name="theme-color" content="#4F46E5">
+    <meta name="theme-color" content="#F97316">
     <link rel="manifest" href="/manifest.json">
     <link rel="apple-touch-icon" href="/icons/icon-192.png">
-    <link rel="stylesheet" href="css/style.css?v=12">
+    <link rel="stylesheet" href="css/style.css?v=18">
     <link rel="preconnect" href="https://fonts.googleapis.com">
     <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap" rel="stylesheet">
     <!-- Lucide Icons -->
-    <script src="https://unpkg.com/lucide@latest"></script>
+    <script src="js/lucide.min.js"></script>
     <script src="https://accounts.google.com/gsi/client" async defer></script>
 </head>
 <body>
@@ -25,9 +25,9 @@
     <header class="landing-nav">
         <div class="landing-nav-inner">
             <a href="/" class="landing-brand">
-                <div class="landing-brand-icon">E</div>
-                <span class="landing-brand-text">Eko AI Ops</span>
-                <span class="landing-brand-tag">Ops 2.0</span>
+                <div class="landing-brand-icon" style="background:linear-gradient(135deg,#F97316,#EA580C);">E</div>
+                <span class="landing-brand-text">Eko Partner</span>
+                <span class="landing-brand-tag">Partner Ops</span>
             </a>
             <nav class="landing-nav-links">
                 <a href="#features" class="landing-nav-link">Features</a>
@@ -45,13 +45,13 @@
         <section class="landing-hero">
             <div class="landing-hero-content">
                 <div class="landing-badge-pill">
-                    <i data-lucide="zap" style="width:14px;height:14px;"></i><span>Intelligent Operational Assistant for Eko Financial Services</span>
+                    <i data-lucide="zap" style="width:14px;height:14px;"></i><span>Powering smarter financial operations for Eko partners</span>
                 </div>
                 <h1 class="landing-hero-title">
-                    The Smart <span>AI Operations OS</span> for Financial Services
+                    The <span>Eko Partner</span> Operations Platform
                 </h1>
                 <p class="landing-hero-desc">
-                    Eko AI Operations is an intelligent mobile assistant for Eko's ecosystem. Manage customers, monitor transactions, automate operational tasks, and get grounded business insights using context-aware AI.
+                    Eko Partner Operations is your intelligent mobile command center. Manage customers, monitor transactions, automate field operations, and get grounded AI insights — built for Eko's financial-services partner ecosystem.
                 </p>
                 <div class="landing-hero-badges">
                     <span class="feature-pill"><i data-lucide="banknote" style="width:13px;height:13px;"></i> Money Transfer &amp; AePS</span>
@@ -64,9 +64,9 @@
 
             <!-- Auth Gateway Card -->
             <div class="landing-auth-card">
-                <div class="login-brand-icon" style="margin: 0 auto 16px;">E</div>
-                <h3>Authorized Partner Sign-in</h3>
-                <p>Access your Eko operations workspace securely.</p>
+                <div class="login-brand-icon" style="margin: 0 auto 16px; background:linear-gradient(135deg,#F97316,#EA580C);">E</div>
+                <h3>Eko Partner Sign-in</h3>
+                <p>Access your Eko Partner Operations workspace securely.</p>
 
                 <div id="google-btn-container" style="width:100%; display:flex; justify-content:center; margin-bottom: 12px;">
                     <button class="eko-native-auth-btn" id="trigger-native-login" onclick="handleGoogleSignIn()">
@@ -79,11 +79,8 @@
 
                 <div id="auth-error" class="auth-error hidden"></div>
 
-                <div class="login-divider" style="margin: 16px 0;"><span>or explore</span></div>
-                <button class="demo-btn" onclick="enterDemoMode()" style="width:100%; padding:12px; font-weight:600; border:1px solid var(--border); border-radius:var(--radius-md); background:var(--surface-hover); color:var(--text-main); cursor:pointer;">Try Interactive Demo</button>
-
                 <p class="login-legal" style="margin-top:16px; font-size:0.78rem; color:var(--text-light)">
-                    By continuing, you agree to our <a href="/terms" style="color:var(--primary)">Terms of Service</a> & <a href="/privacy" style="color:var(--primary)">Privacy Policy</a>.
+                    By continuing, you agree to our <a href="/terms" style="color:var(--primary)">Terms of Service</a> &amp; <a href="/privacy" style="color:var(--primary)">Privacy Policy</a>.
                 </p>
             </div>
         </section>
@@ -92,8 +89,8 @@
         <section id="features" class="landing-section">
             <div class="landing-section-inner">
                 <div class="section-header">
-                    <h2 class="section-title">Built for Eko Financial Operations</h2>
-                    <p class="section-subtitle">Intelligent tools to manage customers, transactions, and service delivery with AI assistance.</p>
+                    <h2 class="section-title">Built for Eko Partner Operations</h2>
+                    <p class="section-subtitle">Intelligent tools for Eko partners to manage customers, transactions, and service delivery with AI assistance.</p>
                 </div>
 
                 <div class="features-grid">
@@ -153,12 +150,12 @@
             <div class="landing-section-inner">
                 <div class="landing-apk-cta">
                     <div>
-                        <h3>Get Eko AI Operations for Android</h3>
-                        <p>Experience ultra-fast native performance, secure biometric authentication, and intelligent operational assistance on the go.</p>
+                        <h3>Get Eko Partner Operations for Android</h3>
+                        <p>Native performance, secure Google authentication, offline-first operations, and AI-powered partner assistance — in your pocket.</p>
                         <p style="margin-top:8px; font-size:0.82rem; opacity:0.85">Package: <code>com.eko.fieldworker</code> &bull; Version: <code>v1.1.0</code> &bull; Size: <code>5.8 MB</code></p>
                     </div>
                     <a href="https://github.com/sharma930560-lab/eko-ai-worker/releases/download/v1.0.0/eko-field-worker-v1.0.0.apk" class="apk-download-btn">
-                        <svg width="24" height="24" viewBox="0 0 24 24" fill="currentColor"><path d="M17.523 15.3414c-.5511 0-.9993-.4486-.9993-.9997s.4482-.9993.9993-.9993c.551 0 .9993.4482.9993.9993.0001.5511-.4483.9997-.9993.9997m-11.046 0c-.5511 0-.9993-.4486-.9993-.9997s.4482-.9993.9993-.9993c.551 0 .9993.4482.9993.9993 0 .5511-.4483.9997-.9993.9997m11.4045-6.02l1.996-3.4572c.1568-.2716.064-.6184-.2076-.7752-.2717-.1568-.6185-.064-.7753.2076l-2.0235 3.5048c-1.4276-.6532-3.0232-1.0204-4.7311-1.0204-1.7079 0-3.3035.3672-4.7311 1.0204l-2.0235-3.5048c-.1568-.2716-.5036-.3644-.7753-.2076-.2716.1568-.3644.5036-.2076.7752l1.996 3.4572c-3.1368 1.7056-5.2892 4.8716-5.5264 8.6016h22.0308c-.2372-3.73-2.3896-6.896-5.5265-8.6016"/></svg>
+                        <i data-lucide="download" style="width:22px;height:22px;"></i>
                         <span>Download Release APK</span>
                     </a>
                 </div>
@@ -170,12 +167,12 @@
     <footer class="landing-footer">
         <div class="landing-footer-inner">
             <div class="footer-brand">
-                <h4>Eko AI Operations</h4>
-                <p>Intelligent operations assistant empowering Eko's financial-services ecosystem. Secure, grounded, and built for professional financial operations.</p>
-                <p style="margin-top:12px; font-size:0.8rem; color:#64748B">Developer: Eko Bharat Ventures Private Limited &bull; Support: <a href="mailto:support@eko.co.in" style="color:#818CF8">support@eko.co.in</a></p>
+                <h4>Eko Partner Operations</h4>
+                <p>Intelligent operations platform empowering Eko's financial-services partner ecosystem. Secure, grounded, and built for professional financial operations.</p>
+                <p style="margin-top:12px; font-size:0.8rem; color:#64748B">Developer: Eko Bharat Ventures Private Limited &bull; Support: <a href="mailto:support@eko.co.in" style="color:#FB923C">support@eko.co.in</a></p>
             </div>
             <div class="footer-col">
-                <h5>Compliance & Legal</h5>
+                <h5>Compliance &amp; Legal</h5>
                 <ul class="footer-links">
                     <li><a href="/privacy" class="footer-link">Privacy Policy</a></li>
                     <li><a href="/terms" class="footer-link">Terms of Service</a></li>
@@ -184,7 +181,7 @@
                 </ul>
             </div>
             <div class="footer-col">
-                <h5>Product & Releases</h5>
+                <h5>Product &amp; Releases</h5>
                 <ul class="footer-links">
                     <li><a href="https://github.com/sharma930560-lab/eko-ai-worker" target="_blank" class="footer-link">GitHub Repository</a></li>
                     <li><a href="https://github.com/sharma930560-lab/eko-ai-worker/releases/tag/v1.0.0" target="_blank" class="footer-link">Release v1.0.0</a></li>
@@ -194,8 +191,8 @@
             </div>
         </div>
         <div class="footer-bottom">
-            <span>&copy; 2026 Eko AI Operations. All rights reserved.</span>
-            <span>Digital Personal Data Protection (DPDP) Act 2023 & Google API Services User Data Policy Compliant</span>
+            <span>&copy; 2026 Eko Partner Operations. All rights reserved.</span>
+            <span>Digital Personal Data Protection (DPDP) Act 2023 &amp; Google API Services User Data Policy Compliant</span>
         </div>
     </footer>
 </div>
@@ -210,16 +207,9 @@
 <!-- ── Main App Shell ───────────────────────────────────────────────────────── -->
 <div id="app-container" class="app-container hidden">
 
-    <!-- Demo banner (fixed top) -->
-    <div id="demo-banner" class="demo-banner hidden">
-        <span class="demo-badge">Demo Mode</span>
-        <span>Sample data only. Your local database is safe.</span>
-        <button onclick="signOut()" class="demo-exit-btn">Exit Demo</button>
-    </div>
-
-    <!-- Offline banner (fixed top, below demo) -->
+    <!-- Offline banner (fixed top) -->
     <div id="offline-banner" class="offline-banner hidden">
-        <svg class="icon icon-sm" viewBox="0 0 24 24"><line x1="1" y1="1" x2="23" y2="23"></line><path d="M16.72 11.06A10.94 10.94 0 0 1 19 12.55"></path><path d="M5 12.55a10.94 10.94 0 0 1 5.17-2.39"></path><path d="M10.71 5.05A16 16 0 0 1 22.58 9"></path><path d="M1.42 9a15.91 15.91 0 0 1 4.7-2.88"></path><path d="M8.53 16.11a6 6 0 0 1 6.95 0"></path><line x1="12" y1="20" x2="12.01" y2="20"></line></svg>
+        <i data-lucide="wifi-off" style="width:16px;height:16px;"></i>
         <span>Offline — changes saved on this device</span>
     </div>
 
@@ -227,16 +217,16 @@
         <!-- ── Desktop Sidebar ─────────────────────────────────────────────── -->
         <aside class="sidebar">
             <div class="sidebar-header">
-                <div class="brand-logo-wrap">E</div>
-                <span class="brand-text">Eko AI Ops</span>
-                <span class="brand-tag">AI</span>
+                <div class="brand-logo-wrap" style="background:linear-gradient(135deg,#F97316,#EA580C);">E</div>
+                <span class="brand-text">Eko Partner</span>
+                <span class="brand-tag">Ops</span>
             </div>
 
             <div class="sidebar-user" id="sidebar-user">
                 <div class="user-avatar" id="sidebar-avatar-initial">U</div>
                 <div class="user-info">
                     <div class="user-name" id="sidebar-user-name">User</div>
-                    <div class="user-badge" id="sidebar-user-badge">Eko Operations</div>
+                    <div class="user-badge" id="sidebar-user-badge">Eko Partner</div>
                 </div>
             </div>
 
@@ -269,7 +259,7 @@
 
             <div class="sidebar-footer">
                 <button class="guide-btn" onclick="openAppGuide()">
-                    <svg class="icon icon-sm" viewBox="0 0 24 24"><circle cx="12" cy="12" r="10"></circle><line x1="12" y1="16" x2="12" y2="12"></line><line x1="12" y1="8" x2="12.01" y2="8"></line></svg>
+                    <i data-lucide="info" style="width:16px;height:16px;"></i>
                     <span>User Guide</span>
                 </button>
                 <select id="lang-select-sidebar" class="lang-select" onchange="switchLanguage(this.value)">
@@ -278,7 +268,7 @@
                     <option value="hinglish">Hinglish (India)</option>
                 </select>
                 <button class="signout-btn" onclick="signOut()">
-                    <svg class="icon icon-sm" viewBox="0 0 24 24"><path d="M9 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h4"></path><polyline points="16 17 21 12 16 7"></polyline><line x1="21" y1="12" x2="9" y2="12"></line></svg>
+                    <i data-lucide="log-out" style="width:16px;height:16px;"></i>
                     <span>Sign Out</span>
                 </button>
             </div>
@@ -289,18 +279,21 @@
             <!-- Top App Header -->
             <header class="app-top-header">
                 <div class="header-left">
-                    <h1 class="header-title" id="page-header-title">Eko AI Ops</h1>
+                    <h1 class="header-title" id="page-header-title">Eko Partner Operations</h1>
                     <p class="header-subtitle" id="page-header-subtitle">Good morning! Here's your operations overview.</p>
                 </div>
                 <div class="header-right" style="display:flex; align-items:center; gap:12px;">
                 <button class="btn-icon" id="header-notif-btn" onclick="showToast('Notification Center')" title="Notifications">
-                    <i data-lucide="bell"></i>
+                    <i data-lucide="bell" style="width:18px;height:18px;"></i>
                     <span class="notif-badge hidden" id="notif-badge-count"></span>
                 </button>
                 <div class="sync-indicator online" id="global-sync-badge">
                     <span class="sync-dot"></span>
                     <span id="sync-text">Synced</span>
                 </div>
+                <button class="btn-icon" id="header-signout-btn" onclick="signOut()" title="Sign Out" style="color:var(--text-muted); cursor:pointer; background:transparent; border:none; display:flex; align-items:center;">
+                    <i data-lucide="log-out" style="width:18px;height:18px;"></i>
+                </button>
             </div>
             </header>
 
@@ -341,7 +334,7 @@
 <div id="app-guide-modal" class="modal-overlay hidden">
     <div class="modal-card guide-card">
         <div class="modal-header">
-            <h2 id="guide-modal-title">Eko AI Operations Guide</h2>
+            <h2 id="guide-modal-title">Eko Partner Operations Guide</h2>
             <button class="modal-close" onclick="closeModal('app-guide-modal')" aria-label="Close"><i data-lucide="x" style="width:16px;height:16px;"></i></button>
         </div>
         <div class="modal-body" id="guide-modal-content"></div>
@@ -367,17 +360,17 @@
 <div id="global-toast" class="toast"></div>
 
 <!-- ── Scripts ───────────────────────────────────────────────────────────────── -->
-<script src="js/auth.js?v=17"></script>
-<script src="js/offline.js?v=17"></script>
-<script src="js/api.js?v=17"></script>
-<script src="js/screens/customers.js?v=17"></script>
-<script src="js/screens/activity.js?v=17"></script>
-<script src="js/screens/tasks.js?v=17"></script>
-<script src="js/screens/notes.js?v=17"></script>
-<script src="js/screens/ask-eko.js?v=17"></script>
-<script src="js/screens/ai-tools.js?v=17"></script>
-<script src="js/screens/grievances.js?v=17"></script>
-<script src="js/app.js?v=17"></script>
+<script src="js/auth.js?v=18"></script>
+<script src="js/offline.js?v=18"></script>
+<script src="js/api.js?v=18"></script>
+<script src="js/screens/customers.js?v=18"></script>
+<script src="js/screens/activity.js?v=18"></script>
+<script src="js/screens/tasks.js?v=18"></script>
+<script src="js/screens/notes.js?v=18"></script>
+<script src="js/screens/ask-eko.js?v=18"></script>
+<script src="js/screens/ai-tools.js?v=18"></script>
+<script src="js/screens/grievances.js?v=18"></script>
+<script src="js/app.js?v=18"></script>
 <script>
 // Initialise Lucide icons for the landing page (rendered before auth/app JS runs)
 document.addEventListener('DOMContentLoaded', function() {

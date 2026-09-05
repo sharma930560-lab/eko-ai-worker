@@ -14,7 +14,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
 from pydantic import BaseModel, Field
 from sqlalchemy.orm import Session
-from sqlalchemy import desc, and_, or_
+from sqlalchemy import desc, and_, or_, text
 from dotenv import load_dotenv
 from google.oauth2 import id_token
 from google.auth.transport import requests as google_requests
@@ -40,22 +40,58 @@ app = FastAPI(
 
 models.Base.metadata.create_all(bind=database.engine)
 
+def run_migrations():
+    """Ensure newly added columns exist in existing SQLite/PostgreSQL tables."""
+    try:
+        with database.engine.connect() as conn:
+            # Check users table
+            res = conn.execute(text("PRAGMA table_info(users)")).fetchall()
+            user_cols = {row[1] for row in res}
+            if user_cols and "wallet_balance" not in user_cols:
+                logger.info("Migrating DB: Adding wallet_balance column to users table")
+                conn.execute(text("ALTER TABLE users ADD COLUMN wallet_balance FLOAT DEFAULT 0.0"))
+                conn.commit()
+
+            # Check customers table
+            res = conn.execute(text("PRAGMA table_info(customers)")).fetchall()
+            cust_cols = {row[1] for row in res}
+            if cust_cols and "email" not in cust_cols:
+                logger.info("Migrating DB: Adding email column to customers table")
+                conn.execute(text("ALTER TABLE customers ADD COLUMN email VARCHAR"))
+                conn.commit()
+            if cust_cols and "kyc_status" not in cust_cols:
+                logger.info("Migrating DB: Adding kyc_status column to customers table")
+                conn.execute(text("ALTER TABLE customers ADD COLUMN kyc_status VARCHAR DEFAULT 'pending'"))
+                conn.commit()
+    except Exception as e:
+        logger.warning("Auto-migration notice: %s", e)
+
+run_migrations()
+
 # ─── CORS ─────────────────────────────────────────────────────────────────────
 _default_origins = (
     "https://appassets.androidplatform.net,"
+    "http://appassets.androidplatform.net,"
     "https://eko-field-worker.netlify.app,"
     "http://localhost:3000,"
     "http://127.0.0.1:3000"
 )
 _origins_env = os.getenv("ALLOWED_ORIGINS", _default_origins)
 ALLOWED_ORIGINS = [o.strip() for o in _origins_env.split(",") if o.strip()]
+for _essential in [
+    "https://appassets.androidplatform.net",
+    "http://appassets.androidplatform.net",
+    "https://eko-field-worker.netlify.app"
+]:
+    if _essential not in ALLOWED_ORIGINS:
+        ALLOWED_ORIGINS.append(_essential)
 
 app.add_middleware(
     CORSMiddleware,
     allow_origins=ALLOWED_ORIGINS,
     allow_credentials=True,
     allow_methods=["GET", "POST", "PATCH", "DELETE", "OPTIONS"],
-    allow_headers=["Content-Type", "X-User-Id", "Authorization"],
+    allow_headers=["Content-Type", "X-User-Id", "Authorization", "Accept", "Origin"],
 )
 
 # ─── Auth Helpers ──────────────────────────────────────────────────────────────
@@ -66,7 +102,8 @@ def verify_user_id(x_user_id: Optional[str] = Header(None)) -> str:
 
 # ─── Pydantic Schemas ──────────────────────────────────────────────────────────
 class GoogleTokenRequest(BaseModel):
-    credential: str
+    credential: Optional[str] = None
+    id_token: Optional[str] = None
 
 class UserResponse(BaseModel):
     id: str
@@ -281,13 +318,72 @@ def health():
 # ─── Auth ─────────────────────────────────────────────────────────────────────
 @app.post("/api/auth/google", response_model=UserResponse)
 def google_login(payload: GoogleTokenRequest, db: Session = Depends(database.get_db)):
-    user_id = "demo_user_123"
-    user = db.query(models.User).filter(models.User.id == user_id).first()
+    if not GOOGLE_CLIENT_ID:
+        logger.error("Auth failed: GOOGLE_CLIENT_ID environment variable is missing on backend")
+        raise HTTPException(status_code=500, detail="Server authentication is not configured.")
+
+    token = payload.credential or payload.id_token
+    if not token or not token.strip():
+        raise HTTPException(status_code=400, detail="Missing credential/id_token in request body.")
+
+    try:
+        id_info = id_token.verify_oauth2_token(
+            token.strip(),
+            google_requests.Request(),
+            GOOGLE_CLIENT_ID,
+        )
+    except ValueError as e:
+        logger.warning("Google token verification failed (ValueError): %s", str(e))
+        raise HTTPException(status_code=401, detail="Invalid Google token: " + str(e))
+    except Exception as e:
+        logger.error("Google token verification failed (Unexpected): %s", str(e))
+        raise HTTPException(status_code=401, detail="Google authentication failed.")
+
+    issuer = id_info.get("iss")
+    if issuer not in ["accounts.google.com", "https://accounts.google.com"]:
+        logger.warning("Rejected token with invalid issuer: %s", issuer)
+        raise HTTPException(status_code=401, detail="Invalid token issuer.")
+
+    audience = id_info.get("aud")
+    if audience != GOOGLE_CLIENT_ID:
+        logger.warning("Token audience mismatch (expected client ID)")
+        raise HTTPException(status_code=401, detail="Token audience mismatch.")
+
+    google_sub = id_info.get("sub")
+    email = id_info.get("email")
+    if not google_sub or not email:
+        raise HTTPException(status_code=400, detail="Google token missing subject or email identity.")
+
+    name = id_info.get("name") or email.split("@")[0]
+    picture = id_info.get("picture")
+
+    user = db.query(models.User).filter(models.User.email == email).first()
     if not user:
-        user = models.User(id=user_id, email="demo@eko.co.in", name="Eko Partner", onboarding_completed=True, wallet_balance=15000.0)
+        user = models.User(
+            id=google_sub,
+            email=email,
+            name=name,
+            picture=picture,
+            onboarding_completed=False,
+            wallet_balance=0.0,
+        )
         db.add(user)
         db.commit()
         db.refresh(user)
+        logger.info("Successfully created new authenticated user: %s (id: %s)", email, user.id)
+    else:
+        changed = False
+        if name and user.name != name:
+            user.name = name
+            changed = True
+        if picture and user.picture != picture:
+            user.picture = picture
+            changed = True
+        if changed:
+            db.commit()
+            db.refresh(user)
+        logger.info("Successfully authenticated existing user: %s (id: %s)", email, user.id)
+
     return user
 
 # ─── Customer 360 ─────────────────────────────────────────────────────────────

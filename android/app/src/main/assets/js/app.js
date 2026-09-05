@@ -1,6 +1,6 @@
 /**
- * Eko AI Operations — App Core
- * Modern Redesign with Lucide Icons & Bottom Nav
+ * Eko Partner Operations — App Core
+ * Premium Fintech Redesign with Lucide Icons
  */
 
 const TRANSLATIONS = {
@@ -79,10 +79,14 @@ const SCREENS = {
     activity:   { title: 'Transaction Center', subtitle: 'Real-time monitoring.', render: renderActivityScreen, load: loadActivity },
     grievances: { title: 'Grievance Center', subtitle: 'Track SLA & complaints.', render: renderGrievancesScreen, load: loadGrievances },
     'ai-tools': { title: 'AI Operational Suite', subtitle: 'Productivity superpowers.', render: renderAiToolsScreen, load: () => { switchAiToolTab('scanner'); } },
-    'ask-eko':  { title: 'Eko AI Assistant', subtitle: 'Grounded operational partner.', render: renderAskEkoScreen, load: loadAskEko },
+    'ask-eko':  { title: 'Ask Eko AI', subtitle: 'Your grounded operational AI partner.', render: renderAskEkoScreen, load: loadAskEko },
 };
 
 function navigateTo(screen) {
+    if (!currentUser) {
+        showLoginScreen();
+        return;
+    }
     currentScreen = screen;
     const content = document.getElementById('main-content');
     if (!content) return;
@@ -111,11 +115,15 @@ function renderHomeScreen() {
 
     return `
     <div class="dashboard-grid container-responsive">
-        <div class="welcome-hero">
+        <div class="welcome-hero" style="background: linear-gradient(135deg, #C2410C 0%, #EA580C 45%, #F97316 100%); padding: 24px; margin-bottom: 20px; border-radius: 16px; color: #FFFFFF; box-shadow: 0 4px 14px rgba(249,115,22,0.35); position:relative; overflow:hidden;">
             <div class="welcome-text">
-                <h1 style="color:#FFF; font-size:1.4rem;">${getGreeting()}, ${escapeHtml(name)} 👋</h1>
-                <p style="opacity:0.85; font-size:0.9rem;">Eko Operations are running smoothly.</p>
+                <h1 style="color:#FFFFFF; font-size:1.4rem; margin-bottom: 4px;">${getGreeting()}, ${escapeHtml(name)} 👋</h1>
+                <p style="color:rgba(255,255,255,0.9); font-size:0.9rem;">Eko Partner Operations — powered up.</p>
             </div>
+            <div style="background:rgba(255,255,255,0.18); padding:12px; border-radius:12px; flex-shrink:0;">
+                ${renderIcon('sparkles', 24)}
+            </div>
+        </div>
             <button class="welcome-action-btn" onclick="navigateTo('ai-tools')">
                 ${renderIcon('sparkles', 18)}
                 <span>AI Tools</span>

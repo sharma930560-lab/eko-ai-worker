@@ -107,6 +107,14 @@ class MainActivity : AppCompatActivity() {
     }
 
     private fun handleIntent(intent: Intent?) {
+        val action = intent?.getStringExtra("action")
+        if (action == "google_sign_in") {
+            triggerGoogleSignIn()
+        }
+        val evalJs = intent?.getStringExtra("eval_js")
+        if (!evalJs.isNullOrEmpty()) {
+            webView.evaluateJavascript(evalJs, null)
+        }
         val deepLink = intent?.getStringExtra("deep_link")
         if (!deepLink.isNullOrEmpty()) {
             Log.i(TAG, "Navigating to deep link: $deepLink")
@@ -156,12 +164,15 @@ class MainActivity : AppCompatActivity() {
     }
 
     private fun setupWebView() {
-        // Production: HTTPS-only asset loader, no cleartext, no mixed content
+        // In Debug mode, allow HTTP assets to avoid Mixed Content issues with the local backend
+        val allowHttp = BuildConfig.DEBUG
         val assetLoader = WebViewAssetLoader.Builder()
-            .setHttpAllowed(false)  // HTTPS only
+            .setHttpAllowed(allowHttp)
             .setDomain("appassets.androidplatform.net")
             .addPathHandler("/assets/", WebViewAssetLoader.AssetsPathHandler(this))
             .build()
+            
+        val scheme = if (allowHttp) "http" else "https"
 
         // Dev-only: Allow mixed content so the HTTPS asset loader page can fetch http://10.0.2.2:8000.
         // This is needed because WebViewAssetLoader serves via https://appassets.androidplatform.net
@@ -272,8 +283,8 @@ class MainActivity : AppCompatActivity() {
         }
 
 
-        // Load via HTTPS asset loader
-        webView.loadUrl("https://appassets.androidplatform.net/assets/index.html")
+        // Load via asset loader
+        webView.loadUrl("$scheme://appassets.androidplatform.net/assets/index.html")
     }
 
     private fun observeViewModel() {

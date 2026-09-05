@@ -61,19 +61,6 @@ function isAndroidApk() {
 let currentUser = null;   // { id, email, name, picture, business_name, ... }
 let isDemoMode = false;
 
-const DEMO_USER = {
-  id: 'demo',
-  name: 'Demo User',
-  email: 'demo@eko.local',
-  picture: null,
-  business_name: 'Eko Operations Center',
-  business_type: 'Fintech Operations',
-  language_preference: 'en',
-  location_city: 'Delhi',
-  onboarding_completed: true,
-  isDemo: true,
-};
-
 // ── Session Helpers ───────────────────────────────────────────────────────────
 function saveSession(user) {
   // localStorage persists across app restarts, device reboots, and WebView recreations.
@@ -100,6 +87,10 @@ function loadSession() {
     const raw = localStorage.getItem('eko_user');
     if (!raw) return null;
     const user = JSON.parse(raw);
+    if (!user || typeof user !== 'object' || !user.id || !user.email || user.id === 'demo' || user.isDemo) {
+      localStorage.removeItem('eko_user');
+      return null;
+    }
     // Expire cached session after 30 days
     const MAX_AGE = 30 * 24 * 60 * 60 * 1000;
     if (user.saved_at && Date.now() - user.saved_at > MAX_AGE) {
@@ -123,6 +114,7 @@ function showAuthError(message) {
   const el = document.getElementById('auth-error');
   if (el) {
     el.textContent = message;
+    el.classList.remove('hidden');
     el.style.display = 'block';
   }
 }
@@ -131,6 +123,7 @@ function clearAuthError() {
   const el = document.getElementById('auth-error');
   if (el) {
     el.textContent = '';
+    el.classList.add('hidden');
     el.style.display = 'none';
   }
 }
@@ -167,20 +160,24 @@ async function handleCredentialResponse(response) {
   const authUrl = `${apiBase}/api/auth/google`;
   console.log('Auth: [POST /api/auth/google] Sending request to:', authUrl);
 
+  const controller = new AbortController();
+  const timeoutId = setTimeout(() => controller.abort(), 10000);
+
   try {
     const res = await fetch(authUrl, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ credential: idToken }),
+      signal: controller.signal,
     });
+    clearTimeout(timeoutId);
 
     console.log('Auth: [POST /api/auth/google] Response status:', res.status, res.statusText);
 
     if (!res.ok) {
       const errBody = await res.json().catch(() => ({}));
-      const detail = errBody.detail || `HTTP ${res.status}`;
-      console.error('Auth: [AUTH FAILURE] Backend rejected token:', detail);
-      throw new Error(detail);
+      console.error('Auth: [AUTH FAILURE] Backend rejected token:', errBody);
+      throw new Error(errBody.detail || `HTTP ${res.status}`);
     }
 
     const user = await res.json();
@@ -191,8 +188,9 @@ async function handleCredentialResponse(response) {
     onAuthSuccess(user);
 
   } catch (err) {
+    clearTimeout(timeoutId);
     console.error('Auth: [AUTH FAILURE] Fetch error:', err.message);
-    showAuthError('We couldn\'t sign you in. Check your connection and try again.');
+    showAuthError('Unable to reach server. Please check your connection and try again.');
     showLoginLoading(false);
   }
 }
@@ -211,21 +209,12 @@ window.handleNativeGoogleResponse = function(idToken) {
   handleCredentialResponse(idToken);
 };
 
-// ── Demo Mode ─────────────────────────────────────────────────────────────────
-function enterDemoMode() {
-  clearAuthError();
-  currentUser = DEMO_USER;
-  isDemoMode = true;
-  saveSession(DEMO_USER);
-  onAuthSuccess(DEMO_USER);
-}
-
 // ── Post-Auth Routing ─────────────────────────────────────────────────────────
 function onAuthSuccess(user) {
   hideLoginScreen();
 
-  if (user.isDemo || user.onboarding_completed) {
-    // Returning user or demo → go straight to home
+  if (user.onboarding_completed) {
+    // Returning user → go straight to home
     enterApp(user);
   } else {
     // New user → show onboarding
@@ -236,9 +225,7 @@ function onAuthSuccess(user) {
 // ── Login Screen UI ───────────────────────────────────────────────────────────
 function showLoginLoading(state) {
   const btn = document.getElementById('google-signin-btn');
-  const demoBtn = document.getElementById('demo-btn');
   if (btn) btn.style.opacity = state ? '0.6' : '1';
-  if (demoBtn) demoBtn.disabled = state;
 }
 
 function showLoginScreen() {

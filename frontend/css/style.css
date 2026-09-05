@@ -1,21 +1,26 @@
 /* ==========================================================================
-   Eko AI Operations — Premium Fintech Design System v2
+   Eko Partner Operations — Premium Fintech Design System v3
+   Brand: Orange/Amber accent · White surfaces · Navy typography
    ========================================================================== */
 
 @import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap');
 
 /* ── Design Tokens ─────────────────────────────────────────────────────────── */
 :root {
-    /* Brand Colors — Modern Indigo & Navy (Eko-inspired) */
-    --primary:        #4F46E5;   /* Eko Indigo */
-    --primary-dark:   #3730A3;
-    --primary-light:  #EEF2FF;
-    --primary-subtle: #E0E7FF;
+    /* ── Brand Colors — Eko Orange ─────────────────────────────── */
+    --primary:        #F97316;   /* Eko Orange */
+    --primary-dark:   #EA580C;   /* Eko Deep Orange */
+    --primary-light:  #FFF7ED;   /* Orange 50 */
+    --primary-subtle: #FFEDD5;   /* Orange 100 */
+
+    /* Gold accent for premium feel */
+    --gold:           #F59E0B;
+    --gold-light:     #FFFBEB;
 
     --navy:   #0F172A;           /* Deep Navy Typography */
     --slate:  #64748B;           /* Muted Slate */
 
-    --accent:       #06B6D4;     /* Cyan Accent */
+    --accent:       #06B6D4;     /* Cyan / operational highlight */
     --accent-light: #ECFEFF;
 
     /* Semantic */
@@ -31,7 +36,7 @@
     /* Neutral / Surface */
     --bg:           #F8FAFC;     /* Slate 50 */
     --surface:      #FFFFFF;
-    --surface-hover:#F1F5F9;
+    --surface-hover:#FFF7ED;     /* Warm hover — ties to brand orange */
     --border:       #E2E8F0;
 
     /* Typography */
@@ -63,11 +68,12 @@
     --header-height:     60px;
     --bottom-nav-height: 68px;
 
-    /* Shadows */
+    /* Shadows — warm tinted for orange brand */
     --shadow-xs: 0 1px 2px 0 rgba(0,0,0,.04);
-    --shadow-sm: 0 1px 3px 0 rgba(0,0,0,.07), 0 1px 2px -1px rgba(0,0,0,.07);
-    --shadow-md: 0 4px 6px -1px rgba(0,0,0,.08), 0 2px 4px -2px rgba(0,0,0,.06);
-    --shadow-lg: 0 10px 15px -3px rgba(0,0,0,.08), 0 4px 6px -4px rgba(0,0,0,.05);
+    --shadow-sm: 0 1px 3px 0 rgba(0,0,0,.07), 0 1px 2px -1px rgba(0,0,0,.05);
+    --shadow-md: 0 4px 6px -1px rgba(249,115,22,.10), 0 2px 4px -2px rgba(0,0,0,.06);
+    --shadow-lg: 0 10px 15px -3px rgba(249,115,22,.12), 0 4px 6px -4px rgba(0,0,0,.05);
+    --shadow-orange: 0 4px 14px 0 rgba(249,115,22,.35);
 }
 
 /* ── Global Reset ──────────────────────────────────────────────────────────── */
@@ -362,21 +368,24 @@ p, span, li, td, th {
 
 .eko-native-auth-btn {
     width: 100%;
-    padding: 12px 20px;
+    padding: 14px 20px;
     background: var(--surface);
     border: 1.5px solid var(--border);
     border-radius: var(--radius-md);
     cursor: pointer;
     font-size: 0.9rem;
-    font-weight: 600;
+    font-weight: 700;
     color: var(--text-main);
-    transition: border-color 0.15s, box-shadow 0.15s;
+    transition: border-color 0.2s, box-shadow 0.2s, transform 0.1s;
+    min-height: 52px;
 }
 
 .eko-native-auth-btn:hover {
     border-color: var(--primary);
     box-shadow: 0 0 0 3px var(--primary-subtle);
+    transform: translateY(-1px);
 }
+.eko-native-auth-btn:active { transform: scale(0.98); }
 
 .login-divider {
     display: flex;
@@ -494,10 +503,11 @@ p, span, li, td, th {
     flex-direction: column; /* stack on mobile */
     gap: 24px;
     align-items: flex-start;
-    background: linear-gradient(135deg, var(--primary) 0%, var(--primary-dark) 100%);
+    background: linear-gradient(135deg, #F97316 0%, #EA580C 60%, #C2410C 100%);
     border-radius: var(--radius-xl);
     padding: 32px 24px;
     color: #fff;
+    box-shadow: var(--shadow-orange);
 }
 
 .landing-apk-cta h3 {
@@ -955,6 +965,12 @@ p, span, li, td, th {
 .nav-item.active {
     background: var(--primary-light);
     color: var(--primary);
+    font-weight: 700;
+}
+
+.sidebar .nav-item.active {
+    border-left: 3px solid var(--primary);
+    padding-left: 11px;   /* compensate for border */
 }
 
 .nav-item svg, .nav-item i {
@@ -1015,10 +1031,11 @@ p, span, li, td, th {
 
 /* ── App Top Header ────────────────────────────────────────────────────────── */
 .app-top-header {
-    height: var(--header-height);
+    height: auto;
+    min-height: var(--header-height);
     background: var(--surface);
     border-bottom: 1px solid var(--border);
-    padding: 0 20px;
+    padding: env(safe-area-inset-top) 24px 12px;
     display: flex;
     align-items: center;
     justify-content: space-between;
@@ -1154,6 +1171,84 @@ p, span, li, td, th {
     overflow: hidden;
 }
 
+.text-white { color: #FFFFFF !important; }
+
+/* ── Home Dashboard Styles ─────────────────────────────────────────────────── */
+.dashboard-grid {
+    display: flex;
+    flex-direction: column;
+    gap: 20px;
+    width: 100%;
+}
+
+.welcome-hero {
+    width: 100%;
+    min-height: 100px;
+    background: linear-gradient(135deg, #C2410C 0%, #EA580C 45%, #F97316 100%);
+    border-radius: var(--radius-lg);
+    padding: 24px;
+    color: #FFFFFF;
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    box-shadow: var(--shadow-orange);
+    position: relative;
+    overflow: hidden;
+}
+
+.welcome-hero::after {
+    content: '';
+    position: absolute;
+    top: -40px; right: -40px;
+    width: 160px; height: 160px;
+    background: rgba(255,255,255,0.07);
+    border-radius: 50%;
+    pointer-events: none;
+}
+
+.welcome-text h1 {
+    font-size: 1.4rem;
+    font-weight: 700;
+    margin-bottom: 4px;
+}
+
+.welcome-action-btn {
+    background: #FFFFFF;
+    color: var(--primary);
+    padding: 8px 16px;
+    border-radius: var(--radius-md);
+    font-weight: 700;
+    font-size: 0.85rem;
+    border: none;
+    cursor: pointer;
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    box-shadow: var(--shadow-sm);
+    flex-shrink: 0;
+}
+
+.metrics-grid {
+    display: grid;
+    grid-template-columns: repeat(2, 1fr);
+    gap: 12px;
+    width: 100%;
+}
+@media (max-width: 380px) {
+    .metrics-grid { grid-template-columns: 1fr; }
+}
+
+.metric-icon-wrap {
+    width: 40px;
+    height: 40px;
+    border-radius: var(--radius-md);
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    background: var(--primary-light);
+    color: var(--primary);
+}
+
 /* ── Common Components ─────────────────────────────────────────────────────── */
 
 /* Card */
@@ -1193,11 +1288,11 @@ p, span, li, td, th {
 
 /* Buttons */
 .btn-primary {
-    background: var(--primary);
+    background: linear-gradient(135deg, var(--primary) 0%, var(--primary-dark) 100%);
     color: #fff;
     border: none;
     border-radius: var(--radius-md);
-    padding: 10px 20px;
+    padding: 12px 22px;
     font-weight: 700;
     font-size: 0.875rem;
     cursor: pointer;
@@ -1205,14 +1300,86 @@ p, span, li, td, th {
     align-items: center;
     justify-content: center;
     gap: 8px;
-    transition: background 0.15s, transform 0.1s;
+    transition: box-shadow 0.2s, transform 0.1s;
     white-space: nowrap;
     min-width: 0;
     max-width: 100%;
+    box-shadow: var(--shadow-orange);
+    min-height: 44px;   /* WCAG touch target */
 }
 
-.btn-primary:hover  { background: var(--primary-dark); }
-.btn-primary:active { transform: scale(0.97); }
+.btn-primary:hover  { box-shadow: 0 6px 20px rgba(249,115,22,.45); transform: translateY(-1px); }
+.btn-primary:active { transform: scale(0.97); box-shadow: var(--shadow-sm); }
+
+/* ── Action Button — large CTA ─────────────────────────────────── */
+.action-btn {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    gap: 10px;
+    padding: 14px 28px;
+    font-size: 0.95rem;
+    font-weight: 700;
+    border: none;
+    border-radius: var(--radius-lg);
+    cursor: pointer;
+    transition: box-shadow 0.2s, transform 0.15s, background 0.15s;
+    min-height: 52px;    /* large touch target */
+    white-space: nowrap;
+    letter-spacing: -0.01em;
+}
+
+.action-btn.primary {
+    background: linear-gradient(135deg, var(--primary) 0%, var(--primary-dark) 100%);
+    color: #fff;
+    box-shadow: var(--shadow-orange);
+}
+.action-btn.primary:hover  { box-shadow: 0 8px 24px rgba(249,115,22,.50); transform: translateY(-2px); }
+.action-btn.primary:active { transform: scale(0.96); }
+
+.action-btn.secondary {
+    background: var(--primary-light);
+    color: var(--primary-dark);
+    box-shadow: var(--shadow-xs);
+    border: 1.5px solid var(--primary-subtle);
+}
+.action-btn.secondary:hover { background: var(--primary-subtle); box-shadow: var(--shadow-sm); }
+
+.action-btn.ghost {
+    background: transparent;
+    color: var(--text-muted);
+    border: 1.5px solid var(--border);
+}
+.action-btn.ghost:hover { background: var(--surface-hover); color: var(--text-main); }
+
+/* ── Icon Button — circular/square icon-only action ────────────────── */
+.icon-btn {
+    width: 44px;
+    height: 44px;
+    min-width: 44px;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    border-radius: var(--radius-md);
+    border: 1px solid var(--border);
+    background: var(--surface);
+    cursor: pointer;
+    color: var(--text-muted);
+    transition: background 0.15s, color 0.15s, box-shadow 0.15s, transform 0.1s;
+    flex-shrink: 0;
+}
+.icon-btn:hover  { background: var(--primary-light); color: var(--primary); border-color: var(--primary-subtle); box-shadow: var(--shadow-sm); }
+.icon-btn:active { transform: scale(0.93); }
+
+.icon-btn.danger:hover  { background: var(--danger-bg); color: var(--danger); border-color: #FECACA; }
+.icon-btn.primary {
+    background: linear-gradient(135deg, var(--primary) 0%, var(--primary-dark) 100%);
+    color: #fff;
+    border-color: transparent;
+    box-shadow: var(--shadow-orange);
+}
+.icon-btn.primary:hover { box-shadow: 0 4px 16px rgba(249,115,22,.45); transform: translateY(-1px); }
+
 
 .btn-secondary {
     background: var(--surface);
@@ -1788,7 +1955,7 @@ input[type="tel"], textarea, select {
     .sidebar     { display: flex; }
     .bottom-nav  { display: none; }
 
-    .app-top-header  { padding: 0 24px; }
+    .app-top-header  { padding: env(safe-area-inset-top) 24px 12px; }
     .main-content    { padding: 24px; }
 
     .features-grid  { grid-template-columns: repeat(3, 1fr); }
@@ -1841,7 +2008,7 @@ input[type="tel"], textarea, select {
         align-items: center;
     }
 
-    .app-top-header { padding: 0 16px; }
+    .app-top-header { padding: env(safe-area-inset-top) 16px 12px; }
     .main-content {
         padding: 16px;
         padding-bottom: calc(var(--bottom-nav-height) + 20px);

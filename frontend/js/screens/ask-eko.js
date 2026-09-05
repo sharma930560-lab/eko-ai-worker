@@ -41,7 +41,7 @@ async function loadAskEko() {
             isWelcome: true,
             html: `
                 <div style="display:flex; align-items:center; gap:8px; margin-bottom:12px;">
-                    <div class="ai-header-badge">${renderIcon('bot', 14)} Eko AI Operations Assistant</div>
+                    <div class="ai-header-badge">${renderIcon('bot', 14)} Eko Partner AI Assistant</div>
                 </div>
                 <p><strong>Namaste! I am your operational partner.</strong></p>
                 <p class="text-sm text-muted mt-2">I analyze your longitudinal 360 records to provide grounded business advice. Try asking:</p>
