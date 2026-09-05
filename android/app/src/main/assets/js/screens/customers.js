@@ -35,7 +35,7 @@ function renderCustomersScreen() {
         <div class="modal-card">
             <div class="modal-header">
                 <h2>New Customer Profile</h2>
-                <button class="modal-close" onclick="closeModal('add-customer-modal')">✕</button>
+                <button class="modal-close" onclick="closeModal('add-customer-modal')">${renderIcon('x', 18)}</button>
             </div>
             <div class="modal-body">
                 <div class="form-group">

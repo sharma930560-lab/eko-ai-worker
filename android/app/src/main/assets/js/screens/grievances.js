@@ -48,8 +48,8 @@ function renderComplaintList(records) {
     listEl.innerHTML = records.map(c => {
         const slaText = c.sla_hours_remaining !== null
             ? (c.sla_hours_remaining > 0
-                ? `⌛ ${Math.floor(c.sla_hours_remaining)}h ${Math.round((c.sla_hours_remaining % 1) * 60)}m left`
-                : `<span class="text-danger font-bold">🛑 OVERDUE (${Math.abs(Math.floor(c.sla_hours_remaining))}h)</span>`)
+                ? `<span style="display:inline-flex; align-items:center; gap:4px;">${renderIcon('clock', 12)} ${Math.floor(c.sla_hours_remaining)}h ${Math.round((c.sla_hours_remaining % 1) * 60)}m left</span>`
+                : `<span class="text-danger font-bold" style="display:inline-flex; align-items:center; gap:4px;">${renderIcon('alert-octagon', 12)} OVERDUE (${Math.abs(Math.floor(c.sla_hours_remaining))}h)</span>`)
             : 'SLA Met';
 
         return `

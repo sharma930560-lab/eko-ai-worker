@@ -387,9 +387,9 @@ const onboardingSteps = [
         <div class="ob-icon text-primary">${renderIcon('languages', 48)}</div>
         <h2>Which language do you prefer?</h2>
         <div class="ob-lang-grid">
-          <button class="ob-lang-btn" onclick="selectLang(this,'en')">🇬🇧 English</button>
-          <button class="ob-lang-btn" onclick="selectLang(this,'hi')">🇮🇳 हिंदी</button>
-          <button class="ob-lang-btn" onclick="selectLang(this,'hinglish')">🤝 Hinglish</button>
+          <button class="ob-lang-btn" onclick="selectLang(this,'en')">English</button>
+          <button class="ob-lang-btn" onclick="selectLang(this,'hi')">हिंदी</button>
+          <button class="ob-lang-btn" onclick="selectLang(this,'hinglish')">Hinglish</button>
         </div>
         <button class="ob-btn primary" onclick="nextOnboardingStep()">Continue →</button>
       </div>`,

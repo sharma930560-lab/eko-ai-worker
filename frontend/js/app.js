@@ -1,6 +1,6 @@
 /**
  * Eko Partner Operations — App Core
- * Premium Fintech Redesign with Lucide Icons
+ * Modern Redesign with Lucide Icons & Responsive Lifecycle
  */
 
 const TRANSLATIONS = {
@@ -12,8 +12,7 @@ const TRANSLATIONS = {
         subtitle: "Fintech operations overview.",
         synced: 'Synced',
         offline: 'Offline'
-    },
-    // ... translations can be expanded
+    }
 };
 
 let appLanguage = 'en';
@@ -79,7 +78,7 @@ const SCREENS = {
     activity:   { title: 'Transaction Center', subtitle: 'Real-time monitoring.', render: renderActivityScreen, load: loadActivity },
     grievances: { title: 'Grievance Center', subtitle: 'Track SLA & complaints.', render: renderGrievancesScreen, load: loadGrievances },
     'ai-tools': { title: 'AI Operational Suite', subtitle: 'Productivity superpowers.', render: renderAiToolsScreen, load: () => { switchAiToolTab('scanner'); } },
-    'ask-eko':  { title: 'Ask Eko AI', subtitle: 'Your grounded operational AI partner.', render: renderAskEkoScreen, load: loadAskEko },
+    'ask-eko':  { title: 'Eko AI Assistant', subtitle: 'Grounded operational partner.', render: renderAskEkoScreen, load: loadAskEko },
 };
 
 function navigateTo(screen) {
@@ -115,23 +114,18 @@ function renderHomeScreen() {
 
     return `
     <div class="dashboard-grid container-responsive">
-        <div class="welcome-hero" style="background: linear-gradient(135deg, #C2410C 0%, #EA580C 45%, #F97316 100%); padding: 24px; margin-bottom: 20px; border-radius: 16px; color: #FFFFFF; box-shadow: 0 4px 14px rgba(249,115,22,0.35); position:relative; overflow:hidden;">
+        <div class="welcome-hero">
             <div class="welcome-text">
                 <h1 style="color:#FFFFFF; font-size:1.4rem; margin-bottom: 4px;">${getGreeting()}, ${escapeHtml(name)} 👋</h1>
                 <p style="color:rgba(255,255,255,0.9); font-size:0.9rem;">Eko Partner Operations — powered up.</p>
             </div>
-            <div style="background:rgba(255,255,255,0.18); padding:12px; border-radius:12px; flex-shrink:0;">
+            <div style="background:rgba(255,255,255,0.18); padding:12px; border-radius:12px; flex-shrink:0; cursor:pointer;" onclick="navigateTo('ai-tools')">
                 ${renderIcon('sparkles', 24)}
             </div>
         </div>
-            <button class="welcome-action-btn" onclick="navigateTo('ai-tools')">
-                ${renderIcon('sparkles', 18)}
-                <span>AI Tools</span>
-            </button>
-        </div>
 
         <div class="metrics-grid">
-            <div class="card stat-card" onclick="navigateTo('activity')">
+            <div class="card stat-card" onclick="navigateTo('activity')" style="cursor:pointer;">
                 <div style="display:flex; justify-content:space-between; align-items:center;">
                     <div class="metric-icon-wrap" style="background:var(--primary-subtle); color:var(--primary);">${renderIcon('activity', 20)}</div>
                     <span class="badge badge-success" style="font-size:0.6rem;">Live</span>
@@ -140,7 +134,7 @@ function renderHomeScreen() {
                 <div class="stat-value" id="stat-success-rate">--</div>
             </div>
 
-            <div class="card stat-card" onclick="navigateTo('activity')">
+            <div class="card stat-card" onclick="navigateTo('activity')" style="cursor:pointer;">
                 <div style="display:flex; justify-content:space-between; align-items:center;">
                     <div class="metric-icon-wrap" style="background:var(--success-bg); color:var(--success);">${renderIcon('wallet', 20)}</div>
                 </div>
@@ -148,7 +142,7 @@ function renderHomeScreen() {
                 <div class="stat-value" id="stat-volume">--</div>
             </div>
 
-            <div class="card stat-card" onclick="navigateTo('grievances')">
+            <div class="card stat-card" onclick="navigateTo('grievances')" style="cursor:pointer;">
                 <div style="display:flex; justify-content:space-between; align-items:center;">
                     <div class="metric-icon-wrap" style="background:var(--danger-bg); color:var(--danger);">${renderIcon('message-square-warning', 20)}</div>
                 </div>
@@ -156,7 +150,7 @@ function renderHomeScreen() {
                 <div class="stat-value" id="stat-complaints">--</div>
             </div>
 
-            <div class="card stat-card" onclick="navigateTo('ask-eko')">
+            <div class="card stat-card" onclick="navigateTo('ask-eko')" style="cursor:pointer;">
                 <div style="display:flex; justify-content:space-between; align-items:center;">
                     <div class="metric-icon-wrap" style="background:var(--accent-light); color:var(--accent-dark);">${renderIcon('bot', 20)}</div>
                 </div>
@@ -165,10 +159,10 @@ function renderHomeScreen() {
             </div>
         </div>
 
-        <div class="section-header mt-2">
+        <div class="section-header">
             <h2 class="section-title">Eko Service Hub</h2>
         </div>
-        <div style="display:grid; grid-template-columns:repeat(4, 1fr); gap:12px;">
+        <div class="grid-cols-4" style="gap:12px;">
             <div class="card" style="padding:14px; text-align:center; cursor:pointer;" onclick="showToast('DMT Service')">
                 <div style="color:var(--primary); margin-bottom:8px;">${renderIcon('send', 22)}</div>
                 <div class="font-bold text-xs">DMT</div>
@@ -221,21 +215,31 @@ async function loadHomeScreen() {
             } catch (e) { suggestionsEl.innerHTML = ''; }
         }
 
-        // Load tasks (simplified)
         const tasks = await api.getTasks();
         const list = document.getElementById('home-tasks-list');
         if (list) {
             const pending = tasks.filter(t => !t.completed).slice(0, 3);
-            if (pending.length === 0) list.innerHTML = `<div class="text-sm text-muted">No pending tasks.</div>`;
-            else list.innerHTML = pending.map(t => `
-                <div class="card-item" style="padding:12px 16px;">
-                    <span class="text-sm font-semibold">${escapeHtml(t.title)}</span>
-                    <span class="badge badge-warning" style="font-size:0.6rem;">${t.priority}</span>
-                </div>
-            `).join('');
+            if (pending.length === 0) {
+                list.innerHTML = `<div class="text-sm text-muted text-center p-4">No pending priority tasks.</div>`;
+            } else {
+                list.innerHTML = pending.map(t => `
+                    <div class="card-item" style="padding:12px 16px; margin-bottom:8px;">
+                        <span class="text-sm font-semibold">${escapeHtml(t.title)}</span>
+                        <span class="badge ${t.priority === 'high' ? 'badge-danger' : 'badge-warning'}" style="font-size:0.6rem;">${t.priority}</span>
+                    </div>
+                `).join('');
+            }
         }
         lucide.createIcons();
     } catch (e) { console.error(e); }
+}
+
+function formatAiResponse(text) {
+    if (!text) return '';
+    return escapeHtml(text)
+        .replace(/\n\n/g, '<br><br>')
+        .replace(/\n/g, '<br>')
+        .replace(/\*\*(.*?)\*\*/g, '<strong>$1</strong>');
 }
 
 // ── Bootstrap ─────────────────────────────────────────────────────────────────

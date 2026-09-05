@@ -117,7 +117,7 @@ function renderHomeScreen() {
     <div class="dashboard-grid container-responsive">
         <div class="welcome-hero" style="background: linear-gradient(135deg, #C2410C 0%, #EA580C 45%, #F97316 100%); padding: 24px; margin-bottom: 20px; border-radius: 16px; color: #FFFFFF; box-shadow: 0 4px 14px rgba(249,115,22,0.35); position:relative; overflow:hidden;">
             <div class="welcome-text">
-                <h1 style="color:#FFFFFF; font-size:1.4rem; margin-bottom: 4px;">${getGreeting()}, ${escapeHtml(name)} 👋</h1>
+                <h1 style="color:#FFFFFF; font-size:1.4rem; margin-bottom: 4px;">${getGreeting()}, ${escapeHtml(name)}</h1>
                 <p style="color:rgba(255,255,255,0.9); font-size:0.9rem;">Eko Partner Operations — powered up.</p>
             </div>
             <div style="background:rgba(255,255,255,0.18); padding:12px; border-radius:12px; flex-shrink:0;">

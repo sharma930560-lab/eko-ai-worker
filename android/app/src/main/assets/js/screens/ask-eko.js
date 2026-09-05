@@ -3,10 +3,10 @@
  */
 
 const QUICK_PROMPTS = [
-    { label: '☀️ Ops Brief', q: 'Summarize today\'s operations.' },
-    { label: '🔴 Failures', q: 'Show today\'s failed transactions.' },
-    { label: '🛡️ Credit Analysis', q: 'Why is Rahul\'s assessment lower?' },
-    { label: '💬 Support Draft', q: 'Draft a message for a pending DMT.' },
+    { icon: 'sun', label: 'Ops Brief', q: 'Summarize today\'s operations.' },
+    { icon: 'alert-triangle', label: 'Failures', q: 'Show today\'s failed transactions.' },
+    { icon: 'shield-check', label: 'Credit Analysis', q: 'Why is Rahul\'s assessment lower?' },
+    { icon: 'message-square', label: 'Support Draft', q: 'Draft a message for a pending DMT.' },
 ];
 
 let chatHistory = [];
@@ -17,7 +17,7 @@ function renderAskEkoScreen() {
         <div class="prompt-chips-wrap">
             ${QUICK_PROMPTS.map(p => `
                 <button class="prompt-chip" onclick="sendQuickPrompt('${escapeHtml(p.q).replace(/'/g, "\\'")}')">
-                    ${renderIcon('sparkles', 14, 'text-primary')}
+                    ${renderIcon(p.icon, 14, 'text-primary')}
                     <span>${escapeHtml(p.label)}</span>
                 </button>
             `).join('')}

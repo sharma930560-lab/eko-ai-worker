@@ -32,14 +32,17 @@ async function loadTasks() {
             return;
         }
         list.innerHTML = tasks.map(t => `
-            <div class="card-item">
-                <div style="display:flex; align-items:center; gap:12px;">
-                    <div class="custom-checkbox ${t.completed ? 'checked' : ''}" onclick="toggleTask('${t.id}', ${!t.completed})">
-                        ${t.completed ? renderIcon('check', 14) : ''}
+            <div class="card-item" style="padding:16px; margin-bottom:8px;">
+                <div style="display:flex; align-items:center; gap:12px; width:100%;">
+                    <div class="custom-checkbox ${t.completed ? 'checked' : ''}" style="width:20px; height:20px; border:2.5px solid var(--border); border-radius:6px; display:flex; align-items:center; justify-content:center; cursor:pointer;" onclick="toggleTask('${t.id}', ${!t.completed})">
+                        ${t.completed ? renderIcon('check', 12) : ''}
                     </div>
-                    <div>
-                        <div class="font-semibold ${t.completed ? 'text-light line-through' : ''}">${escapeHtml(t.title)}</div>
-                        <div class="text-xs text-muted mt-1">Priority: <span class="badge ${t.priority === 'high' ? 'badge-danger' : 'badge-warning'}" style="font-size:0.6rem;">${t.priority}</span></div>
+                    <div style="flex:1;">
+                        <div class="font-semibold ${t.completed ? 'text-light line-through' : 'text-main'}">${escapeHtml(t.title)}</div>
+                        <div style="display:flex; justify-content:space-between; align-items:center; margin-top:4px;">
+                            <span class="badge ${t.priority === 'high' ? 'badge-danger' : 'badge-warning'}" style="font-size:0.6rem;">${t.priority}</span>
+                            <span class="text-xs text-light">${t.due_date ? formatDate(t.due_date) : 'No deadline'}</span>
+                        </div>
                     </div>
                 </div>
             </div>
