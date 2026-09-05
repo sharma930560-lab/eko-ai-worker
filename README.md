@@ -1,18 +1,18 @@
-# Eko AI Operations 2.0
+# Eko Partner Operations
 
-Eko AI Operations is a professional, intelligent mobile assistant for Eko's financial-services ecosystem. It helps authorized operators manage customers, monitor live transaction activity, and automate operational tasks using context-grounded AI.
+Eko Partner Operations is a professional, intelligent mobile assistant for Eko's financial-services ecosystem. It helps authorized operators manage customers, monitor live transaction activity, and automate operational tasks using context-grounded AI.
 
-📱 **Professional Fintech Assistant**: Transitioned from a micro-business tool to a high-fidelity fintech operations platform.
+📱 **Professional Fintech Assistant**: High-fidelity fintech operations platform for Eko field partners.
 
 ---
 
 ## What it does
 
-Eko AI Operations organizes complex financial service workflows into a single, intelligent mobile experience:
+Eko Partner Operations organizes complex financial service workflows into a single, intelligent mobile experience:
 - **Transaction Monitoring**: Real-time tracking of DMT, AePS, and Bill Payment health.
 - **Customer Operations**: Detailed profiling and service history tracking for reliable financial service delivery.
 - **AI-Powered Insights**: "Ask Eko" analyzes live transaction data to identify failures, suggest resolution steps, and summarize daily performance.
-- **Operational Automation**: Generates professional service updates, kyc requests, and support responses via WhatsApp.
+- **Operational Automation**: Generates professional service updates, KYC requests, and support responses via WhatsApp.
 - **Risk Assessment**: Calculates transaction-based trust scores to help operators manage service limits safely.
 
 ---
@@ -41,7 +41,7 @@ Ask Eko provides grounded operational advice based strictly on verified service 
 ```
 Operator Question
       ↓
-Relevant Operational Data (Activity, Tasks, Customers, Goals)
+Multi-stage Data Retrieval (Customer Profile, Credit Score, Timeline, Transactions, Grievances)
       ↓
 Gemini AI Engine (with fintech system instruction)
       ↓
@@ -63,8 +63,9 @@ Eko refuses to invent financial data. If a transaction ID or failure reason is m
 
 - **Android App**: Native Kotlin shell using WebViewAssetLoader for secure, high-performance local asset delivery.
 - **FastAPI Backend**: Robust Python 3.11 service with structured error handling and secure AI orchestration.
-- **Database**: PostgreSQL with user-scoped isolation for all operational entities.
-- **AI Integration**: Server-side Google Gemini integration with structured error propagation (`AI_UNAVAILABLE` states).
+- **AI Provider Abstraction**: `ai_provider.py` supports Gemini, OpenAI, and LocalDeterministic fallback — zero vendor lock-in.
+- **Database**: PostgreSQL (Render) with user-scoped isolation for all operational entities. Schema migrations via `sqlalchemy.inspect`.
+- **AI Integration**: Server-side multi-stage grounding — customer profile, credit history, timeline, transactions, and grievances assembled before AI reasoning.
 
 ---
 
@@ -75,11 +76,27 @@ Eko refuses to invent financial data. If a transaction ID or failure reason is m
 - **Hardware Security**: Integrated with Android Keystore and biometric unlock stubs.
 - **HTTPS Only**: All communications encrypted via TLS/HTTPS.
 - **Human-in-the-Loop**: Consequential database mutations require explicit operator confirmation.
+- **Request Deduplication**: Frontend lock (`isAiRequestInProgress`) + `requestId` tracking prevents duplicate AI submissions.
+- **AbortController Timeouts**: 20s standard / 45s AI with clean abort handling.
 
 ---
 
-## Latest Release (v1.1.0)
+## Live Deployment
 
-- 📱 **Android Package**: `com.eko.fieldworker`
-- 🔨 **Build Result**: Fully compiled and verified.
-- 🚀 **AI Status**: Live Gemini-1.5-Flash integration with robust fallback.
+| Resource | URL |
+|---|---|
+| 🌐 Web App | https://eko-field-worker.netlify.app |
+| 🔧 Backend API | https://eko-field-worker-api.onrender.com |
+| 💚 Health Check | https://eko-field-worker-api.onrender.com/api/health |
+| 📦 GitHub Release | https://github.com/sharma930560-lab/eko-ai-worker/releases/tag/v1.2.0 |
+
+---
+
+## Latest Release (v1.2.0)
+
+- 📱 **Android Package**: `com.eko.fieldworker` (versionCode 3)
+- 🤖 **AI Provider**: Gemini 1.5 Flash with OpenAI and LocalDeterministic fallback
+- 🔨 **Build Result**: Fully compiled production APK — `eko-partner-operations-v1.2.0.apk`
+- 🚀 **AI Status**: Live multi-stage grounded reasoning with structured `AskEkoResponse` schema
+- 🗄️ **Database**: PostgreSQL on Render — connected and healthy
+- 🔄 **Migrations**: PostgreSQL-safe via `sqlalchemy.inspect`
