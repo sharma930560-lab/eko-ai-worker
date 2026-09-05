@@ -189,6 +189,41 @@ class OpenAIProvider(AIProvider):
             return json.loads(content)
 
 
+class GroqProvider(AIProvider):
+    """Groq Cloud API Provider (Ultra-fast inference for Llama-3.3-70b / Qwen models)."""
+
+    def __init__(self, api_key: str, model_name: str = "llama-3.3-70b-versatile"):
+        self.api_key = api_key
+        self.model_name = model_name
+
+    async def generate(self, system_instruction: str, prompt: str, timeout: float = 25.0) -> Dict[str, Any]:
+        import httpx
+
+        system_instruction = sanitize_context_for_ai(system_instruction)
+        prompt = sanitize_context_for_ai(prompt)
+
+        headers = {
+            "Authorization": f"Bearer {self.api_key}",
+            "Content-Type": "application/json"
+        }
+        payload = {
+            "model": self.model_name,
+            "messages": [
+                {"role": "system", "content": system_instruction},
+                {"role": "user", "content": prompt}
+            ],
+            "response_format": {"type": "json_object"},
+            "temperature": 0.2
+        }
+
+        async with httpx.AsyncClient(timeout=timeout) as client:
+            res = await client.post("https://api.groq.com/openai/v1/chat/completions", headers=headers, json=payload)
+            res.raise_for_status()
+            data = res.json()
+            content = data["choices"][0]["message"]["content"]
+            return json.loads(content)
+
+
 class LocalDeterministicProvider(AIProvider):
     """Deterministic fallback provider when external AI APIs are unconfigured or offline."""
 
@@ -424,21 +459,40 @@ class LocalDeterministicProvider(AIProvider):
 
 def get_ai_provider() -> AIProvider:
     """Factory to instantiate the appropriate AI Provider."""
-    provider_name = os.getenv("AI_PROVIDER", "ollama").lower().strip()
+    provider_name = os.getenv("AI_PROVIDER", "auto").lower().strip()
     ollama_url = os.getenv("OLLAMA_BASE_URL", "http://127.0.0.1:11434").strip()
     ollama_model = os.getenv("OLLAMA_MODEL", "qwen3:4b").strip()
     gemini_key = os.getenv("GEMINI_API_KEY", "").strip()
     openai_key = os.getenv("OPENAI_API_KEY", "").strip()
-    if gemini_key.startswith("YOUR_"):
-        gemini_key = ""
-    model = os.getenv("AI_MODEL", os.getenv("GEMINI_MODEL", "gemini-2.5-flash")).strip()
+    groq_key = os.getenv("GROQ_API_KEY", "").strip()
+
+    if gemini_key.startswith("YOUR_"): gemini_key = ""
+    if openai_key.startswith("YOUR_"): openai_key = ""
+    if groq_key.startswith("YOUR_"): groq_key = ""
+
+    model = os.getenv("AI_MODEL", os.getenv("GEMINI_MODEL", "")).strip()
 
     if provider_name in ("ollama", "local-llm"):
         return OllamaProvider(base_url=ollama_url, model_name=ollama_model)
-    if provider_name == "local":
-        return LocalDeterministicProvider()
+    if provider_name == "groq" and groq_key:
+        return GroqProvider(api_key=groq_key, model_name=model or "llama-3.3-70b-versatile")
     if provider_name == "gemini" and gemini_key:
-        return GeminiProvider(api_key=gemini_key, model_name=model)
+        return GeminiProvider(api_key=gemini_key, model_name=model or "gemini-2.5-flash")
     if provider_name == "openai" and openai_key:
         return OpenAIProvider(api_key=openai_key, model_name=model or "gpt-4o-mini")
+    if provider_name in ("local", "deterministic"):
+        return LocalDeterministicProvider()
+
+    # Auto-detection: Use hosted provider if API key present in env vars
+    if groq_key:
+        return GroqProvider(api_key=groq_key, model_name=model or "llama-3.3-70b-versatile")
+    if gemini_key:
+        return GeminiProvider(api_key=gemini_key, model_name=model or "gemini-2.5-flash")
+    if openai_key:
+        return OpenAIProvider(api_key=openai_key, model_name=model or "gpt-4o-mini")
+
+    # Fallback to Ollama or Local
+    if provider_name == "auto":
+        return OllamaProvider(base_url=ollama_url, model_name=ollama_model)
+
     return LocalDeterministicProvider()
