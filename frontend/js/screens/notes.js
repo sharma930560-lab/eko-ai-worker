@@ -35,12 +35,14 @@ async function loadNotes() {
             return;
         }
         list.innerHTML = notes.map(n => `
-            <div class="card mb-3" style="padding:16px;">
+            <div class="card" style="padding:16px; margin-bottom:12px; border-color:var(--border);">
                 <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:8px;">
-                    <span class="text-xs text-muted font-semibold">${formatDateTime(n.created_at)}</span>
-                    <button class="btn-icon" style="border:none; width:auto; height:auto;" onclick="deleteNoteById('${n.id}')">${renderIcon('trash-2', 14, 'text-light')}</button>
+                    <span class="text-xs text-light font-bold" style="letter-spacing:0.02em;">${formatDateTime(n.created_at).toUpperCase()}</span>
+                    <button class="btn-icon" style="border:none; width:auto; height:auto; padding:4px;" onclick="deleteNoteById('${n.id}')" aria-label="Delete Note">
+                        ${renderIcon('trash-2', 14, 'text-light')}
+                    </button>
                 </div>
-                <div class="text-sm text-main line-height-relaxed">${escapeHtml(n.content)}</div>
+                <div class="text-sm text-main" style="line-height:1.6;">${escapeHtml(n.content)}</div>
             </div>
         `).join('');
         lucide.createIcons();
