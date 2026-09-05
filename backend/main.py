@@ -3,6 +3,7 @@ Eko AI Operations — FastAPI Backend
 Professional Fintech Operations + Customer 360 + AI Logic
 """
 import os
+import asyncio
 import uuid
 import hashlib
 import logging
@@ -843,38 +844,45 @@ def health():
 
 
 @app.get("/api/ai/health")
-def ai_health():
+async def ai_health():
     """
     Safe AI health check — never returns API keys, tokens, or secrets.
-    Distinguishes LIVE AI from DEMO FALLBACK.
+    Distinguishes LIVE AI from DEMO FALLBACK via actual live probe.
     """
-    configured_provider = os.getenv("AI_PROVIDER", "ollama").lower()
-    ollama_url = os.getenv("OLLAMA_BASE_URL", "http://127.0.0.1:11434")
-    ollama_model = os.getenv("OLLAMA_MODEL", "qwen3:4b")
+    configured_provider = os.getenv("AI_PROVIDER", "ollama").lower().strip()
+    ollama_model = os.getenv("OLLAMA_MODEL", "qwen3:4b").strip()
+    ai_provider = get_ai_provider()
 
-    # Determine live vs fallback
-    is_local_llm = configured_provider in ("ollama", "local-llm")
-    has_optional_hosted = bool(
-        os.getenv("GEMINI_API_KEY", "").strip() or
-        os.getenv("OPENAI_API_KEY", "").strip()
-    )
-    is_deterministic = configured_provider in ("local", "deterministic")
+    live_verified = False
+    provider_name = type(ai_provider).__name__
+    model_display = getattr(ai_provider, "model_name", "database-grounded")
 
-    if is_local_llm:
+    # Perform live probe if an external or local LLM is configured
+    if not isinstance(ai_provider, LocalDeterministicProvider):
+        try:
+            res = await asyncio.wait_for(
+                ai_provider.generate(
+                    system_instruction="Safe health check probe.",
+                    prompt="Ping",
+                    timeout=2.0
+                ),
+                timeout=2.5
+            )
+            if res and isinstance(res, dict):
+                live_verified = True
+        except Exception as e:
+            logger.info(f"AI live probe failed or offline ({e}). Reporting fallback status.")
+            live_verified = False
+
+    if live_verified:
         ai_mode = "live_ai"
-        provider_display = "ollama_local"
-        model_display = ollama_model
         status_msg = "healthy"
-    elif has_optional_hosted:
-        ai_mode = "live_ai"
         provider_display = configured_provider
-        model_display = os.getenv("AI_MODEL", os.getenv("GEMINI_MODEL", "hosted"))
-        status_msg = "healthy"
     else:
         ai_mode = "demo_fallback"
+        status_msg = "fallback_only"
         provider_display = "deterministic"
         model_display = "database-grounded"
-        status_msg = "fallback_only"
 
     return {
         "configured": True,
@@ -882,6 +890,7 @@ def ai_health():
         "model": model_display,
         "status": status_msg,
         "ai_mode": ai_mode,
+        "live_verified": live_verified,
         "multilingual": True,
         "languages": ["en", "hi", "hinglish"],
         "grounded": True,

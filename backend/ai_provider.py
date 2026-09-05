@@ -9,7 +9,38 @@ import asyncio
 from abc import ABC, abstractmethod
 from typing import Dict, Any, Optional, List
 
+import re
+
 logger = logging.getLogger("eko.ai")
+
+
+def sanitize_context_for_ai(text: str) -> str:
+    """
+    Data Minimization & PII Redaction Utility.
+    Strips sensitive customer identifiers and secrets before passing data to AI models.
+    """
+    if not text:
+        return text
+
+    # Redact API keys (e.g., AIza..., sk-..., etc.)
+    text = re.sub(r'\b(AIza[0-9A-Za-z-_]{20,50}|sk-[A-Za-z0-9]{20,50})\b', '[API_KEY_REDACTED]', text)
+
+    # Redact JWT tokens
+    text = re.sub(r'\beyJ[A-Za-z0-9-_=]+\.[A-Za-z0-9-_=]+\.?[A-Za-z0-9-_.+/=]*\b', '[JWT_REDACTED]', text)
+
+    # Redact 16-digit credit/debit card numbers
+    text = re.sub(r'\b\d{4}[ -]?\d{4}[ -]?\d{4}[ -]?\d{4}\b', '[CARD_REDACTED]', text)
+
+    # Redact 12-digit Aadhaar numbers
+    text = re.sub(r'\b\d{4}[ -]?\d{4}[ -]?\d{4}\b', '[AADHAAR_REDACTED]', text)
+
+    # Redact 10-char Indian PAN (5 letters, 4 digits, 1 letter)
+    text = re.sub(r'\b[A-Z]{5}[0-9]{4}[A-Z]\b', '[PAN_REDACTED]', text, flags=re.IGNORECASE)
+
+    # Redact passwords/secrets in strings
+    text = re.sub(r'(?i)(password|passwd|secret|auth_token|session_cookie)\s*[:=]\s*["\']?[^\s"\'&,]+["\']?', r'\1=[SECRET_REDACTED]', text)
+
+    return text
 
 
 class AIProvider(ABC):
@@ -30,6 +61,9 @@ class OllamaProvider(AIProvider):
 
     async def generate(self, system_instruction: str, prompt: str, timeout: float = 25.0) -> Dict[str, Any]:
         import httpx
+
+        system_instruction = sanitize_context_for_ai(system_instruction)
+        prompt = sanitize_context_for_ai(prompt)
 
         payload = {
             "model": self.model_name,
@@ -67,6 +101,9 @@ class GeminiProvider(AIProvider):
     async def generate(self, system_instruction: str, prompt: str, timeout: float = 25.0) -> Dict[str, Any]:
         self._configure()
         from google.genai import types
+
+        system_instruction = sanitize_context_for_ai(system_instruction)
+        prompt = sanitize_context_for_ai(prompt)
 
         full_prompt = f"{system_instruction}\n\nUSER QUERY:\n{prompt}"
         
@@ -126,6 +163,10 @@ class OpenAIProvider(AIProvider):
 
     async def generate(self, system_instruction: str, prompt: str, timeout: float = 25.0) -> Dict[str, Any]:
         import httpx
+
+        system_instruction = sanitize_context_for_ai(system_instruction)
+        prompt = sanitize_context_for_ai(prompt)
+
         headers = {
             "Authorization": f"Bearer {self.api_key}",
             "Content-Type": "application/json"
