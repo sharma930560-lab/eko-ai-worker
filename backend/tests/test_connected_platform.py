@@ -251,6 +251,11 @@ paras_store = next((p for p in demo_partners if "Paras" in p["name"]), None)
 assert paras_store is not None, "Paras General Store must be seeded"
 print(f"[PASS] 25. Demo Operator Seeding: {len(demo_partners)} partners, found {paras_store['name']}")
 
+# Demo reset must remain blocked unless the process explicitly enables DEMO_MODE.
+res = client.post("/api/demo/reset", headers=demo_headers)
+assert res.status_code == 403
+print("[PASS] 25a. Demo Reset Protection: blocked outside DEMO_MODE")
+
 # 22. Grounded AI Operational Prompts - No Inventory / Retail Items
 ai_prompts = [
     "Who is Paras General Store?",
@@ -271,6 +276,18 @@ for prompt in ai_prompts:
     for word in forbidden:
         assert word not in ans, f"Forbidden inventory term '{word}' found in response to: {prompt}"
 print(f"[PASS] 26. Grounded AI: All {len(ai_prompts)} operational prompts answered cleanly with zero inventory/stock hallucinations")
+
+# Exact regression for the production Rahul assessment bug.
+res = client.post("/api/ai/ask", json={"question": "Why is Rahul's assessment lower?"}, headers=demo_headers)
+assert res.status_code == 200
+rahul_ai = res.json()
+rahul_answer = rahul_ai["answer"].lower()
+assert rahul_ai["grounded"] is True
+assert "credit assessment" in rahul_answer
+assert "stock" not in rahul_answer
+assert "inventory" not in rahul_answer
+assert "purchase volume" not in rahul_answer
+print("[PASS] 26a. Rahul Credit Regression: database-grounded response with no legacy retail narrative")
 
 # 23. Ops Dashboard re-check (complaint count should update)
 res = client.get("/api/ops/dashboard", headers=headers)

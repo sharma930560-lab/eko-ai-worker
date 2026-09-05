@@ -170,6 +170,7 @@ async function openPartnerProfile(id) {
             <button class="filter-tab active" id="ptab-overview" onclick="switchPartnerTab('overview')" style="flex:1; justify-content:center; border:none;">Overview</button>
             <button class="filter-tab" id="ptab-transactions" onclick="switchPartnerTab('transactions')" style="flex:1; justify-content:center; border:none;">Txns (${p.transactions?.length || 0})</button>
             <button class="filter-tab" id="ptab-complaints" onclick="switchPartnerTab('complaints')" style="flex:1; justify-content:center; border:none;">Complaints (${p.complaints?.length || 0})</button>
+            <button class="filter-tab" id="ptab-credit" onclick="switchPartnerTab('credit')" style="flex:1; justify-content:center; border:none;">Credit</button>
             <button class="filter-tab" id="ptab-payments" onclick="switchPartnerTab('payments')" style="flex:1; justify-content:center; border:none;">Payments</button>
         </div>
 
@@ -277,6 +278,8 @@ function switchPartnerTab(tab) {
                 </div>
             `).join('') + `</div>`;
         }
+    } else if (tab === 'credit') {
+        renderPartnerCreditTab(p.id);
     } else if (tab === 'payments') {
         content.innerHTML = `
             <div class="card" style="padding:20px; text-align:center; background:var(--bg); border:none; margin-bottom:16px;">
@@ -291,6 +294,84 @@ function switchPartnerTab(tab) {
     }
 
     if (window.lucide) lucide.createIcons();
+}
+
+async function renderPartnerCreditTab(partnerId) {
+    const content = document.getElementById('partner-tab-content');
+    if (!content) return;
+
+    content.innerHTML = '<div class="loading-state"><div class="spinner"></div></div>';
+    try {
+        const result = await api.getCreditHistory(partnerId);
+        const current = result.current || {};
+        const factors = current.factors || {};
+        const score = Number(current.score || 0);
+        const risk = current.risk_bracket || current.risk || 'UNKNOWN';
+        const confidence = Math.round(Number(current.confidence || 0) * 100);
+        const riskBadge = risk === 'LOW' ? 'badge-success' : risk === 'HIGH' ? 'badge-danger' : 'badge-warning';
+        const history = result.history || [];
+
+        content.innerHTML = `
+            <div class="card" style="padding:20px; background:var(--bg); border:none; text-align:center; margin-bottom:14px;">
+                <div class="text-xs text-muted font-bold">OPERATIONAL TRUST SCORE</div>
+                <div class="credit-score-value" style="font-size:3rem; color:var(--primary);">${score.toFixed(1)}</div>
+                <div style="display:flex; justify-content:center; gap:8px; flex-wrap:wrap;">
+                    <span class="badge ${riskBadge}">${risk}</span>
+                    <span class="badge badge-info">${confidence}% confidence</span>
+                </div>
+            </div>
+
+            <div class="card mb-4" style="padding:14px; border-color:var(--border);">
+                <div class="text-xs font-bold text-muted mb-2">SCORE FACTORS</div>
+                <div class="text-sm" style="display:grid; grid-template-columns:repeat(2,minmax(0,1fr)); gap:8px;">
+                    <div><strong>Success:</strong> ${escapeHtml(factors.success_rate || 'N/A')}</div>
+                    <div><strong>Recent:</strong> ${escapeHtml(factors.recent_performance || 'N/A')}</div>
+                    <div><strong>Volume:</strong> ${escapeHtml(factors.volume_handled || 'N/A')}</div>
+                    <div><strong>Txns:</strong> ${escapeHtml(factors.total_txns || '0')}</div>
+                    <div><strong>KYC:</strong> ${escapeHtml(factors.kyc_status || 'unknown')}</div>
+                    <div><strong>Tenure:</strong> ${escapeHtml(factors.operational_tenure_days || '0')} days</div>
+                </div>
+                ${current.recommendations ? `<div class="text-xs text-muted mt-3">${escapeHtml(current.recommendations)}</div>` : ''}
+            </div>
+
+            <div style="display:flex; gap:8px; flex-wrap:wrap;">
+                <button class="btn-primary" style="flex:1; min-height:40px; font-size:0.85rem;" onclick="refreshPartnerCredit('${partnerId}')">
+                    ${renderIcon('rotate-cw', 16)} Recalculate
+                </button>
+                <button class="btn-ghost" style="flex:1; min-height:40px; font-size:0.85rem;" onclick="closeModal('customer-detail-modal'); if (typeof setAiContext === 'function') setAiContext({ customer_id: '${partnerId}', label: 'Credit Analysis: ${escapeHtml(result.customer_name || 'Partner')}' }); navigateTo('ask-eko'); sendToEko('${partnerId}', 'Explain the credit assessment for ${escapeHtml(result.customer_name || 'this partner')}');">
+                    ${renderIcon('sparkles', 16)} Ask Eko
+                </button>
+            </div>
+
+            ${history.length > 0 ? `
+                <div class="mt-4">
+                    <div class="text-xs font-bold text-muted mb-2">RECENT CHANGES</div>
+                    ${history.map(item => `
+                        <div class="card-item" style="padding:10px 12px; margin-bottom:8px; align-items:flex-start;">
+                            <div>
+                                <div class="font-bold text-sm">${Number(item.old_score).toFixed(1)} -> ${Number(item.new_score).toFixed(1)}</div>
+                                <div class="text-xs text-muted mt-1">${escapeHtml(item.change_reason || '')}</div>
+                            </div>
+                        </div>
+                    `).join('')}
+                </div>
+            ` : ''}
+        `;
+        if (window.lucide) lucide.createIcons();
+    } catch (err) {
+        content.innerHTML = `<div class="error-state"><div class="error-state-title">Credit Analysis Unavailable</div><div class="text-sm text-muted">${escapeHtml(err.message || 'Could not load assessment')}</div></div>`;
+    }
+}
+
+async function refreshPartnerCredit(partnerId) {
+    showToast('Refreshing credit analysis...', 'info');
+    try {
+        const res = await api.recalculateScore(partnerId);
+        showToast(`Trust score updated: ${Number(res.score || 0).toFixed(1)} pts`, 'success');
+        renderPartnerCreditTab(partnerId);
+    } catch (err) {
+        showToast('Assessment failed: ' + (err.message || 'Error'), 'error');
+    }
 }
 
 function openAddPartnerModal() {

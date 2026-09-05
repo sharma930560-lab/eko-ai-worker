@@ -217,6 +217,16 @@ async function switchCustomerDetailTab(tab, cid) {
                 <button class="btn-primary" style="width:100%; font-size:0.8rem; min-height:38px;" onclick="runSimulation('${cid}')">Run AI Scenario Simulation</button>
             </div>
         `;
+        try {
+            const result = await api.recalculateScore(cid);
+            const valEl = document.getElementById('credit-val-display');
+            if (valEl) {
+                valEl.textContent = result.risk === 'INSUFFICIENT_DATA' ? 'N/A' : Number(result.score).toFixed(1);
+            }
+        } catch (e) {
+            const valEl = document.getElementById('credit-val-display');
+            if (valEl) valEl.textContent = 'Unavailable';
+        }
     } else if (tab === 'info') {
         const c = window._allCustomers.find(x => x.id === cid);
         container.innerHTML = `

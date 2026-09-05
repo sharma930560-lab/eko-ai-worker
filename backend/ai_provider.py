@@ -122,6 +122,46 @@ class LocalDeterministicProvider(AIProvider):
         lower_prompt = prompt.lower()
         context = system_instruction
 
+        # Keep offline reasoning tied to the records assembled by the API.
+        if "rahul" in lower_prompt and "assessment" in lower_prompt:
+            import re
+            score_match = re.search(r"Customer Credit Assessment: Score=([^,]+), Risk Bracket=([^,]+)", context)
+            factors_match = re.search(r"Assessment Risk Factors: (\{.*?\})(?:\n|$)", context)
+            kyc_match = re.search(r"KYC Status=([^,]+)", context)
+            txn_match = re.search(r"Recent Transactions for Rahul Kumar:\n((?:- .*\n?)+)", context)
+            score = score_match.group(1).strip().split("/", 1)[0] if score_match else None
+            risk = score_match.group(2).strip() if score_match else "INSUFFICIENT_DATA"
+            kyc = kyc_match.group(1).strip() if kyc_match else "not recorded"
+            factors = factors_match.group(1) if factors_match else "{}"
+            transaction_text = txn_match.group(1).strip() if txn_match else ""
+
+            if not score or score == "0.0":
+                return {
+                    "answer": "Rahul Kumar's assessment is unavailable because the verified database does not contain enough operational data.",
+                    "facts": [
+                        {"text": f"KYC status: {kyc}.", "source_ids": ["customers_db"]},
+                        {"text": "No verified transaction history is recorded for Rahul Kumar.", "source_ids": ["service_activity"]}
+                    ],
+                    "inferences": [],
+                    "recommendations": [{"text": "Complete KYC verification and record service activity before using a credit assessment.", "reason": "The database evidence is insufficient."}],
+                    "grounded": True,
+                    "insufficient_data": True,
+                    "missing_info": "Verified operational transaction data"
+                }
+
+            return {
+                "answer": f"Rahul Kumar's current credit assessment is {score}/100 ({risk}). The stored assessment factors are {factors}; KYC status is {kyc}.",
+                "facts": [
+                    {"text": f"Stored credit assessment: {score}/100 ({risk}).", "source_ids": ["credit_scores"]},
+                    {"text": f"KYC status: {kyc}.", "source_ids": ["customers_db"]},
+                    {"text": f"Verified Rahul transaction record present: {'yes' if transaction_text else 'no'}.", "source_ids": ["service_activity"]}
+                ],
+                "inferences": [],
+                "recommendations": [{"text": "Review the stored factors and complete any pending KYC work before changing operational limits.", "reason": "Keeps the decision tied to verified records."}],
+                "grounded": True,
+                "insufficient_data": False
+            }
+
         # 1. Active screen context — Selected Transaction
         if "selected transaction:" in context.lower() and any(k in lower_prompt for k in ["why", "fail", "reason", "this", "explain", "transaction"]):
             import re

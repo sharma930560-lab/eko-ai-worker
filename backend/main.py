@@ -4,6 +4,7 @@ Professional Fintech Operations + Customer 360 + AI Logic
 """
 import os
 import uuid
+import hashlib
 import logging
 import json
 from typing import Optional, List, Dict, Any
@@ -32,6 +33,7 @@ GOOGLE_CLIENT_ID = os.getenv("GOOGLE_CLIENT_ID", "")
 GEMINI_API_KEY = os.getenv("GEMINI_API_KEY", "")
 GEMINI_MODEL = os.getenv("GEMINI_MODEL", "gemini-1.5-flash")
 ENVIRONMENT = os.getenv("ENVIRONMENT", "development")
+DEMO_MODE = os.getenv("DEMO_MODE", "false").lower() == "true"
 
 app = FastAPI(
     title="Eko Partner Operations API",
@@ -258,6 +260,7 @@ class AskEkoResponse(BaseModel):
     grounded: bool = True
     insufficient_data: bool = False
     missing_info: Optional[str] = None
+    error: Optional[AIError] = None
 
 class TaskCreate(BaseModel):
     title: str
@@ -291,7 +294,6 @@ class NoteResponse(BaseModel):
     customer_id: Optional[str] = None
     created_at: Optional[datetime] = None
     model_config = {"from_attributes": True}
-    error: Optional[AIError] = None
 
 class CreditSimulationRequest(BaseModel):
     customer_id: str
@@ -381,6 +383,39 @@ def fmt_inr(n) -> str:
     return f"₹{','.join(parts)},{last3}"
 
 # ─── Deterministic Sandbox / User Seeding ─────────────────────────────────────
+def _normalise_name_tokens(value: str) -> set:
+    import re
+    stop_words = {
+        "why", "what", "when", "where", "which", "who", "how", "is", "are",
+        "the", "this", "that", "tell", "show", "about", "assessment", "lower"
+    }
+    return {
+        token for token in re.findall(r"[a-z0-9]+", (value or "").lower())
+        if len(token) > 2 and token not in stop_words
+    }
+
+def find_customer_for_question(db: Session, user_id: str, question: str) -> Optional[models.Customer]:
+    q_lower = (question or "").lower()
+    q_tokens = _normalise_name_tokens(question or "")
+    if not q_tokens and not q_lower:
+        return None
+
+    customers = db.query(models.Customer).filter(models.Customer.user_id == user_id).all()
+    best_match = None
+    best_score = 0
+    for customer in customers:
+        name = (customer.name or "").lower()
+        if name and name in q_lower:
+            return customer
+
+        name_tokens = _normalise_name_tokens(customer.name or "")
+        overlap = len(q_tokens.intersection(name_tokens))
+        if overlap > best_score:
+            best_match = customer
+            best_score = overlap
+
+    return best_match if best_score > 0 else None
+
 def ensure_user_seeded(user_id: str, db: Session):
     """Seed comprehensive connected demo operations data for any fresh/demo user."""
     if not user_id:
@@ -393,6 +428,9 @@ def ensure_user_seeded(user_id: str, db: Session):
 
     logger.info(f"Seeding connected operational environment for user: {user_id}")
     now = datetime.now()
+    seed_suffix = "" if user_id == "demo-operator-01" else f"-{hashlib.sha1(user_id.encode()).hexdigest()[:8]}"
+    def seed_ref(reference: str) -> str:
+        return f"{reference}{seed_suffix}"
 
     # 1. Connected Partners (Retailers / Agents / CSPs)
     p_paras = models.Customer(
@@ -454,10 +492,10 @@ def ensure_user_seeded(user_id: str, db: Session):
     # 2. Realistic Multi-Service Transactions
     # TXN-DEMO-1001: Failed AePS cash withdrawal (linked to complaint and alert)
     t_failed = models.ServiceActivity(
-        id="TXN-DEMO-1001", user_id=user_id,
+        id=seed_ref("TXN-DEMO-1001"), user_id=user_id,
         customer_id=p_sharma.id, customer_name=p_sharma.name,
         service_name="AePS", status="failed", amount=2500.0, commission=0.0,
-        reference_id="AEPS984729104",
+        reference_id=seed_ref("AEPS984729104"),
         failure_reason="Issuer bank switch timeout during biometric balance withdrawal.",
         created_at=now - timedelta(hours=2)
     )
@@ -468,35 +506,35 @@ def ensure_user_seeded(user_id: str, db: Session):
             id=str(uuid.uuid4()), user_id=user_id,
             customer_id=p_paras.id, customer_name=p_paras.name,
             service_name="DMT", status="success", amount=5000.0, commission=22.5,
-            reference_id="DMT849201948",
+            reference_id=seed_ref("DMT849201948"),
             created_at=now - timedelta(hours=1)
         ),
         models.ServiceActivity(
             id=str(uuid.uuid4()), user_id=user_id,
             customer_id=p_paras.id, customer_name=p_paras.name,
             service_name="AePS", status="success", amount=2000.0, commission=8.0,
-            reference_id="AEPS849201882",
+            reference_id=seed_ref("AEPS849201882"),
             created_at=now - timedelta(hours=3)
         ),
         models.ServiceActivity(
             id=str(uuid.uuid4()), user_id=user_id,
             customer_id=p_verma.id, customer_name=p_verma.name,
             service_name="BBPS", status="success", amount=1450.0, commission=5.0,
-            reference_id="BBPS849201773",
+            reference_id=seed_ref("BBPS849201773"),
             created_at=now - timedelta(hours=4)
         ),
         models.ServiceActivity(
             id=str(uuid.uuid4()), user_id=user_id,
             customer_id=p_verma.id, customer_name=p_verma.name,
             service_name="Recharge", status="success", amount=299.0, commission=4.5,
-            reference_id="RCH849201664",
+            reference_id=seed_ref("RCH849201664"),
             created_at=now - timedelta(hours=5)
         ),
         models.ServiceActivity(
             id=str(uuid.uuid4()), user_id=user_id,
             customer_id=p_patel.id, customer_name=p_patel.name,
             service_name="DMT", status="pending", amount=10000.0, commission=45.0,
-            reference_id="DMT849201555",
+            reference_id=seed_ref("DMT849201555"),
             failure_reason="Bank confirmation pending from beneficiary NEFT switch.",
             created_at=now - timedelta(hours=6)
         ),
@@ -504,28 +542,35 @@ def ensure_user_seeded(user_id: str, db: Session):
             id=str(uuid.uuid4()), user_id=user_id,
             customer_id=p_gupta.id, customer_name=p_gupta.name,
             service_name="AePS", status="success", amount=3000.0, commission=12.0,
-            reference_id="AEPS849201446",
+            reference_id=seed_ref("AEPS849201446"),
             created_at=now - timedelta(hours=7)
         ),
         models.ServiceActivity(
             id=str(uuid.uuid4()), user_id=user_id,
             customer_id=p_sharma.id, customer_name=p_sharma.name,
             service_name="DMT", status="success", amount=7500.0, commission=33.5,
-            reference_id="DMT849201337",
+            reference_id=seed_ref("DMT849201337"),
             created_at=now - timedelta(hours=8)
         ),
         models.ServiceActivity(
             id=str(uuid.uuid4()), user_id=user_id,
             customer_id=p_gupta.id, customer_name=p_gupta.name,
             service_name="BBPS", status="success", amount=3200.0, commission=10.0,
-            reference_id="BBPS849201228",
+            reference_id=seed_ref("BBPS849201228"),
             created_at=now - timedelta(days=1)
+        ),
+        models.ServiceActivity(
+            id=str(uuid.uuid4()), user_id=user_id,
+            customer_id=p_rahul.id, customer_name=p_rahul.name,
+            service_name="AePS-Mini Statement", status="success", amount=0.0, commission=0.0,
+            reference_id=seed_ref("AEPS849201020"),
+            created_at=now - timedelta(hours=10)
         ),
         models.ServiceActivity(
             id=str(uuid.uuid4()), user_id=user_id,
             customer_id=p_paras.id, customer_name=p_paras.name,
             service_name="DMT", status="success", amount=4200.0, commission=18.0,
-            reference_id="DMT849201119",
+            reference_id=seed_ref("DMT849201119"),
             created_at=now - timedelta(days=1)
         ),
     ]
@@ -650,7 +695,7 @@ def ensure_user_seeded(user_id: str, db: Session):
         db.add(models.CreditScore(
             id=str(uuid.uuid4()), user_id=user_id, customer_id=p.id,
             customer_name=p.name, score=score_val or 75.0, risk_bracket=risk if score_val else "LOW",
-            factors=json.dumps(factors), recommendations=recs
+            confidence=conf, factors=json.dumps(factors), recommendations=recs
         ))
 
     db.commit()
@@ -679,6 +724,27 @@ def ready():
     if not db_ok:
         raise HTTPException(status_code=503, detail="Database not ready")
     return {"status": "ready", "version": "1.2.0"}
+
+@app.post("/api/demo/reset")
+def reset_demo(user_id: str = Depends(verify_user_id), db: Session = Depends(database.get_db)):
+    if not DEMO_MODE or user_id != "demo-operator-01":
+        raise HTTPException(status_code=403, detail="Demo reset is disabled outside the protected demo environment.")
+
+    for model in (
+        models.TimelineEvent,
+        models.CreditScoreHistory,
+        models.CreditScore,
+        models.OperationalNotification,
+        models.Complaint,
+        models.Task,
+        models.Note,
+        models.ServiceActivity,
+        models.Customer,
+    ):
+        db.query(model).filter(model.user_id == user_id).delete(synchronize_session=False)
+    db.commit()
+    ensure_user_seeded(user_id, db)
+    return {"status": "reset", "user_id": user_id, "demo_mode": True}
 
 # ─── Auth ─────────────────────────────────────────────────────────────────────
 @app.post("/api/auth/google", response_model=UserResponse)
@@ -907,13 +973,40 @@ def list_complaints(user_id: str = Depends(verify_user_id), db: Session = Depend
 
 # ─── Advanced Credit Intelligence ─────────────────────────────────────────────
 def calculate_dynamic_score(db: Session, user_id: str, customer_id: str) -> tuple:
+    customer = db.query(models.Customer).filter(
+        models.Customer.id == customer_id,
+        models.Customer.user_id == user_id
+    ).first()
     activity = db.query(models.ServiceActivity).filter(
         models.ServiceActivity.user_id == user_id,
         models.ServiceActivity.customer_id == customer_id
     ).order_by(desc(models.ServiceActivity.created_at)).all()
 
+    tenure_days = 0
+    if customer and customer.created_at:
+        created_at = customer.created_at.replace(tzinfo=None)
+        tenure_days = max(0, (datetime.now() - created_at).days)
+    tenure_bonus = min(7.0, tenure_days / 90 * 7.0)
+    kyc_bonus = 7.0 if customer and customer.kyc_status == "verified" else 0.0
+
     if not activity:
-        return 0, "INSUFFICIENT_DATA", 0.0, {}, "No transaction history found."
+        score = 45.0 + tenure_bonus + kyc_bonus
+        if customer and customer.kyc_status != "verified":
+            score -= 5.0
+        score = min(65.0, max(10.0, score))
+        risk = "LOW" if score >= 80 else "MODERATE" if score >= 50 else "HIGH"
+        factors = {
+            "success_rate": "N/A",
+            "recent_performance": "N/A",
+            "volume_handled": fmt_inr(0),
+            "total_txns": "0",
+            "kyc_status": customer.kyc_status if customer else "unknown",
+            "operational_tenure_days": str(tenure_days)
+        }
+        recs = "Build transaction history before approving higher operational limits."
+        if customer and customer.kyc_status != "verified":
+            recs = "Complete KYC verification and record successful activity before raising limits."
+        return score, risk, 0.35, factors, recs
 
     total = len(activity)
     successful = [a for a in activity if a.status == "success"]
@@ -926,28 +1019,38 @@ def calculate_dynamic_score(db: Session, user_id: str, customer_id: str) -> tupl
     recent_activity = activity[:10]
     recent_success_rate = len([a for a in recent_activity if a.status == "success"]) / len(recent_activity)
 
-    # Deterministic scoring
-    score = 40.0
-    score += (success_rate * 30.0)
-    score += (recent_success_rate * 20.0)
+    # Deterministic scoring: performance first, adjusted by tenure/KYC and sample size.
+    score = 35.0
+    score += (success_rate * 25.0)
+    score += (recent_success_rate * 15.0)
+    score += min(8.0, volume / 50000 * 8.0)
+    score += min(5.0, total / 20 * 5.0)
+    score += tenure_bonus
+    score += kyc_bonus
 
-    if volume > 50000: score += 5
-    if total > 50: score += 4
+    if total < 3:
+        score -= 3.0 if customer and customer.kyc_status == "verified" else 17.0
 
     score = min(99.0, max(10.0, score))
     risk = "LOW" if score >= 80 else "MODERATE" if score >= 50 else "HIGH"
+    confidence = min(1.0, 0.45 + (total / 20 * 0.45) + (0.10 if customer and customer.kyc_status == "verified" else 0.0))
 
     factors = {
         "success_rate": f"{int(success_rate*100)}%",
         "recent_performance": f"{int(recent_success_rate*100)}%",
         "volume_handled": fmt_inr(volume),
-        "total_txns": str(total)
+        "total_txns": str(total),
+        "failed_txns": str(len(failed)),
+        "kyc_status": customer.kyc_status if customer else "unknown",
+        "operational_tenure_days": str(tenure_days)
     }
 
     recs = "Maintain high volume and success rate to improve assessment."
     if risk == "HIGH": recs = "Urgent: Improve transaction success ratio before requesting higher limits."
+    elif customer and customer.kyc_status != "verified":
+        recs = "Complete KYC verification and add more successful transactions before approving higher limits."
 
-    return score, risk, 1.0, factors, recs
+    return score, risk, confidence, factors, recs
 
 @app.post("/api/credit-score/recalculate/{cid}")
 def recalculate_eko_score(cid: str, user_id: str = Depends(verify_user_id), db: Session = Depends(database.get_db)):
@@ -956,14 +1059,17 @@ def recalculate_eko_score(cid: str, user_id: str = Depends(verify_user_id), db: 
 
     score_val, risk, conf, factors, recs = calculate_dynamic_score(db, user_id, cid)
 
-    old_score_rec = db.query(models.CreditScore).filter(models.CreditScore.customer_id == cid).first()
+    old_score_rec = db.query(models.CreditScore).filter(
+        models.CreditScore.customer_id == cid,
+        models.CreditScore.user_id == user_id
+    ).order_by(desc(models.CreditScore.created_at)).first()
     old_val = old_score_rec.score if old_score_rec else 50.0
 
     if not old_score_rec:
         old_score_rec = models.CreditScore(
             id=str(uuid.uuid4()), user_id=user_id, customer_id=cid,
             customer_name=customer.name, score=score_val, risk_bracket=risk,
-            factors=json.dumps(factors), recommendations=recs
+            confidence=conf, factors=json.dumps(factors), recommendations=recs
         )
         db.add(old_score_rec)
     else:
@@ -978,6 +1084,7 @@ def recalculate_eko_score(cid: str, user_id: str = Depends(verify_user_id), db: 
             db.add(hist)
             old_score_rec.score = score_val
             old_score_rec.risk_bracket = risk
+            old_score_rec.confidence = conf
             old_score_rec.factors = json.dumps(factors)
             old_score_rec.recommendations = recs
 
@@ -985,7 +1092,76 @@ def recalculate_eko_score(cid: str, user_id: str = Depends(verify_user_id), db: 
                                f"Score moved from {old_val:.1f} to {score_val:.1f}. Bracket: {risk}")
 
     db.commit()
-    return {"status": "success", "score": score_val, "risk": risk}
+    return {
+        "status": "success",
+        "score": score_val,
+        "risk": risk,
+        "confidence": conf,
+        "factors": factors,
+        "recommendations": recs
+    }
+
+@app.get("/api/credit-score/history")
+def get_credit_score_history(customer_id: str, user_id: str = Depends(verify_user_id), db: Session = Depends(database.get_db)):
+    ensure_user_seeded(user_id, db)
+    customer = db.query(models.Customer).filter(
+        models.Customer.id == customer_id,
+        models.Customer.user_id == user_id
+    ).first()
+    if not customer:
+        raise HTTPException(status_code=404, detail="Customer not found.")
+
+    current = db.query(models.CreditScore).filter(
+        models.CreditScore.customer_id == customer_id,
+        models.CreditScore.user_id == user_id
+    ).order_by(desc(models.CreditScore.created_at)).first()
+
+    if not current:
+        score_val, risk, conf, factors, recs = calculate_dynamic_score(db, user_id, customer_id)
+        current_payload = {
+            "score": score_val,
+            "risk_bracket": risk,
+            "confidence": conf,
+            "factors": factors,
+            "recommendations": recs,
+            "created_at": None
+        }
+    else:
+        try:
+            factors = json.loads(current.factors) if current.factors else {}
+        except json.JSONDecodeError:
+            factors = {"raw": current.factors}
+        current_payload = {
+            "id": current.id,
+            "score": current.score,
+            "risk_bracket": current.risk_bracket,
+            "confidence": current.confidence,
+            "factors": factors,
+            "recommendations": current.recommendations,
+            "created_at": current.created_at.isoformat() if current.created_at else None
+        }
+
+    history = db.query(models.CreditScoreHistory).filter(
+        models.CreditScoreHistory.customer_id == customer_id,
+        models.CreditScoreHistory.user_id == user_id
+    ).order_by(desc(models.CreditScoreHistory.created_at)).limit(20).all()
+
+    return {
+        "customer_id": customer_id,
+        "customer_name": customer.name,
+        "current": current_payload,
+        "history": [
+            {
+                "id": item.id,
+                "old_score": item.old_score,
+                "new_score": item.new_score,
+                "change_reason": item.change_reason,
+                "contributing_factors": json.loads(item.contributing_factors) if item.contributing_factors else {},
+                "created_at": item.created_at.isoformat() if item.created_at else None
+            }
+            for item in history
+        ]
+    }
 
 # ─── Operational Dashboard Metrics ────────────────────────────────────────────
 @app.get("/api/ops/dashboard")
@@ -1091,12 +1267,7 @@ async def ask_eko(body: AskEkoRequest, user_id: str = Depends(verify_user_id), d
         ).first()
 
     if not customer and body.question:
-        all_custs = db.query(models.Customer).filter(models.Customer.user_id == user_id).all()
-        q_lower = body.question.lower()
-        for c in all_custs:
-            if c.name and c.name.lower() in q_lower:
-                customer = c
-                break
+        customer = find_customer_for_question(db, user_id, body.question)
 
     if customer:
         context_lines.append(f"Subject Customer Profile: Name={customer.name}, Phone={customer.phone or 'N/A'}, KYC Status={customer.kyc_status}, Business Type={customer.business_type or 'General'}, Amount Due={fmt_inr(customer.amount_due)}")
@@ -1105,7 +1276,8 @@ async def ask_eko(body: AskEkoRequest, user_id: str = Depends(verify_user_id), d
 
         # Credit Score and factors
         score_record = db.query(models.CreditScore).filter(
-            models.CreditScore.customer_id == customer.id
+            models.CreditScore.customer_id == customer.id,
+            models.CreditScore.user_id == user_id
         ).order_by(desc(models.CreditScore.created_at)).first()
         if score_record:
             context_lines.append(f"Customer Credit Assessment: Score={score_record.score}/100, Risk Bracket={score_record.risk_bracket}, Confidence={score_record.confidence}")
@@ -1116,7 +1288,8 @@ async def ask_eko(body: AskEkoRequest, user_id: str = Depends(verify_user_id), d
 
         # Credit Score History
         score_history = db.query(models.CreditScoreHistory).filter(
-            models.CreditScoreHistory.customer_id == customer.id
+            models.CreditScoreHistory.customer_id == customer.id,
+            models.CreditScoreHistory.user_id == user_id
         ).order_by(desc(models.CreditScoreHistory.created_at)).limit(5).all()
         if score_history:
             context_lines.append("Assessment History Changes:")
@@ -1124,7 +1297,10 @@ async def ask_eko(body: AskEkoRequest, user_id: str = Depends(verify_user_id), d
                 context_lines.append(f"- {sh.created_at.date()}: Old={sh.old_score}, New={sh.new_score}, Reason: {sh.change_reason}")
 
         # Timeline events
-        query = db.query(models.TimelineEvent).filter(models.TimelineEvent.customer_id == customer.id)
+        query = db.query(models.TimelineEvent).filter(
+            models.TimelineEvent.customer_id == customer.id,
+            models.TimelineEvent.user_id == user_id
+        )
         if body.date_from:
             query = query.filter(models.TimelineEvent.created_at >= body.date_from)
         if body.date_to:
@@ -1142,7 +1318,10 @@ async def ask_eko(body: AskEkoRequest, user_id: str = Depends(verify_user_id), d
             context_lines.append(f"No timeline events recorded yet for {customer.name}.")
 
         # Complaints / Grievances
-        complaints = db.query(models.Complaint).filter(models.Complaint.customer_id == customer.id).all()
+        complaints = db.query(models.Complaint).filter(
+            models.Complaint.customer_id == customer.id,
+            models.Complaint.user_id == user_id
+        ).all()
         if complaints:
             context_lines.append(f"Customer Grievances/Complaints ({len(complaints)}):")
             for comp in complaints:
@@ -1150,6 +1329,7 @@ async def ask_eko(body: AskEkoRequest, user_id: str = Depends(verify_user_id), d
 
         # Recent transactions for customer
         txns = db.query(models.ServiceActivity).filter(
+            models.ServiceActivity.user_id == user_id,
             or_(models.ServiceActivity.customer_id == customer.id, models.ServiceActivity.customer_name == customer.name)
         ).order_by(desc(models.ServiceActivity.created_at)).limit(10).all()
         if txns:
