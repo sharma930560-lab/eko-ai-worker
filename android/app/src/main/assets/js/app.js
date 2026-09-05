@@ -637,18 +637,18 @@ async function loadHomeScreen() {
 
         // Needs Attention
         const attnEl = document.getElementById('home-needs-attention');
-        const items = [];
-        if (stats.sla_at_risk > 0) items.push(`${renderIcon('clock',14)} ${stats.sla_at_risk} complaint${stats.sla_at_risk>1?'s':''} approaching SLA deadline`);
-        if (stats.failed_alerts > 0) items.push(`${renderIcon('alert-triangle',14)} ${stats.failed_alerts} failed transaction${stats.failed_alerts>1?'s':''} need attention`);
-        if (stats.pending_operations > 0) items.push(`${renderIcon('loader',14)} ${stats.pending_operations} transaction${stats.pending_operations>1?'s':''} still processing`);
-        if (attnEl && items.length > 0) {
+        const attnItems = [];
+        if (stats.sla_at_risk > 0) attnItems.push({ icon: 'clock', text: `${stats.sla_at_risk} complaint${stats.sla_at_risk>1?'s':''} approaching SLA deadline`, screen: 'grievances' });
+        if (stats.failed_alerts > 0) attnItems.push({ icon: 'alert-triangle', text: `${stats.failed_alerts} failed transaction${stats.failed_alerts>1?'s':''} need attention`, screen: 'activity' });
+        if (stats.pending_operations > 0) attnItems.push({ icon: 'loader', text: `${stats.pending_operations} transaction${stats.pending_operations>1?'s':''} still processing`, screen: 'activity' });
+        if (attnEl && attnItems.length > 0) {
             attnEl.innerHTML = `
                 <div class="card" style="border-left:4px solid var(--danger); background:var(--danger-bg); margin-bottom:4px;">
                     <div class="font-bold" style="display:flex; align-items:center; gap:8px; color:var(--danger); font-size:0.85rem; margin-bottom:8px;">
                         ${renderIcon('bell-ring',14)} Needs Attention
                     </div>
                     <div style="display:flex; flex-direction:column; gap:6px;">
-                        ${items.map(i => `<div class="text-sm" style="display:flex; align-items:center; gap:6px; color:var(--danger-dark)">${i}</div>`).join('')}
+                        ${attnItems.map(i => `<div class="text-sm" style="display:flex; align-items:center; gap:6px; color:var(--danger-dark); cursor:pointer; padding:4px 6px; border-radius:6px; transition:background 0.15s;" onclick="navigateTo('${i.screen}')" onmouseover="this.style.background='rgba(239,68,68,0.08)'" onmouseout="this.style.background='transparent'">${renderIcon(i.icon,14)} ${i.text} ${renderIcon('chevron-right',12,'text-light')}</div>`).join('')}
                     </div>
                 </div>`;
         } else if (attnEl) {
@@ -697,11 +697,11 @@ async function loadHomeScreen() {
                 list.innerHTML = `<div class="text-sm text-muted text-center p-4">No pending tasks. Great work!</div>`;
             } else {
                 list.innerHTML = pending.map(t => `
-                    <div class="card-item" style="padding:12px 16px; margin-bottom:8px;">
-                        <span class="text-sm font-semibold">${escapeHtml(t.title)}</span>
-                        <span class="badge ${t.priority === 'high' ? 'badge-danger' : 'badge-warning'}" style="font-size:0.6rem;">${t.priority}</span>
-                    </div>
-                `).join('');
+                        <div class="card-item" style="padding:12px 16px; margin-bottom:8px; cursor:pointer;" onclick="navigateTo('ask-eko'); setTimeout(() => { const inp = document.getElementById('eko-input'); if(inp) inp.value='Help me complete this task: ${escapeHtml(t.title).replace(/'/g, "\\'").replace(/`/g, '')}'; }, 400);">
+                            <span class="text-sm font-semibold">${escapeHtml(t.title)}</span>
+                            <span class="badge ${t.priority === 'high' ? 'badge-danger' : 'badge-warning'}" style="font-size:0.6rem;">${t.priority}</span>
+                        </div>
+                    `).join('');
             }
         }
     } catch (e) { /* silent */ }

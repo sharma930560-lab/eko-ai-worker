@@ -282,7 +282,7 @@ function switchPartnerTab(tab) {
                 const isSuccess = t.status === 'success';
                 const isFailed = t.status === 'failed';
                 return `
-                <div class="card-item" style="padding:12px; align-items:center;">
+                <div class="card-item" onclick="closeModal('customer-detail-modal'); setTimeout(() => { if(typeof showActivityDetail==='function') showActivityDetail('${t.id}'); else navigateTo('activity'); }, 200);" style="padding:12px; align-items:center; cursor:pointer;">
                     <div style="flex:1; min-width:0;">
                         <div class="font-bold text-sm">${serviceName(t.service_name)}</div>
                         <div class="text-xs text-muted mt-1">${formatDateTime(t.created_at)} · ID: ${t.reference_id || t.id.slice(0,8)}</div>
@@ -301,7 +301,7 @@ function switchPartnerTab(tab) {
             content.innerHTML = `<div class="empty-state" style="padding:32px 16px;"><p>No complaints reported for this partner.</p></div>`;
         } else {
             content.innerHTML = `<div style="display:flex; flex-direction:column; gap:8px;">` + comps.map(c => `
-                <div class="card-item" style="padding:12px; flex-direction:column; align-items:flex-start; gap:6px;">
+                <div class="card-item" onclick="closeModal('customer-detail-modal'); setTimeout(() => { if(typeof showComplaintDetail==='function') showComplaintDetail('${c.id}'); else navigateTo('grievances'); }, 200);" style="padding:12px; flex-direction:column; align-items:flex-start; gap:6px; cursor:pointer;">
                     <div style="display:flex; justify-content:space-between; width:100%; align-items:center;">
                         <span class="font-bold text-sm">${escapeHtml(c.subject)}</span>
                         <span class="badge ${c.priority === 'urgent' ? 'badge-danger' : 'badge-warning'}" style="font-size:0.6rem;">${c.priority}</span>
