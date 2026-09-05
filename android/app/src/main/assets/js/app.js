@@ -297,6 +297,8 @@ const SCREENS = {
     customers:  { title: 'Partner Network', subtitle: 'Manage retailers & agents.', render: renderPartnersScreen, load: loadPartners },
     activity:   { title: 'Transaction Center', subtitle: 'Real-time monitoring.', render: renderActivityScreen, load: loadActivity },
     grievances: { title: 'Complaints', subtitle: 'Track SLA & resolutions.', render: renderGrievancesScreen, load: loadGrievances },
+    tasks:      { title: 'Operational Tasks', subtitle: 'Prioritize daily service delivery.', render: renderTasksScreen, load: loadTasks },
+    notes:      { title: 'Operational Journal', subtitle: 'Incident logs and service notes.', render: renderNotesScreen, load: loadNotes },
     'ai-tools': { title: 'AI Operational Suite', subtitle: 'Productivity superpowers.', render: renderAiToolsScreen, load: () => { switchAiToolTab('scanner'); } },
     'ask-eko':  { title: 'Ask Eko AI', subtitle: 'Grounded operational partner.', render: renderAskEkoScreen, load: loadAskEko },
 };
