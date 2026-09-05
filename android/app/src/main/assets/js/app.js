@@ -159,10 +159,19 @@ async function handleNotifClick(id, deepLink) {
     updateNotifBadge(_notificationCache.length);
     document.getElementById('notification-panel')?.classList.add('hidden');
     if (deepLink) {
-        const screen = deepLink.includes('/transactions') ? 'activity' :
-                       deepLink.includes('/complaints') ? 'grievances' :
-                       deepLink.includes('/partners') ? 'partners' : null;
-        if (screen) navigateTo(screen);
+        const parts = deepLink.split('/').filter(Boolean);
+        const entityType = parts[0];
+        const entityId = parts[1];
+        if (entityType === 'transactions') {
+            navigateTo('activity');
+            if (entityId) setTimeout(() => { if (typeof showActivityDetail === 'function') showActivityDetail(entityId); }, 350);
+        } else if (entityType === 'complaints') {
+            navigateTo('grievances');
+            if (entityId) setTimeout(() => { if (typeof showComplaintDetail === 'function') showComplaintDetail(entityId); }, 350);
+        } else if (entityType === 'partners') {
+            navigateTo('partners');
+            if (entityId) setTimeout(() => { if (typeof openPartnerProfile === 'function') openPartnerProfile(entityId); }, 350);
+        }
     }
 }
 
@@ -302,33 +311,42 @@ function openServiceFlow(service) {
     const title = document.getElementById('service-flow-title');
     if (!el || !body) return;
 
+    const sandboxBanner = `
+        <div style="display:flex; align-items:center; gap:8px; padding:8px 12px; margin-bottom:14px; background:rgba(59,130,246,0.08); border:1px solid rgba(59,130,246,0.22); border-radius:8px; font-size:0.75rem; color:var(--text-secondary);">
+            ${renderIcon('flask-conical', 16, 'text-primary')}
+            <div><strong>Sandbox Environment:</strong> Simulated financial operation for testing and demo. No real banking accounts debited.</div>
+        </div>
+    `;
+
     const flows = {
         dmt: {
-            label: 'Send Money (DMT)',
+            label: 'Send Money (DMT) · Sandbox Flow',
             html: `
+            ${sandboxBanner}
             <form id="dmt-form" onsubmit="submitDMT(event)">
-                <div class="form-group"><label>Customer Name</label>
+                <div class="form-group"><label>Customer / Sender Name</label>
                     <input class="form-input" name="customer_name" placeholder="Sender's name" required></div>
                 <div class="form-group"><label>Receiver Name</label>
-                    <input class="form-input" name="receiver_name" placeholder="Full name" required></div>
+                    <input class="form-input" name="receiver_name" placeholder="Full name (or 'FAIL' to test bank failure)" required></div>
                 <div class="form-group"><label>Account Number</label>
                     <input class="form-input" name="receiver_account" placeholder="Bank account number" required></div>
                 <div class="form-group"><label>IFSC Code</label>
                     <input class="form-input" name="receiver_ifsc" placeholder="e.g. SBIN0001234" required></div>
                 <div class="form-group"><label>Amount (₹)</label>
-                    <input class="form-input" name="amount" type="number" min="100" max="25000" placeholder="Min ₹100" required></div>
-                <button class="btn-primary" type="submit" style="width:100%; margin-top:8px;">${renderIcon('send',16)} Send Money</button>
+                    <input class="form-input" name="amount" type="number" min="100" max="25000" placeholder="Min ₹100 (99999 to test failure)" required></div>
+                <button class="btn-primary" type="submit" style="width:100%; margin-top:8px;">${renderIcon('send',16)} Simulate Money Transfer</button>
             </form>`
         },
         aeps: {
-            label: 'Aadhaar Banking (AePS)',
+            label: 'Aadhaar Banking (AePS) · Sandbox Flow',
             html: `
+            ${sandboxBanner}
             <form id="aeps-form" onsubmit="submitAePS(event)">
                 <div class="form-group"><label>Customer Name</label>
                     <input class="form-input" name="customer_name" placeholder="Customer's name" required></div>
                 <div class="form-group"><label>Aadhaar Last 4 Digits</label>
-                    <input class="form-input" name="aadhaar_last4" maxlength="4" placeholder="XXXX" required></div>
-                <div class="form-group"><label>Service</label>
+                    <input class="form-input" name="aadhaar_last4" maxlength="4" placeholder="XXXX ('0000' to test failure)" required></div>
+                <div class="form-group"><label>Operation Type</label>
                     <select class="form-input" name="service_type" onchange="toggleAePSAmount(this.value)">
                         <option value="withdrawal">Cash Withdrawal</option>
                         <option value="balance">Balance Check</option>
@@ -336,16 +354,17 @@ function openServiceFlow(service) {
                     </select></div>
                 <div class="form-group" id="aeps-amount-row"><label>Amount (₹)</label>
                     <input class="form-input" name="amount" type="number" min="100" max="10000" placeholder="Amount" required></div>
-                <button class="btn-primary" type="submit" style="width:100%; margin-top:8px;">${renderIcon('fingerprint',16)} Process</button>
+                <button class="btn-primary" type="submit" style="width:100%; margin-top:8px;">${renderIcon('fingerprint',16)} Simulate AePS Operation</button>
             </form>`
         },
         bbps: {
-            label: 'Pay Bills (BBPS)',
+            label: 'Pay Bills (BBPS) · Sandbox Flow',
             html: `
+            ${sandboxBanner}
             <form id="bbps-form" onsubmit="submitBBPS(event)">
                 <div class="form-group"><label>Customer Name</label>
                     <input class="form-input" name="customer_name" placeholder="Customer's name" required></div>
-                <div class="form-group"><label>Category</label>
+                <div class="form-group"><label>Bill Category</label>
                     <select class="form-input" name="category">
                         <option value="electricity">Electricity</option>
                         <option value="water">Water</option>
@@ -357,21 +376,22 @@ function openServiceFlow(service) {
                 <div class="form-group"><label>Provider / Biller</label>
                     <input class="form-input" name="provider" placeholder="e.g. BSES Rajdhani" required></div>
                 <div class="form-group"><label>Consumer Number</label>
-                    <input class="form-input" name="consumer_number" placeholder="Account/CA number" required></div>
+                    <input class="form-input" name="consumer_number" placeholder="Account/CA ('000000' to test failure)" required></div>
                 <div class="form-group"><label>Amount (₹)</label>
                     <input class="form-input" name="amount" type="number" min="1" placeholder="Bill amount" required></div>
-                <button class="btn-primary" type="submit" style="width:100%; margin-top:8px;">${renderIcon('receipt',16)} Pay Bill</button>
+                <button class="btn-primary" type="submit" style="width:100%; margin-top:8px;">${renderIcon('receipt',16)} Simulate Bill Payment</button>
             </form>`
         },
         recharge: {
-            label: 'Mobile Recharge',
+            label: 'Mobile Recharge · Sandbox Flow',
             html: `
+            ${sandboxBanner}
             <form id="recharge-form" onsubmit="submitRecharge(event)">
                 <div class="form-group"><label>Customer Name</label>
                     <input class="form-input" name="customer_name" placeholder="Customer's name" required></div>
                 <div class="form-group"><label>Mobile Number</label>
                     <input class="form-input" name="mobile_number" type="tel" maxlength="10" placeholder="10-digit number" required></div>
-                <div class="form-group"><label>Operator</label>
+                <div class="form-group"><label>Telecom Operator</label>
                     <select class="form-input" name="operator">
                         <option value="Jio">Jio</option>
                         <option value="Airtel">Airtel</option>
@@ -380,7 +400,7 @@ function openServiceFlow(service) {
                     </select></div>
                 <div class="form-group"><label>Plan Amount (₹)</label>
                     <input class="form-input" name="plan_amount" type="number" min="10" placeholder="e.g. 299" required></div>
-                <button class="btn-primary" type="submit" style="width:100%; margin-top:8px;">${renderIcon('smartphone',16)} Recharge</button>
+                <button class="btn-primary" type="submit" style="width:100%; margin-top:8px;">${renderIcon('smartphone',16)} Simulate Recharge</button>
             </form>`
         }
     };
@@ -481,32 +501,34 @@ function showServiceResult(res, label) {
     if (!body) return;
     const isSuccess = res.status === 'success';
     body.innerHTML = `
-        <div style="text-align:center; padding:24px 0;">
-            <div style="width:64px; height:64px; border-radius:50%; margin:0 auto 16px;
+        <div style="text-align:center; padding:20px 0;">
+            <div style="width:60px; height:60px; border-radius:50%; margin:0 auto 14px;
                 background:${isSuccess ? 'var(--success-bg)' : 'var(--danger-bg)'};
                 display:flex; align-items:center; justify-content:center;">
                 ${renderIcon(isSuccess ? 'check-circle' : 'x-circle', 28, isSuccess ? 'text-success' : 'text-danger')}
             </div>
-            <div style="font-size:1.5rem; font-weight:800; color:${isSuccess ? 'var(--success)' : 'var(--danger)'};">
-                ${isSuccess ? 'Success!' : 'Failed'}
+            <div style="font-size:1.35rem; font-weight:800; color:${isSuccess ? 'var(--success)' : 'var(--danger)'};">
+                ${isSuccess ? 'Sandbox Simulation: Completed' : 'Simulation: Payout Failed'}
             </div>
             <div class="text-sm text-muted mt-2">${label} · ₹${(res.amount || 0).toLocaleString('en-IN')}</div>
-            ${res.reference_id ? `<div class="text-xs text-muted mt-1" style="font-family:monospace">${res.reference_id}</div>` : ''}
+            <div style="margin:8px auto; display:inline-flex; align-items:center; gap:4px; padding:3px 10px; border-radius:999px; background:rgba(59,130,246,0.1); color:#1d4ed8; font-size:11px; font-weight:600;">
+                ${renderIcon('flask-conical', 12)} Sandbox Flow · Demo Simulation
+            </div>
+            ${res.reference_id ? `<div class="text-xs text-muted mt-1" style="font-family:monospace">Ref: ${res.reference_id}</div>` : ''}
             ${!isSuccess && res.failure_reason ? `
-                <div style="margin-top:16px; padding:12px; background:var(--danger-bg); border-radius:var(--radius-md); text-align:left;">
-                    <div class="text-xs font-bold text-danger mb-1">What happened?</div>
+                <div style="margin-top:14px; padding:12px; background:var(--danger-bg); border-radius:var(--radius-md); text-align:left;">
+                    <div class="text-xs font-bold text-danger mb-1">Failure Root Cause</div>
                     <div class="text-xs text-danger">${escapeHtml(res.failure_reason)}</div>
-                    <div class="text-xs text-muted mt-2">What to do: Wait a few minutes and retry. If the issue persists, file a complaint.</div>
+                    <div class="text-xs text-muted mt-2">Simulation test: To test resolution, create an operational complaint below.</div>
                 </div>
                 <button class="btn-secondary mt-3" onclick="closeModal('service-flow-modal'); navigateTo('grievances');">
-                    ${renderIcon('message-square-warning', 14)} File Complaint
+                    ${renderIcon('message-square-warning', 14)} File Operational Complaint
                 </button>
             ` : ''}
-            ${isSuccess && res.commission ? `<div class="text-xs text-success mt-2">Commission earned: ₹${res.commission}</div>` : ''}
-            ${res.sandbox ? `<div class="text-xs text-muted mt-3" style="opacity:0.5">[Sandbox Mode]</div>` : ''}
+            ${isSuccess && res.commission ? `<div class="text-xs text-success mt-2">Partner Commission Credited: ₹${res.commission.toFixed(2)}</div>` : ''}
         </div>
         <button class="btn-ghost" style="width:100%;" onclick="closeModal('service-flow-modal'); navigateTo('activity');">
-            ${renderIcon('arrow-left-right', 14)} View in Transactions
+            ${renderIcon('arrow-left-right', 14)} View in Transaction Center
         </button>
     `;
     if (window.lucide) lucide.createIcons();
