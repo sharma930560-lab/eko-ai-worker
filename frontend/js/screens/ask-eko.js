@@ -12,12 +12,45 @@ const QUICK_PROMPTS = [
 
 let chatHistory = [];
 let activeAiRequestId = null;
+window._currentAiContext = null;
+
+function setAiContext(ctx) {
+    window._currentAiContext = ctx;
+}
+
+function clearAiContext() {
+    window._currentAiContext = null;
+    updateAiContextBanner();
+}
+
+function updateAiContextBanner() {
+    const el = document.getElementById('ai-active-context-banner');
+    if (!el) return;
+    if (window._currentAiContext && window._currentAiContext.label) {
+        el.innerHTML = `
+            <div style="display:flex; align-items:center; justify-content:space-between; background:rgba(249,115,22,0.08); padding:6px 12px; border-radius:8px; border:1px solid rgba(249,115,22,0.25); font-size:0.8rem; color:var(--primary);">
+                <div style="display:flex; align-items:center; gap:6px;">
+                    ${renderIcon('target', 14)}
+                    <span><strong>Active Context:</strong> ${escapeHtml(window._currentAiContext.label)}</span>
+                </div>
+                <button onclick="clearAiContext()" style="background:none; border:none; color:var(--primary); cursor:pointer; font-weight:700; padding:2px 6px;">✕ Clear</button>
+            </div>
+        `;
+        el.style.display = 'block';
+    } else {
+        el.innerHTML = '';
+        el.style.display = 'none';
+    }
+    if (window.lucide) lucide.createIcons();
+}
 
 function renderAskEkoScreen() {
     return `
     <div class="ask-eko-container container-responsive" style="display:flex; flex-direction:column; height: calc(100vh - var(--header-height) - 40px);">
         <!-- Service Status Header -->
-        <div id="ai-service-status" style="margin-bottom:12px;"></div>
+        <div id="ai-service-status" style="margin-bottom:8px;"></div>
+        <!-- Active Context Banner -->
+        <div id="ai-active-context-banner" style="margin-bottom:8px; display:none;"></div>
 
         <!-- Scrollable Chat Area -->
         <div id="eko-chat" class="chat-history" style="flex:1; overflow-y:auto; padding-bottom:20px;">
@@ -50,6 +83,7 @@ function renderAskEkoScreen() {
 
 async function loadAskEko() {
     updateAiServiceStatus();
+    updateAiContextBanner();
 
     if (chatHistory.length === 0) {
         chatHistory = [{
@@ -136,7 +170,11 @@ async function sendToEko(cid = null, retryPrompt = null, replaceBubbleIndex = -1
     renderChatHistory();
 
     try {
-        const result = await api.askEko(question, [], cid);
+        const ctx = window._currentAiContext || {};
+        const targetCustomerId = ctx.customer_id || cid;
+        const targetTxnId = ctx.transaction_id || null;
+        const targetCompId = ctx.complaint_id || null;
+        const result = await api.askEko(question, [], targetCustomerId, targetTxnId, targetCompId, ctx);
 
         // Discard stale response if newer request started
         if (activeAiRequestId !== requestId) return;

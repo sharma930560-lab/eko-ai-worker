@@ -226,7 +226,7 @@ function showActivityDetail(id) {
                 ${renderIcon('copy', 16)}
                 <span>Copy Reference ID</span>
             </button>
-            <button class="btn-ghost" onclick="closeModal('customer-detail-modal'); navigateTo('ask-eko'); sendToEko(null, 'Explain transaction ${record.reference_id || record.id} of ₹${record.amount}');">
+            <button class="btn-ghost" onclick="closeModal('customer-detail-modal'); if (typeof setAiContext === 'function') setAiContext({ transaction_id: '${record.id}', customer_id: '${record.customer_id || ''}', label: 'Transaction: ₹${record.amount} ${serviceName(record.service_name)}' }); navigateTo('ask-eko'); sendToEko(null, 'Explain transaction ${record.reference_id || record.id} of ₹${record.amount}');">
                 ${renderIcon('sparkles', 16)}
                 <span>Analyze with Eko AI</span>
             </button>

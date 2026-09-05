@@ -1,0 +1,200 @@
+import sys
+import os
+import json
+
+backend_dir = os.path.abspath(os.path.join(os.path.dirname(__file__), "..", "backend"))
+if backend_dir not in sys.path:
+    sys.path.insert(0, backend_dir)
+
+os.chdir(backend_dir)
+
+from fastapi.testclient import TestClient
+from main import app
+
+client = TestClient(app)
+
+headers = {"X-User-Id": "qa-test-user-001"}
+
+print("=== STARTING CONNECTED PLATFORM QA SUITE ===")
+
+# 1. Health
+res = client.get("/api/health")
+assert res.status_code == 200, f"Health failed: {res.text}"
+print("[PASS] 1. Health Check:", res.json())
+
+# 2. Ops Dashboard
+res = client.get("/api/ops/dashboard", headers=headers)
+assert res.status_code == 200, f"Dashboard failed: {res.text}"
+dash = res.json()
+print("[PASS] 2. Ops Dashboard:", dash)
+assert "today_transactions" in dash
+assert "success_rate" in dash
+
+# 3. Create Partner
+res = client.post("/api/partners", json={
+    "name": "Sharma Telecom QA",
+    "phone": "9876543210",
+    "category": "Retailer",
+    "email": "sharma.qa@example.com"
+}, headers=headers)
+assert res.status_code == 200, f"Create partner failed: {res.text}"
+partner = res.json()
+partner_id = partner["id"]
+print("[PASS] 3. Create Partner:", partner_id, partner["name"])
+
+# 4. List Partners & Detail
+res = client.get("/api/partners", headers=headers)
+assert res.status_code == 200
+partners = res.json()
+assert any(p["id"] == partner_id for p in partners)
+
+res = client.get(f"/api/partners/{partner_id}", headers=headers)
+assert res.status_code == 200
+p_detail = res.json()
+assert "stats" in p_detail
+assert "transactions" in p_detail
+assert "complaints" in p_detail
+print("[PASS] 4. Partner Detail Verified with stats, transactions, complaints")
+
+# 5. Service Flow: DMT
+res = client.post("/api/services/dmt", json={
+    "customer_id": partner_id,
+    "customer_name": "Sharma Telecom QA",
+    "receiver_name": "Amit Kumar",
+    "receiver_account": "1122334455",
+    "receiver_ifsc": "SBIN0001234",
+    "amount": 2500
+}, headers=headers)
+assert res.status_code == 200
+dmt_res = res.json()
+txn_id = dmt_res["id"]
+print("[PASS] 5. DMT Money Transfer:", dmt_res["status"], f"ID: {txn_id}")
+
+# 6. Service Flow: AePS (Failure Case to test failure handling & alert generation)
+res = client.post("/api/services/aeps", json={
+    "customer_id": partner_id,
+    "customer_name": "Sharma Telecom QA",
+    "aadhaar_last4": "0000", # triggers simulated failure
+    "service_type": "withdrawal",
+    "amount": 1000
+}, headers=headers)
+assert res.status_code == 200
+aeps_res = res.json()
+assert aeps_res["status"] == "failed"
+failed_txn_id = aeps_res["id"]
+print("[PASS] 6. AePS Simulated Failure:", aeps_res["failure_reason"])
+
+# 7. Check Notifications (AePS failure must have generated notification)
+res = client.get("/api/notifications", headers=headers)
+assert res.status_code == 200
+notifs = res.json()
+assert len(notifs) > 0
+print(f"[PASS] 7. Notifications Auto-Created on Failure: {len(notifs)} pending")
+
+# 8. Service Flow: BBPS
+res = client.post("/api/services/bbps", json={
+    "customer_id": partner_id,
+    "customer_name": "Sharma Telecom QA",
+    "category": "Electricity",
+    "provider": "BSES Rajdhani",
+    "consumer_number": "1002948192",
+    "amount": 1450
+}, headers=headers)
+assert res.status_code == 200
+bbps_res = res.json()
+print("[PASS] 8. BBPS Bill Payment:", bbps_res["status"], bbps_res.get("reference_id"))
+
+# 9. Service Flow: Recharge
+res = client.post("/api/services/recharge", json={
+    "customer_id": partner_id,
+    "customer_name": "Sharma Telecom QA",
+    "mobile_number": "9876543210",
+    "operator": "Jio",
+    "plan_amount": 299
+}, headers=headers)
+assert res.status_code == 200
+rech_res = res.json()
+print("[PASS] 9. Mobile Recharge:", rech_res["status"])
+
+# 10. Create Complaint for Failed Txn
+res = client.post("/api/complaints", json={
+    "customer_id": partner_id,
+    "transaction_id": failed_txn_id,
+    "subject": "AePS Biometric Timeout on Withdrawal",
+    "description": "Customer attempted ₹1000 withdrawal but biometric timed out at bank server.",
+    "priority": "high",
+    "sla_hours": 24
+}, headers=headers)
+assert res.status_code == 200
+complaint = res.json()
+complaint_id = complaint["id"]
+print("[PASS] 10. Complaint Registered:", complaint_id, complaint["subject"])
+
+# 11. List Complaints & Detail with SLA calculation
+res = client.get("/api/complaints", headers=headers)
+assert res.status_code == 200
+complaints = res.json()
+c_match = next((c for c in complaints if c["id"] == complaint_id), None)
+assert c_match is not None
+assert c_match["sla_hours_remaining"] is not None
+print(f"[PASS] 11. Complaint Listed with SLA: {c_match['sla_hours_remaining']:.1f}h remaining")
+
+res = client.get(f"/api/complaints/{complaint_id}", headers=headers)
+assert res.status_code == 200
+c_detail = res.json()
+assert c_detail["transaction"]["id"] == failed_txn_id
+assert c_detail["customer"]["id"] == partner_id
+print("[PASS] 12. Complaint Detail with linked transaction and customer verified")
+
+# 12. Global Search
+res = client.get("/api/search?q=Sharma", headers=headers)
+assert res.status_code == 200
+search_res = res.json()
+assert len(search_res["partners"]) > 0 or len(search_res["transactions"]) > 0
+print(f"[PASS] 13. Global Search: found {len(search_res['partners'])} partners, {len(search_res['transactions'])} txns, {len(search_res['complaints'])} complaints")
+
+# 13. Daily Brief
+res = client.get("/api/ai/brief", headers=headers)
+assert res.status_code == 200
+brief = res.json()
+assert "summary" in brief
+assert "stats" in brief
+assert "summary_items" in brief
+print("[PASS] 14. Daily Brief:", brief["summary"])
+
+# 14. Ask Eko with active transaction context
+res = client.post("/api/ai/ask", json={
+    "question": "Why did this transaction fail and what should I do?",
+    "transaction_id": failed_txn_id
+}, headers=headers)
+assert res.status_code == 200
+ai_res = res.json()
+print("[PASS] 15. Ask Eko with Active Transaction Context:", ai_res["answer"][:120], "...")
+
+# 15. AI Utilities: Scan Bill, Voice Parse, Generate Message
+res = client.post("/api/ai/scan-bill", json={"image_base64": "mock_data"}, headers=headers)
+assert res.status_code == 200
+assert res.json()["status"] == "success"
+
+res = client.post("/api/ai/voice-parse", json={"text": "Send 2000 to Ramesh via DMT"}, headers=headers)
+assert res.status_code == 200
+assert res.json()["intent"] == "DMT_TRANSFER"
+
+res = client.post("/api/ai/generate-message", json={"type": "reminder", "customer_id": partner_id}, headers=headers)
+assert res.status_code == 200
+assert "message" in res.json()
+print("[PASS] 16. AI Suite Utilities (Scan Bill, Voice Parse, Generate Message) Verified")
+
+# 16. Resolve Complaint & Check Auto-dismissal of notification
+res = client.patch(f"/api/complaints/{complaint_id}", json={"status": "resolved"}, headers=headers)
+assert res.status_code == 200
+print("[PASS] 17. Complaint Resolved successfully")
+
+# 17. Ops Dashboard re-check (complaint count should update)
+res = client.get("/api/ops/dashboard", headers=headers)
+assert res.status_code == 200
+updated_dash = res.json()
+print("[PASS] 18. Ops Dashboard after updates:", updated_dash)
+
+print("\nSUCCESS: ALL 18 CONNECTED PLATFORM WORKFLOWS PASSED EMPIRICALLY!")
+

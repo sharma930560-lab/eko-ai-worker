@@ -283,6 +283,9 @@
                     <p class="header-subtitle" id="page-header-subtitle">Good morning! Here's your operations overview.</p>
                 </div>
                 <div class="header-right" style="display:flex; align-items:center; gap:12px;">
+                <button class="btn-icon" id="header-search-btn" onclick="openGlobalSearchModal()" title="Search Everything" style="position:relative;">
+                    <i data-lucide="search" style="width:18px;height:18px;"></i>
+                </button>
                 <button class="btn-icon" id="header-notif-btn" onclick="openNotificationPanel()" title="Notifications" style="position:relative;">
                     <i data-lucide="bell" style="width:18px;height:18px;"></i>
                     <span class="notif-badge hidden" id="notif-badge-count"></span>
@@ -381,6 +384,29 @@
         <div class="modal-body" id="cd-modal-body"></div>
         <div class="modal-footer" id="cd-modal-footer">
             <button class="btn-ghost" onclick="closeModal('customer-detail-modal')">Close</button>
+        </div>
+    </div>
+</div>
+
+<!-- ── Global Search Modal ──────────────────────────────────────────────────── -->
+<div id="global-search-modal" class="modal-overlay hidden">
+    <div class="modal-card" style="max-width:540px;">
+        <div class="modal-header">
+            <h2>Search Operations</h2>
+            <button class="modal-close" onclick="closeModal('global-search-modal')" aria-label="Close">
+                <i data-lucide="x" style="width:16px;height:16px;"></i>
+            </button>
+        </div>
+        <div class="modal-body">
+            <div class="form-group mb-4">
+                <input type="text" id="global-search-input" class="form-input" placeholder="Search partners, transactions, complaints..." oninput="handleGlobalSearchInput(this.value)" autocomplete="off">
+            </div>
+            <div id="global-search-results" style="max-height:360px; overflow-y:auto;">
+                <p class="text-sm text-muted text-center py-4">Type 2 or more characters to search across all operational records.</p>
+            </div>
+        </div>
+        <div class="modal-footer">
+            <button class="btn-ghost" onclick="closeModal('global-search-modal')">Close</button>
         </div>
     </div>
 </div>

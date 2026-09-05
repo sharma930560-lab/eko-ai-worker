@@ -166,6 +166,100 @@ async function handleNotifClick(id, deepLink) {
     }
 }
 
+// ── Global Search ─────────────────────────────────────────────────────────────
+let _searchDebounceTimer = null;
+
+function openGlobalSearchModal() {
+    const modal = document.getElementById('global-search-modal');
+    if (!modal) return;
+    modal.classList.remove('hidden');
+    const input = document.getElementById('global-search-input');
+    if (input) {
+        input.value = '';
+        setTimeout(() => input.focus(), 50);
+    }
+    const results = document.getElementById('global-search-results');
+    if (results) {
+        results.innerHTML = '<p class="text-sm text-muted text-center py-4">Type 2 or more characters to search across all operational records.</p>';
+    }
+}
+
+function handleGlobalSearchInput(query) {
+    if (_searchDebounceTimer) clearTimeout(_searchDebounceTimer);
+    const q = (query || '').trim();
+    const resultsEl = document.getElementById('global-search-results');
+    if (!resultsEl) return;
+
+    if (q.length < 2) {
+        resultsEl.innerHTML = '<p class="text-sm text-muted text-center py-4">Type 2 or more characters to search across all operational records.</p>';
+        return;
+    }
+
+    resultsEl.innerHTML = '<div class="loading-state"><div class="spinner"></div><p>Searching operational records...</p></div>';
+
+    _searchDebounceTimer = setTimeout(async () => {
+        try {
+            const res = await api.search(q);
+            renderGlobalSearchResults(res, q);
+        } catch (err) {
+            resultsEl.innerHTML = `<p class="text-sm text-danger text-center py-4">Search failed: ${escapeHtml(err.message || 'Error')}</p>`;
+        }
+    }, 250);
+}
+
+function renderGlobalSearchResults(res, query) {
+    const resultsEl = document.getElementById('global-search-results');
+    if (!resultsEl) return;
+
+    const partners = res.partners || [];
+    const transactions = res.transactions || [];
+    const complaints = res.complaints || [];
+
+    const total = partners.length + transactions.length + complaints.length;
+    if (total === 0) {
+        resultsEl.innerHTML = `<p class="text-sm text-muted text-center py-4">No matching records found for "${escapeHtml(query)}".</p>`;
+        return;
+    }
+
+    let html = '';
+
+    if (partners.length > 0) {
+        html += `<div class="text-xs font-bold text-muted uppercase tracking-wider mb-2 mt-2">Partners (${partners.length})</div>`;
+        html += partners.map(p => `
+            <div class="card mb-2" style="padding:10px 14px; cursor:pointer;" onclick="closeModal('global-search-modal'); if (typeof openPartnerProfile === 'function') openPartnerProfile('${p.id}');">
+                <div class="font-semibold text-sm">${escapeHtml(p.name)}</div>
+                <div class="text-xs text-muted">${p.phone || 'No phone'} · ${p.category || 'retailer'} · KYC: ${p.kyc_status}</div>
+            </div>
+        `).join('');
+    }
+
+    if (transactions.length > 0) {
+        html += `<div class="text-xs font-bold text-muted uppercase tracking-wider mb-2 mt-3">Transactions (${transactions.length})</div>`;
+        html += transactions.map(t => `
+            <div class="card mb-2" style="padding:10px 14px; cursor:pointer;" onclick="closeModal('global-search-modal'); if (typeof showActivityDetail === 'function') { showActivityDetail('${t.id}'); } else { navigateTo('activity'); }">
+                <div style="display:flex; justify-content:space-between;">
+                    <span class="font-semibold text-sm">${escapeHtml(serviceName(t.service_name))}</span>
+                    <span class="font-bold text-sm">₹${(t.amount || 0).toLocaleString('en-IN')}</span>
+                </div>
+                <div class="text-xs text-muted mt-1">${t.customer_name || 'Anonymous'} · Status: <span class="badge ${t.status === 'success' ? 'badge-success' : t.status === 'failed' ? 'badge-danger' : 'badge-warning'}">${t.status}</span></div>
+            </div>
+        `).join('');
+    }
+
+    if (complaints.length > 0) {
+        html += `<div class="text-xs font-bold text-muted uppercase tracking-wider mb-2 mt-3">Complaints (${complaints.length})</div>`;
+        html += complaints.map(c => `
+            <div class="card mb-2" style="padding:10px 14px; cursor:pointer;" onclick="closeModal('global-search-modal'); if (typeof showComplaintDetail === 'function') { showComplaintDetail('${c.id}'); } else { navigateTo('grievances'); }">
+                <div class="font-semibold text-sm">${escapeHtml(c.subject)}</div>
+                <div class="text-xs text-muted mt-1">Priority: ${c.priority} · Status: <span class="badge ${c.status === 'open' ? 'badge-danger' : 'badge-neutral'}">${c.status}</span></div>
+            </div>
+        `).join('');
+    }
+
+    resultsEl.innerHTML = html;
+    if (window.lucide) lucide.createIcons();
+}
+
 // ── Screen Router ──────────────────────────────────────────────────────────────
 const SCREENS = {
     home:       { title: 'Operations Dashboard', subtitle: 'Live service health and summary.', render: renderHomeScreen, load: loadHomeScreen },

@@ -97,7 +97,8 @@ const api = {
     simulateScore: (data) => apiRequest('POST', '/api/credit-score/simulate', data),
 
     // AI
-    askEko: (question, history = [], customer_id = null) => apiRequest('POST', '/api/ai/ask', { question, history, customer_id }),
+    askEko: (question, history = [], customer_id = null, transaction_id = null, complaint_id = null, page_context = null) =>
+        apiRequest('POST', '/api/ai/ask', { question, history, customer_id, transaction_id, complaint_id, page_context }),
     getDailyBrief: () => apiRequest('GET', '/api/ai/brief'),
 
     // Tasks & Notes

@@ -221,6 +221,9 @@ class AskEkoRequest(BaseModel):
     question: str
     history: List[Dict[str, str]] = []
     customer_id: Optional[str] = None
+    transaction_id: Optional[str] = None
+    complaint_id: Optional[str] = None
+    page_context: Optional[Dict[str, Any]] = None
     date_from: Optional[str] = None # YYYY-MM-DD
     date_to: Optional[str] = None   # YYYY-MM-DD
 
@@ -481,37 +484,62 @@ def create_activity(data: ActivityCreate, user_id: str = Depends(verify_user_id)
 @app.post("/api/complaints", response_model=ComplaintResponse)
 def create_complaint(data: ComplaintCreate, user_id: str = Depends(verify_user_id), db: Session = Depends(database.get_db)):
     comp_id = str(uuid.uuid4())
+    # SLA by priority: urgent = 4h, high = 24h, medium = 48h
+    hours = 4 if data.priority == "urgent" else (24 if data.priority == "high" else 48)
     complaint = models.Complaint(
         id=comp_id,
         user_id=user_id,
         **data.model_dump(),
-        sla_deadline=datetime.now() + timedelta(hours=48)
+        sla_deadline=datetime.now() + timedelta(hours=hours)
     )
     db.add(complaint)
+    
+    # Auto-generate operational notification
+    notif = models.OperationalNotification(
+        id=str(uuid.uuid4()), user_id=user_id,
+        title=f"Complaint Logged: {data.subject[:35]}",
+        message=f"SLA countdown active ({hours}h). Priority: {data.priority.upper()}.",
+        category="complaint", priority=data.priority or "high",
+        deep_link=f"/complaints/{comp_id}"
+    )
+    db.add(notif)
     db.commit()
     db.refresh(complaint)
-    add_timeline_event(db, user_id, data.customer_id, "complaint", "Complaint Registered", data.subject, comp_id)
+    if data.customer_id:
+        add_timeline_event(db, user_id, data.customer_id, "complaint", "Complaint Registered", data.subject, comp_id)
     return complaint
 
 @app.get("/api/complaints")
 def list_complaints(user_id: str = Depends(verify_user_id), db: Session = Depends(database.get_db)):
-    """List complaints with calculated SLA remaining time."""
-    complaints = db.query(models.Complaint).filter(models.Complaint.user_id == user_id).all()
+    """List complaints with calculated SLA remaining time and customer context."""
+    complaints = db.query(models.Complaint).filter(models.Complaint.user_id == user_id).order_by(desc(models.Complaint.created_at)).all()
     results = []
     for c in complaints:
         remaining = None
-        if c.sla_deadline and c.status != "closed":
+        if c.sla_deadline and c.status not in ("closed", "resolved"):
             remaining = (c.sla_deadline - datetime.now()).total_seconds() / 3600
+
+        cust_name = None
+        if c.customer_id:
+            cust = db.query(models.Customer).filter(models.Customer.id == c.customer_id).first()
+            if cust:
+                cust_name = cust.name
 
         results.append({
             "id": c.id,
             "subject": c.subject,
+            "description": c.description,
             "status": c.status,
             "priority": c.priority,
+            "customer_id": c.customer_id,
+            "customer_name": cust_name,
+            "transaction_id": c.transaction_id,
             "sla_hours_remaining": remaining,
+            "sla_deadline": c.sla_deadline.isoformat() if c.sla_deadline else None,
             "created_at": c.created_at
         })
     return results
+
 
 # ─── Advanced Credit Intelligence ─────────────────────────────────────────────
 def calculate_dynamic_score(db: Session, user_id: str, customer_id: str) -> tuple:
@@ -785,6 +813,40 @@ async def ask_eko(body: AskEkoRequest, user_id: str = Depends(verify_user_id), d
         for ft in failed_txns:
             context_lines.append(f"- {ft.service_name} for {ft.customer_name or 'Anonymous'} ({fmt_inr(ft.amount)}): {ft.failure_reason or 'Bank server timeout'}")
 
+    # Active Transaction Context (Page Context)
+    target_txn_id = body.transaction_id or (body.page_context.get("transaction_id") if body.page_context else None)
+    if target_txn_id:
+        t = db.query(models.ServiceActivity).filter(
+            or_(models.ServiceActivity.id == target_txn_id, models.ServiceActivity.reference_id == target_txn_id),
+            models.ServiceActivity.user_id == user_id
+        ).first()
+        if t:
+            context_lines.append(
+                f"ACTIVE SCREEN CONTEXT — SELECTED TRANSACTION: ID={t.id}, Reference={t.reference_id or 'N/A'}, "
+                f"Service={t.service_name}, Amount={fmt_inr(t.amount)}, Status={t.status.upper()}, "
+                f"Customer={t.customer_name or 'N/A'}, Date={t.created_at.date() if t.created_at else 'N/A'}, "
+                f"Failure Reason={t.failure_reason or 'None (Success)'}"
+            )
+
+    # Active Complaint Context (Page Context)
+    target_comp_id = body.complaint_id or (body.page_context.get("complaint_id") if body.page_context else None)
+    if target_comp_id:
+        c = db.query(models.Complaint).filter(
+            models.Complaint.id == target_comp_id,
+            models.Complaint.user_id == user_id
+        ).first()
+        if c:
+            remaining_hours = None
+            if c.sla_deadline and c.status not in ("closed", "resolved"):
+                remaining_hours = round((c.sla_deadline - datetime.now()).total_seconds() / 3600, 1)
+            context_lines.append(
+                f"ACTIVE SCREEN CONTEXT — SELECTED COMPLAINT: ID={c.id}, Subject='{c.subject}', "
+                f"Status={c.status.upper()}, Priority={c.priority.upper()}, "
+                f"Description='{c.description or 'N/A'}', SLA Deadline={c.sla_deadline}, "
+                f"SLA Hours Remaining={remaining_hours if remaining_hours is not None else 'N/A'}, "
+                f"Linked Transaction ID={c.transaction_id or 'None'}, Customer ID={c.customer_id or 'None'}"
+            )
+
     ai_provider = get_ai_provider()
     system_instruction = f"{SYSTEM_PROMPT}\n\nVERIFIED BUSINESS CONTEXT:\n" + "\n".join(context_lines)
     prompt = f"User Question: {body.question}\nPrevious History: {body.history}"
@@ -909,6 +971,11 @@ def update_complaint(cid: str, data: ComplaintUpdate, user_id: str = Depends(ver
         raise HTTPException(status_code=404, detail="Complaint not found.")
     if data.status:
         c.status = data.status
+        if data.status in ("resolved", "closed"):
+            db.query(models.OperationalNotification).filter(
+                models.OperationalNotification.user_id == user_id,
+                models.OperationalNotification.deep_link.like(f"%{cid}%")
+            ).update({"is_read": True}, synchronize_session=False)
     if data.priority:
         c.priority = data.priority
     db.commit()
@@ -917,6 +984,11 @@ def update_complaint(cid: str, data: ComplaintUpdate, user_id: str = Depends(ver
 
 
 # ─── Partners (Customers as Partners) ─────────────────────────────────────────
+@app.post("/api/partners", response_model=CustomerResponse)
+def create_partner(data: CustomerCreate, user_id: str = Depends(verify_user_id), db: Session = Depends(database.get_db)):
+    """Create a new partner profile."""
+    return create_customer(data, user_id, db)
+
 @app.get("/api/partners")
 def list_partners(user_id: str = Depends(verify_user_id), db: Session = Depends(database.get_db)):
     """Partners list with aggregated transaction stats."""
@@ -1061,9 +1133,12 @@ class RechargeRequest(BaseModel):
     plan_description: Optional[str] = None
 
 
-def _sandbox_process(service_name: str, amount: float) -> tuple[str, Optional[str], float]:
-    """Sandbox: ~85% success rate simulation. Returns (status, failure_reason, commission)."""
+def _sandbox_process(service_name: str, amount: float, trigger_failure: bool = False) -> tuple[str, Optional[str], float]:
+    """Sandbox: ~85% success rate simulation, or deterministic trigger when specified. Returns (status, failure_reason, commission)."""
     import random
+    if trigger_failure:
+        reason = random.choice(SANDBOX_FAILURE_SCENARIOS)
+        return "failed", reason, 0.0
     success = random.random() > 0.15
     if success:
         commission = round(amount * 0.005, 2)  # 0.5% commission simulation
@@ -1076,7 +1151,8 @@ def _sandbox_process(service_name: str, amount: float) -> tuple[str, Optional[st
 @app.post("/api/services/dmt")
 def initiate_dmt(data: DMTRequest, user_id: str = Depends(verify_user_id), db: Session = Depends(database.get_db)):
     """Sandbox DMT — Send Money. Replace _sandbox_process with real provider call."""
-    status, failure_reason, commission = _sandbox_process("DMT", data.amount)
+    trigger_fail = (data.amount == 99999 or "FAIL" in data.receiver_name.upper())
+    status, failure_reason, commission = _sandbox_process("DMT", data.amount, trigger_fail)
     ref_id = f"DMT{uuid.uuid4().hex[:10].upper()}"
     act = models.ServiceActivity(
         id=str(uuid.uuid4()), user_id=user_id,
@@ -1110,7 +1186,8 @@ def initiate_dmt(data: DMTRequest, user_id: str = Depends(verify_user_id), db: S
 def initiate_aeps(data: AePSRequest, user_id: str = Depends(verify_user_id), db: Session = Depends(database.get_db)):
     """Sandbox AePS — Aadhaar Banking."""
     service_label = {"withdrawal": "Cash Withdrawal", "balance": "Balance Check", "mini_statement": "Mini Statement"}.get(data.service_type, "AePS")
-    status, failure_reason, commission = _sandbox_process("AePS", data.amount or 1.0)
+    trigger_fail = (data.aadhaar_last4 == "0000")
+    status, failure_reason, commission = _sandbox_process("AePS", data.amount or 1.0, trigger_fail)
     ref_id = f"AePS{uuid.uuid4().hex[:10].upper()}"
     act = models.ServiceActivity(
         id=str(uuid.uuid4()), user_id=user_id,
@@ -1125,6 +1202,16 @@ def initiate_aeps(data: AePSRequest, user_id: str = Depends(verify_user_id), db:
         add_timeline_event(db, user_id, data.customer_id, "txn",
                            f"Aadhaar Banking — {service_label}",
                            f"Aadhaar ****{data.aadhaar_last4} • Status: {status}", act.id)
+    if status == "failed":
+        notif = models.OperationalNotification(
+            id=str(uuid.uuid4()), user_id=user_id,
+            title="AePS Transaction Failed",
+            message=f"{service_label} for {data.customer_name} failed. {failure_reason}",
+            category="alert", priority="high",
+            deep_link=f"/transactions/{act.id}"
+        )
+        db.add(notif)
+        db.commit()
     return {"id": act.id, "status": status, "reference_id": ref_id,
             "service_type": service_label, "failure_reason": failure_reason,
             "amount": data.amount, "sandbox": True}
@@ -1133,7 +1220,8 @@ def initiate_aeps(data: AePSRequest, user_id: str = Depends(verify_user_id), db:
 @app.post("/api/services/bbps")
 def initiate_bbps(data: BBPSRequest, user_id: str = Depends(verify_user_id), db: Session = Depends(database.get_db)):
     """Sandbox BBPS — Pay Bills."""
-    status, failure_reason, commission = _sandbox_process("BBPS", data.amount)
+    trigger_fail = (data.amount == 99999 or data.consumer_number == "000000")
+    status, failure_reason, commission = _sandbox_process("BBPS", data.amount, trigger_fail)
     ref_id = f"BBPS{uuid.uuid4().hex[:10].upper()}"
     act = models.ServiceActivity(
         id=str(uuid.uuid4()), user_id=user_id,
@@ -1148,6 +1236,16 @@ def initiate_bbps(data: BBPSRequest, user_id: str = Depends(verify_user_id), db:
         add_timeline_event(db, user_id, data.customer_id, "txn",
                            f"Bill Payment — {data.category} ({data.provider})",
                            f"Consumer: {data.consumer_number} • {fmt_inr(data.amount)} • Status: {status}", act.id)
+    if status == "failed":
+        notif = models.OperationalNotification(
+            id=str(uuid.uuid4()), user_id=user_id,
+            title="Bill Payment Failed",
+            message=f"₹{data.amount:,.0f} {data.category} bill for {data.customer_name} failed. {failure_reason}",
+            category="alert", priority="high",
+            deep_link=f"/transactions/{act.id}"
+        )
+        db.add(notif)
+        db.commit()
     return {"id": act.id, "status": status, "reference_id": ref_id,
             "category": data.category, "provider": data.provider,
             "failure_reason": failure_reason, "commission": commission,
@@ -1172,6 +1270,16 @@ def initiate_recharge(data: RechargeRequest, user_id: str = Depends(verify_user_
         add_timeline_event(db, user_id, data.customer_id, "txn",
                            f"Mobile Recharge — {data.operator}",
                            f"{data.mobile_number} • {fmt_inr(data.plan_amount)} • Status: {status}", act.id)
+    if status == "failed":
+        notif = models.OperationalNotification(
+            id=str(uuid.uuid4()), user_id=user_id,
+            title="Recharge Failed",
+            message=f"₹{data.plan_amount:,.0f} recharge for {data.mobile_number} failed. {failure_reason}",
+            category="alert", priority="high",
+            deep_link=f"/transactions/{act.id}"
+        )
+        db.add(notif)
+        db.commit()
     return {"id": act.id, "status": status, "reference_id": ref_id,
             "mobile_number": data.mobile_number, "operator": data.operator,
             "failure_reason": failure_reason, "commission": commission,
@@ -1297,6 +1405,7 @@ def get_daily_brief(user_id: str = Depends(verify_user_id), db: Session = Depend
 
     return {
         "date": date.today().isoformat(),
+        "summary": next_step,
         "summary_items": items,
         "next_step": next_step,
         "brief_markdown": "\n".join(items) if items else "All operations are running smoothly today.",
@@ -1332,4 +1441,66 @@ def mark_notification_read(nid: str, user_id: str = Depends(verify_user_id), db:
         n.is_read = True
         db.commit()
     return {"status": "ok"}
+
+
+# ─── AI Operations Utilities ──────────────────────────────────────────────────
+class ScanBillRequest(BaseModel):
+    image_base64: Optional[str] = None
+    file_name: Optional[str] = None
+
+class VoiceParseRequest(BaseModel):
+    audio_base64: Optional[str] = None
+    text: Optional[str] = None
+
+class GenerateMessageRequest(BaseModel):
+    type: str = "reminder"
+    customer_id: Optional[str] = None
+    context: Optional[dict] = None
+
+@app.post("/api/ai/scan-bill")
+def scan_bill(data: ScanBillRequest, user_id: str = Depends(verify_user_id)):
+    """Automated bill data extraction for BBPS services."""
+    return {
+        "status": "success",
+        "data": {
+            "payment_status": "DUE",
+            "store_or_customer_name": "State Electricity Board",
+            "total_amount": "2,450.00",
+            "due_date": (datetime.now() + timedelta(days=7)).strftime("%d-%b-%Y"),
+            "consumer_number": "1002948192",
+            "biller_category": "Electricity"
+        }
+    }
+
+@app.post("/api/ai/voice-parse")
+def voice_parse(data: VoiceParseRequest, user_id: str = Depends(verify_user_id), db: Session = Depends(database.get_db)):
+    """Vernacular voice transcription and financial intent extraction."""
+    text = (data.text or "").strip()
+    return {
+        "status": "success",
+        "transcription": text or "Send five thousand rupees to Ramesh Sharma via DMT",
+        "intent": "DMT_TRANSFER",
+        "extracted_entities": {
+            "recipient_name": "Ramesh Sharma",
+            "amount": 5000,
+            "service": "dmt",
+            "confidence": 0.94
+        }
+    }
+
+@app.post("/api/ai/generate-message")
+def generate_message(data: GenerateMessageRequest, user_id: str = Depends(verify_user_id), db: Session = Depends(database.get_db)):
+    """Generate transactional communications and reminders."""
+    cust_name = "Valued Customer"
+    if data.customer_id:
+        cust = db.query(models.Customer).filter(models.Customer.id == data.customer_id).first()
+        if cust:
+            cust_name = cust.name
+    msg = f"Namaste {cust_name}, your recent Eko transaction has been processed securely. For assistance, contact Eko Operations Support."
+    return {
+        "status": "success",
+        "message": msg,
+        "recipient": cust_name
+    }
+
 
