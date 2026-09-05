@@ -15,17 +15,17 @@ function renderAiToolsScreen() {
         </div>
 
         <div style="display:flex; background:var(--surface); padding:4px; border-radius:var(--radius-md); gap:4px; margin-bottom:24px; border:1px solid var(--border);">
-            <button class="segment-tab ${activeAiTab === 'scanner' ? 'active' : ''}" onclick="switchAiToolTab('scanner')" style="flex:1;">
-                ${renderIcon('scan', 16, 'mr-2')} Scanner
+            <button class="segment-tab ${activeAiTab === 'scanner' ? 'active' : ''}" onclick="switchAiToolTab('scanner')" style="flex:1; display:flex; align-items:center; justify-content:center; gap:8px;">
+                ${renderIcon('scan', 16)} <span class="nav-label">Scanner</span>
             </button>
-            <button class="segment-tab ${activeAiTab === 'voice' ? 'active' : ''}" onclick="switchAiToolTab('voice')" style="flex:1;">
-                ${renderIcon('mic', 16, 'mr-2')} Voice
+            <button class="segment-tab ${activeAiTab === 'voice' ? 'active' : ''}" onclick="switchAiToolTab('voice')" style="flex:1; display:flex; align-items:center; justify-content:center; gap:8px;">
+                ${renderIcon('mic', 16)} <span class="nav-label">Voice</span>
             </button>
-            <button class="segment-tab ${activeAiTab === 'whatsapp' ? 'active' : ''}" onclick="switchAiToolTab('whatsapp')" style="flex:1;">
-                ${renderIcon('message-circle', 16, 'mr-2')} Studio
+            <button class="segment-tab ${activeAiTab === 'whatsapp' ? 'active' : ''}" onclick="switchAiToolTab('whatsapp')" style="flex:1; display:flex; align-items:center; justify-content:center; gap:8px;">
+                ${renderIcon('message-circle', 16)} <span class="nav-label">Studio</span>
             </button>
-            <button class="segment-tab ${activeAiTab === 'flyer' ? 'active' : ''}" onclick="switchAiToolTab('flyer')" style="flex:1;">
-                ${renderIcon('megaphone', 16, 'mr-2')} Campaigns
+            <button class="segment-tab ${activeAiTab === 'flyer' ? 'active' : ''}" onclick="switchAiToolTab('flyer')" style="flex:1; display:flex; align-items:center; justify-content:center; gap:8px;">
+                ${renderIcon('megaphone', 16)} <span class="nav-label">Campaign</span>
             </button>
         </div>
 

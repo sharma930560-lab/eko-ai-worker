@@ -66,6 +66,11 @@ function closeModal(id) {
     if (el) el.classList.add('hidden');
 }
 
+// ── Refresh Icons ────────────────────────────────────────────────────────────
+function initializeIcons() {
+    if (window.lucide) lucide.createIcons();
+}
+
 // ── Icon Helper ──────────────────────────────────────────────────────────────
 function renderIcon(name, size = 20, extraClass = '') {
     return `<i data-lucide="${name}" class="${extraClass}" style="width:${size}px; height:${size}px;"></i>`;
