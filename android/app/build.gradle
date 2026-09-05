@@ -31,11 +31,13 @@ android {
         }
     }
     compileOptions {
-        sourceCompatibility JavaVersion.VERSION_1_8
-        targetCompatibility JavaVersion.VERSION_1_8
+        // Java 17 — eliminates the "deprecated support for source/target version 8" warning
+        // from the Java 21 toolchain. AGP 8.x + Kotlin 1.9.x both support 17.
+        sourceCompatibility JavaVersion.VERSION_17
+        targetCompatibility JavaVersion.VERSION_17
     }
     kotlinOptions {
-        jvmTarget = '1.8'
+        jvmTarget = '17'
     }
 }
 
@@ -63,6 +65,9 @@ dependencies {
     implementation "androidx.credentials:credentials:1.2.2"
     implementation "androidx.credentials:credentials-play-services-auth:1.2.2"
     implementation "com.google.android.libraries.identity.googleid:googleid:1.1.1"
+
+    // WorkManager for background sync & notifications
+    implementation "androidx.work:work-runtime-ktx:2.9.0"
 
     testImplementation 'junit:junit:4.13.2'
     androidTestImplementation 'androidx.test.ext:junit:1.1.5'

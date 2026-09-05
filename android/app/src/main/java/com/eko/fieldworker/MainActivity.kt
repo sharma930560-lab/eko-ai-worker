@@ -13,8 +13,11 @@ import android.webkit.WebView
 import android.util.Log
 import android.widget.TextView
 import android.widget.Toast
+import androidx.activity.OnBackPressedCallback
+import androidx.activity.result.contract.ActivityResultContracts
 import androidx.activity.viewModels
 import androidx.appcompat.app.AppCompatActivity
+import androidx.core.view.WindowInsetsControllerCompat
 import androidx.lifecycle.lifecycleScope
 import androidx.webkit.WebViewAssetLoader
 import androidx.webkit.WebViewClientCompat
@@ -29,6 +32,17 @@ import com.google.android.libraries.identity.googleid.GetGoogleIdOption
 import com.google.android.libraries.identity.googleid.GetSignInWithGoogleOption
 import com.google.android.libraries.identity.googleid.GoogleIdTokenCredential
 import kotlinx.coroutines.launch
+import android.content.Intent
+import android.graphics.Bitmap
+import android.provider.MediaStore
+import android.util.Base64
+import java.io.ByteArrayOutputStream
+import androidx.work.PeriodicWorkRequestBuilder
+import androidx.work.WorkManager
+import androidx.work.ExistingPeriodicWorkPolicy
+import java.util.concurrent.TimeUnit
+import android.content.Context
+import android.os.Build
 
 class MainActivity : AppCompatActivity() {
 
@@ -39,6 +53,22 @@ class MainActivity : AppCompatActivity() {
     private val viewModel: EkoViewModel by viewModels()
     private lateinit var connectivityManager: ConnectivityManager
     private val WEB_CLIENT_ID = "258255119262-hl7e15h4ohciliroc29gcpbfa6i1sf2l.apps.googleusercontent.com"
+
+    // ── Camera via ActivityResultLauncher (replaces deprecated startActivityForResult) ──
+    private val cameraLauncher = registerForActivityResult(ActivityResultContracts.StartActivityForResult()) { result ->
+        if (result.resultCode == RESULT_OK) {
+            val imageBitmap: Bitmap? = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
+                result.data?.extras?.getParcelable("data", Bitmap::class.java)
+            } else {
+                @Suppress("DEPRECATION")
+                result.data?.extras?.get("data") as? Bitmap
+            }
+            if (imageBitmap != null) {
+                val base64Image = encodeBitmapToBase64(imageBitmap)
+                webView.evaluateJavascript("window.handleNativeCameraImage('$base64Image')", null)
+            }
+        }
+    }
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
@@ -51,6 +81,62 @@ class MainActivity : AppCompatActivity() {
         setupWebView()
         observeViewModel()
         registerNetworkCallback()
+        handleIntent(intent)
+
+        // ── Light status bar — modern API (replaces deprecated systemUiVisibility) ──
+        window.statusBarColor = android.graphics.Color.WHITE
+        WindowInsetsControllerCompat(window, window.decorView).isAppearanceLightStatusBars = true
+
+        // ── Back navigation — OnBackPressedCallback (replaces deprecated onBackPressed override) ──
+        onBackPressedDispatcher.addCallback(this, object : OnBackPressedCallback(true) {
+            override fun handleOnBackPressed() {
+                if (webView.canGoBack()) {
+                    webView.goBack()
+                } else {
+                    // Disable this callback so the default back behavior (finish activity) runs
+                    isEnabled = false
+                    onBackPressedDispatcher.onBackPressed()
+                }
+            }
+        })
+    }
+
+    override fun onNewIntent(intent: Intent?) {
+        super.onNewIntent(intent)
+        handleIntent(intent)
+    }
+
+    private fun handleIntent(intent: Intent?) {
+        val deepLink = intent?.getStringExtra("deep_link")
+        if (!deepLink.isNullOrEmpty()) {
+            Log.i(TAG, "Navigating to deep link: $deepLink")
+            webView.evaluateJavascript("window.navigateTo('$deepLink')", null)
+        }
+    }
+
+    // ── Called by EkoBridge to launch the camera ────────────────────────────────
+    fun triggerCamera() {
+        val intent = Intent(MediaStore.ACTION_IMAGE_CAPTURE)
+        cameraLauncher.launch(intent)
+    }
+
+    fun scheduleNotificationWorker(userId: String, apiBase: String) {
+        val sharedPrefs = getSharedPreferences("eko_prefs", Context.MODE_PRIVATE)
+        sharedPrefs.edit().apply {
+            putString("user_id", userId)
+            putString("api_base", apiBase)
+            apply()
+        }
+
+        val workRequest = PeriodicWorkRequestBuilder<NotificationWorker>(15, TimeUnit.MINUTES)
+            .build()
+
+        WorkManager.getInstance(this).enqueueUniquePeriodicWork(
+            "eko_notif_sync",
+            ExistingPeriodicWorkPolicy.KEEP,
+            workRequest
+        )
+        Log.i(TAG, "Notification worker scheduled for user: $userId")
     }
 
     private fun registerNetworkCallback() {
@@ -362,11 +448,20 @@ class MainActivity : AppCompatActivity() {
         }
     }
 
-    override fun onBackPressed() {
-        if (webView.canGoBack()) {
-            webView.goBack()
-        } else {
-            super.onBackPressed()
-        }
+    fun showBiometricPrompt() {
+        Toast.makeText(this, "Biometric Verification Requested (Hardware Stub)", Toast.LENGTH_SHORT).show()
+        // Production: Implement BiometricPrompt here
+        webView.evaluateJavascript("window.onBiometricSuccess()", null)
     }
+
+    private fun encodeBitmapToBase64(bitmap: Bitmap): String {
+        val outputStream = ByteArrayOutputStream()
+        bitmap.compress(Bitmap.CompressFormat.JPEG, 85, outputStream)
+        val byteArray = outputStream.toByteArray()
+        return Base64.encodeToString(byteArray, Base64.NO_WRAP)
+    }
+
+    // NOTE: onActivityResult is intentionally removed — camera is now handled via
+    // ActivityResultLauncher (cameraLauncher) registered above. The deprecated
+    // onBackPressed override is replaced with OnBackPressedCallback in onCreate.
 }

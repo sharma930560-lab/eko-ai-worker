@@ -66,10 +66,10 @@ const DEMO_USER = {
   name: 'Demo User',
   email: 'demo@eko.local',
   picture: null,
-  business_name: 'Sample Kirana Store',
-  business_type: 'Retail',
+  business_name: 'Eko Operations Center',
+  business_type: 'Fintech Operations',
   language_preference: 'en',
-  location_city: 'Mumbai',
+  location_city: 'Delhi',
   onboarding_completed: true,
   isDemo: true,
 };
@@ -360,9 +360,9 @@ const onboardingSteps = [
     id: 'welcome',
     render: (user) => `
       <div class="onboarding-step">
-        <div class="ob-avatar">${user.picture ? `<img src="${user.picture}" alt="${user.name}">` : '👋'}</div>
+        <div class="ob-avatar">${user.picture ? `<img src="${user.picture}" alt="${user.name}">` : renderIcon('user', 32)}</div>
         <h2>Welcome, ${user.name.split(' ')[0]}!</h2>
-        <p>Let's set up your business workspace. It only takes a minute.</p>
+        <p>Let's set up your Eko operations workspace. It only takes a minute.</p>
         <button class="ob-btn primary" onclick="nextOnboardingStep()">Get Started →</button>
       </div>`,
   },
@@ -370,10 +370,10 @@ const onboardingSteps = [
     id: 'business_name',
     render: () => `
       <div class="onboarding-step">
-        <div class="ob-icon">🏪</div>
-        <h2>What's your business name?</h2>
-        <p>This helps Eko personalize suggestions for you.</p>
-        <input type="text" id="ob-business-name" class="ob-input" placeholder="e.g. Sharma General Store" maxlength="80">
+        <div class="ob-icon text-primary">${renderIcon('landmark', 48)}</div>
+        <h2>What's your authorized center name?</h2>
+        <p>This helps Eko personalize operational insights for you.</p>
+        <input type="text" id="ob-business-name" class="ob-input" placeholder="e.g. Eko Service Point - North" maxlength="80">
         <button class="ob-btn primary" onclick="nextOnboardingStep()">Continue →</button>
         <button class="ob-btn ghost" onclick="nextOnboardingStep()">Skip for now</button>
       </div>`,
@@ -382,10 +382,10 @@ const onboardingSteps = [
     id: 'business_type',
     render: () => `
       <div class="onboarding-step">
-        <div class="ob-icon">📦</div>
-        <h2>What kind of business do you run?</h2>
+        <div class="ob-icon text-primary">${renderIcon('briefcase', 48)}</div>
+        <h2>What is your primary service role?</h2>
         <div class="ob-type-grid">
-          ${['Retail / Kirana','Food / Tiffin','Services','Tailoring','Electronics','Other'].map(t => `
+          ${['DMT / Remittance','AePS / Cash','BBPS / Utility','Insurance','Banking Point','Other'].map(t => `
             <button class="ob-type-btn" onclick="selectBusinessType(this, '${t}')">${t}</button>
           `).join('')}
         </div>
@@ -397,7 +397,7 @@ const onboardingSteps = [
     id: 'language',
     render: () => `
       <div class="onboarding-step">
-        <div class="ob-icon">🌐</div>
+        <div class="ob-icon text-primary">${renderIcon('languages', 48)}</div>
         <h2>Which language do you prefer?</h2>
         <div class="ob-lang-grid">
           <button class="ob-lang-btn" onclick="selectLang(this,'en')">🇬🇧 English</button>
@@ -411,9 +411,9 @@ const onboardingSteps = [
     id: 'location',
     render: () => `
       <div class="onboarding-step">
-        <div class="ob-icon">📍</div>
+        <div class="ob-icon text-primary">${renderIcon('map-pin', 48)}</div>
         <h2>Where is your business?</h2>
-        <p>Eko can use this for local suggestions. This is optional and stored only as a city name.</p>
+        <p>Eko can use this for local suggestions. This is optional.</p>
         <input type="text" id="ob-location-city" class="ob-input" placeholder="e.g. Jaipur, Rajasthan" maxlength="80">
         <button class="ob-btn primary" onclick="nextOnboardingStep()">Save Location →</button>
         <button class="ob-btn ghost" onclick="nextOnboardingStep()">Skip</button>
@@ -539,8 +539,8 @@ function enterApp(user) {
   // Render sidebar user info
   const sidebarUser = document.getElementById('sidebar-user');
   if (sidebarUser) {
-    const initials = user.name ? user.name.charAt(0).toUpperCase() : 'U';
-    const subText = isDemoMode ? 'Demo Mode' : (user.business_name || user.business_type || 'My Business');
+    const initials = user.name ? user.name.charAt(0).toUpperCase() : 'O';
+    const subText = isDemoMode ? 'Demo Mode' : (user.business_name || user.business_type || 'Operations');
     sidebarUser.innerHTML = user.picture
       ? `<img src="${user.picture}" class="user-avatar" style="object-fit:cover;" alt="${user.name}">
          <div class="user-info">
@@ -553,6 +553,8 @@ function enterApp(user) {
            <div class="user-badge">${subText}</div>
          </div>`;
   }
+
+  if (window.lucide) lucide.createIcons();
 
   // Show / hide demo banner
   const demoBanner = document.getElementById('demo-banner');

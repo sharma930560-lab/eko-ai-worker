@@ -3,15 +3,18 @@
 <head>
     <meta charset="UTF-8">
     <meta http-equiv="Content-Security-Policy" content="default-src 'self' https://appassets.androidplatform.net https://fonts.googleapis.com https://fonts.gstatic.com; script-src 'self' 'unsafe-inline' https://accounts.google.com; style-src 'self' 'unsafe-inline' https://fonts.googleapis.com; img-src 'self' data: https: http:; connect-src 'self' https://eko-field-worker-api.onrender.com http://localhost:8000 http://127.0.0.1:8000 http://10.0.2.2:8000 http://10.0.2.2:* https://appassets.androidplatform.net; frame-src https://accounts.google.com;">
-    <title>Eko — Micro-Entrepreneur Business Assistant</title>
-    <meta name="description" content="A simple AI-powered business assistant for micro-entrepreneurs. Manage customers, tasks, notes, and get grounded AI advice.">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover">
+    <title>Eko AI Operations — Premium Fintech Assistant</title>
+    <meta name="description" content="An intelligent mobile operations assistant for Eko's financial-services ecosystem. Manage customers, transactions, and operational tasks with grounded AI.">
     <meta name="google-site-verification" content="T7vw_FvyPG_jZj9AI9ro_rpBeYUTiBJ4th4uBuudTy4" />
     <meta name="theme-color" content="#4F46E5">
     <link rel="manifest" href="/manifest.json">
     <link rel="apple-touch-icon" href="/icons/icon-192.png">
-    <link rel="stylesheet" href="css/style.css?v=10">
+    <link rel="stylesheet" href="css/style.css?v=11">
     <link rel="preconnect" href="https://fonts.googleapis.com">
     <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap" rel="stylesheet">
+    <!-- Lucide Icons -->
+    <script src="https://unpkg.com/lucide@latest"></script>
     <script src="https://accounts.google.com/gsi/client" async defer></script>
 </head>
 <body>
@@ -23,8 +26,8 @@
         <div class="landing-nav-inner">
             <a href="/" class="landing-brand">
                 <div class="landing-brand-icon">E</div>
-                <span class="landing-brand-text">Eko Worker</span>
-                <span class="landing-brand-tag">AI OS</span>
+                <span class="landing-brand-text">Eko AI Ops</span>
+                <span class="landing-brand-tag">Ops 2.0</span>
             </a>
             <nav class="landing-nav-links">
                 <a href="#features" class="landing-nav-link">Features</a>
@@ -42,28 +45,28 @@
         <section class="landing-hero">
             <div class="landing-hero-content">
                 <div class="landing-badge-pill">
-                    <span>⚡ Empowering Micro-Entrepreneurs Across India</span>
+                    <span>⚡ Intelligent Operational Assistant for Eko Financial Services</span>
                 </div>
                 <h1 class="landing-hero-title">
-                    The Smart <span>AI Operating System</span> for Everyday Business
+                    The Smart <span>AI Operations OS</span> for Financial Services
                 </h1>
                 <p class="landing-hero-desc">
-                    Eko Worker is an offline-first, multimodal AI business assistant designed for kirana stores, field facilitators, and local merchants. Manage customer credit khata, scan paper bills with Gemini Vision, record voice transactions in Hindi, and automate WhatsApp payment reminders with ease.
+                    Eko AI Operations is an intelligent mobile assistant for Eko's ecosystem. Manage customers, monitor transactions, automate operational tasks, and get grounded business insights using context-aware AI.
                 </p>
                 <div class="landing-hero-badges">
-                    <span class="feature-pill">🎙️ Vernacular Voice Khata</span>
-                    <span class="feature-pill">📷 Gemini Bill OCR</span>
+                    <span class="feature-pill">💸 Money Transfer & AePS</span>
+                    <span class="feature-pill">📈 Operational Insights</span>
                     <span class="feature-pill">💬 WhatsApp Studio</span>
-                    <span class="feature-pill">🛡️ 100% Offline-First</span>
-                    <span class="feature-pill">🔒 DPDP Compliant</span>
+                    <span class="feature-pill">🛡️ Secure & Grounded</span>
+                    <span class="feature-pill">🤖 Ask Eko AI</span>
                 </div>
             </div>
 
             <!-- Auth Gateway Card -->
             <div class="landing-auth-card">
                 <div class="login-brand-icon" style="margin: 0 auto 16px;">E</div>
-                <h3>Get Started with Eko</h3>
-                <p>Sign in with your Google account to sync your business ledger across devices.</p>
+                <h3>Authorized Partner Sign-in</h3>
+                <p>Access your Eko operations workspace securely.</p>
 
                 <div id="google-btn-container" style="width:100%; display:flex; justify-content:center; margin-bottom: 12px;">
                     <button class="eko-native-auth-btn" id="trigger-native-login" onclick="handleGoogleSignIn()">
@@ -89,45 +92,45 @@
         <section id="features" class="landing-section">
             <div class="landing-section-inner">
                 <div class="section-header">
-                    <h2 class="section-title">Built for Real-World Retail & Commerce</h2>
-                    <p class="section-subtitle">Everything you need to digitize, manage, and scale your micro-enterprise without complex accounting software.</p>
+                    <h2 class="section-title">Built for Eko Financial Operations</h2>
+                    <p class="section-subtitle">Intelligent tools to manage customers, transactions, and service delivery with AI assistance.</p>
                 </div>
 
                 <div class="features-grid">
                     <div class="feature-card">
                         <div class="feature-icon-box" style="background:#EEF2FF; color:#4F46E5">👥</div>
-                        <h4>Smart Customer Khata</h4>
-                        <p>Track customer credit and debit balances, transaction histories, and contact info with instant ledger balance tallies and settlement receipts.</p>
+                        <h4>Customer Operations</h4>
+                        <p>Track customer activity, transaction history, and service preferences. Maintain detailed profiles to provide personalized financial services.</p>
                     </div>
 
                     <div class="feature-card" id="ai-superpowers">
-                        <div class="feature-icon-box" style="background:#ECFEFF; color:#0891B2">📷</div>
-                        <h4>Multimodal Bill Scanner</h4>
-                        <p>Powered by Google Gemini 1.5 Flash Vision. Snap a photo of handwritten supplier slips or paper bills to instantly parse items, quantities, and totals.</p>
+                        <div class="feature-icon-box" style="background:#ECFEFF; color:#0891B2">📊</div>
+                        <h4>Operational Insights</h4>
+                        <p>Real-time monitoring of transaction volume, success rates, and service trends. Get AI-driven advice on operational improvements.</p>
                     </div>
 
                     <div class="feature-card">
-                        <div class="feature-icon-box" style="background:#F0FDF4; color:#16A34A">🎙️</div>
-                        <h4>Vernacular Voice Khata</h4>
-                        <p>Speak naturally in Hindi or Hinglish (e.g., <em>"Ramesh ko 500 rupaye udhaar diye"</em>). Eko’s AI automatically records the ledger entry.</p>
+                        <div class="feature-icon-box" style="background:#F0FDF4; color:#16A34A">💳</div>
+                        <h4>Eko Services</h4>
+                        <p>Streamlined workflows for Money Transfer, AePS, Bill Payments, and more. Monitor service health and resolve pending issues quickly.</p>
                     </div>
 
                     <div class="feature-card">
                         <div class="feature-icon-box" style="background:#FFFBEB; color:#D97706">💬</div>
-                        <h4>WhatsApp Reminder Studio</h4>
-                        <p>Generate polite, friendly, or formal payment reminders in Hindi & English and send them directly to customer WhatsApp chats with 1 tap.</p>
+                        <h4>WhatsApp Studio</h4>
+                        <p>Generate professional transaction updates and service reminders in multiple languages. Enhance customer communication with 1-tap sharing.</p>
                     </div>
 
                     <div class="feature-card">
                         <div class="feature-icon-box" style="background:#FEF2F2; color:#DC2626">🛡️</div>
-                        <h4>Credit Trust Underwriting</h4>
-                        <p>Evaluate customer repayment habits with an AI-generated Trust Score (1-100) and suggested safe credit limits to prevent bad debts.</p>
+                        <h4>Credit Scorer</h4>
+                        <p>Evaluate customer creditworthiness using transaction velocity and success ratios. AI-assisted internal assessment for safer operations.</p>
                     </div>
 
                     <div class="feature-card">
                         <div class="feature-icon-box" style="background:#F5F3FF; color:#7C3AED">⚡</div>
-                        <h4>Offline-First Architecture</h4>
-                        <p>Never lose a sale. Local IndexedDB & SQLite storage keeps the app running at full speed without internet, auto-syncing when connectivity returns.</p>
+                        <h4>AI Assistant (Ask Eko)</h4>
+                        <p>Your grounded operational partner. Ask about failed transactions, customer follow-ups, or daily briefs. Context-aware and secure.</p>
                     </div>
                 </div>
             </div>
@@ -138,9 +141,9 @@
             <div class="landing-section-inner">
                 <div class="landing-apk-cta">
                     <div>
-                        <h3>Get Eko Worker for Android</h3>
-                        <p>Experience ultra-fast native performance, hardware biometric authentication, native camera bill scanning, and background synchronization.</p>
-                        <p style="margin-top:8px; font-size:0.82rem; opacity:0.85">Package: <code>com.eko.fieldworker</code> &bull; Version: <code>v1.0.0</code> &bull; Size: <code>5.64 MB</code></p>
+                        <h3>Get Eko AI Operations for Android</h3>
+                        <p>Experience ultra-fast native performance, secure biometric authentication, and intelligent operational assistance on the go.</p>
+                        <p style="margin-top:8px; font-size:0.82rem; opacity:0.85">Package: <code>com.eko.fieldworker</code> &bull; Version: <code>v1.1.0</code> &bull; Size: <code>5.8 MB</code></p>
                     </div>
                     <a href="https://github.com/sharma930560-lab/eko-ai-worker/releases/download/v1.0.0/eko-field-worker-v1.0.0.apk" class="apk-download-btn">
                         <svg width="24" height="24" viewBox="0 0 24 24" fill="currentColor"><path d="M17.523 15.3414c-.5511 0-.9993-.4486-.9993-.9997s.4482-.9993.9993-.9993c.551 0 .9993.4482.9993.9993.0001.5511-.4483.9997-.9993.9997m-11.046 0c-.5511 0-.9993-.4486-.9993-.9997s.4482-.9993.9993-.9993c.551 0 .9993.4482.9993.9993 0 .5511-.4483.9997-.9993.9997m11.4045-6.02l1.996-3.4572c.1568-.2716.064-.6184-.2076-.7752-.2717-.1568-.6185-.064-.7753.2076l-2.0235 3.5048c-1.4276-.6532-3.0232-1.0204-4.7311-1.0204-1.7079 0-3.3035.3672-4.7311 1.0204l-2.0235-3.5048c-.1568-.2716-.5036-.3644-.7753-.2076-.2716.1568-.3644.5036-.2076.7752l1.996 3.4572c-3.1368 1.7056-5.2892 4.8716-5.5264 8.6016h22.0308c-.2372-3.73-2.3896-6.896-5.5265-8.6016"/></svg>
@@ -155,9 +158,9 @@
     <footer class="landing-footer">
         <div class="landing-footer-inner">
             <div class="footer-brand">
-                <h4>Eko Worker</h4>
-                <p>Simple, grounded AI operating system empowering Indian micro-entrepreneurs and local businesses. 100% private, offline-first, and built for scale.</p>
-                <p style="margin-top:12px; font-size:0.8rem; color:#64748B">Developer: Paras Sharma &bull; Email: <a href="mailto:ps9110831@gmail.com" style="color:#818CF8">ps9110831@gmail.com</a></p>
+                <h4>Eko AI Operations</h4>
+                <p>Intelligent operations assistant empowering Eko's financial-services ecosystem. Secure, grounded, and built for professional financial operations.</p>
+                <p style="margin-top:12px; font-size:0.8rem; color:#64748B">Developer: Eko Bharat Ventures Private Limited &bull; Support: <a href="mailto:support@eko.co.in" style="color:#818CF8">support@eko.co.in</a></p>
             </div>
             <div class="footer-col">
                 <h5>Compliance & Legal</h5>
@@ -179,7 +182,7 @@
             </div>
         </div>
         <div class="footer-bottom">
-            <span>&copy; 2026 Eko Worker. All rights reserved.</span>
+            <span>&copy; 2026 Eko AI Operations. All rights reserved.</span>
             <span>Digital Personal Data Protection (DPDP) Act 2023 & Google API Services User Data Policy Compliant</span>
         </div>
     </footer>
@@ -213,7 +216,7 @@
         <aside class="sidebar">
             <div class="sidebar-header">
                 <div class="brand-logo-wrap">E</div>
-                <span class="brand-text">Eko Worker</span>
+                <span class="brand-text">Eko AI Ops</span>
                 <span class="brand-tag">AI</span>
             </div>
 
@@ -221,38 +224,34 @@
                 <div class="user-avatar" id="sidebar-avatar-initial">U</div>
                 <div class="user-info">
                     <div class="user-name" id="sidebar-user-name">User</div>
-                    <div class="user-badge" id="sidebar-user-badge">Kirana Store</div>
+                    <div class="user-badge" id="sidebar-user-badge">Eko Operations</div>
                 </div>
             </div>
 
             <nav class="sidebar-nav">
                 <button class="nav-item active" data-tab="home" onclick="navigateTo('home')">
-                    <svg class="icon" viewBox="0 0 24 24"><path d="M3 9l9-7 9 7v11a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z"></path><polyline points="9 22 9 12 15 12 15 22"></polyline></svg>
-                    <span class="nav-label">Home</span>
+                    <i data-lucide="layout-dashboard"></i>
+                    <span class="nav-label">Dashboard</span>
                 </button>
                 <button class="nav-item" data-tab="customers" onclick="navigateTo('customers')">
-                    <svg class="icon" viewBox="0 0 24 24"><path d="M17 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2"></path><circle cx="9" cy="7" r="4"></circle><path d="M23 21v-2a4 4 0 0 0-3-3.87"></path><path d="M16 3.13a4 4 0 0 1 0 7.75"></path></svg>
-                    <span class="nav-label">Customers</span>
+                    <i data-lucide="users"></i>
+                    <span class="nav-label">Customer 360</span>
                 </button>
-                <button class="nav-item" data-tab="inventory" onclick="navigateTo('inventory')">
-                    <svg class="icon" viewBox="0 0 24 24"><path d="M21 16V8a2 2 0 0 0-1-1.73l-7-4a2 2 0 0 0-2 0l-7 4A2 2 0 0 0 3 8v8a2 2 0 0 0 1 1.73l7 4a2 2 0 0 0 2 0l7-4A2 2 0 0 0 21 16z"></path><polyline points="3.27 6.96 12 12.01 20.73 6.96"></polyline><line x1="12" y1="22.08" x2="12" y2="12"></line></svg>
-                    <span class="nav-label">Inventory</span>
+                <button class="nav-item" data-tab="activity" onclick="navigateTo('activity')">
+                    <i data-lucide="arrow-left-right"></i>
+                    <span class="nav-label">Transactions</span>
                 </button>
-                <button class="nav-item" data-tab="tasks" onclick="navigateTo('tasks')">
-                    <svg class="icon" viewBox="0 0 24 24"><polyline points="9 11 12 14 22 4"></polyline><path d="M21 12v7a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h11"></path></svg>
-                    <span class="nav-label">Tasks</span>
+                <button class="nav-item" data-tab="grievances" onclick="navigateTo('grievances')">
+                    <i data-lucide="message-square-warning"></i>
+                    <span class="nav-label">Grievances</span>
                 </button>
-                <button class="nav-item" data-tab="notes" onclick="navigateTo('notes')">
-                    <svg class="icon" viewBox="0 0 24 24"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"></path><polyline points="14 2 14 8 20 8"></polyline><line x1="16" y1="13" x2="8" y2="13"></line><line x1="16" y1="17" x2="8" y2="17"></line><polyline points="10 9 9 9 8 9"></polyline></svg>
-                    <span class="nav-label">Notes</span>
-                </button>
-                <button class="nav-item nav-item-ai" data-tab="ai-tools" onclick="navigateTo('ai-tools')">
-                    <svg class="icon" viewBox="0 0 24 24"><polygon points="12 2 15.09 8.26 22 9.27 17 14.14 18.18 21.02 12 17.77 5.82 21.02 7 14.14 2 9.27 8.91 8.26 12 2"></polygon></svg>
+                <button class="nav-item" data-tab="ai-tools" onclick="navigateTo('ai-tools')">
+                    <i data-lucide="wrench"></i>
                     <span class="nav-label">AI Tools</span>
                 </button>
-                <button class="nav-item nav-item-ai" data-tab="ask-eko" onclick="navigateTo('ask-eko')">
-                    <svg class="icon" viewBox="0 0 24 24"><rect x="3" y="11" width="18" height="10" rx="2"></rect><circle cx="12" cy="5" r="2"></circle><path d="M12 7v4"></path><line x1="8" y1="16" x2="8" y2="16"></line><line x1="16" y1="16" x2="16" y2="16"></line></svg>
-                    <span class="nav-label">Ask Eko AI</span>
+                <button class="nav-item" data-tab="ask-eko" onclick="navigateTo('ask-eko')">
+                    <i data-lucide="sparkles"></i>
+                    <span class="nav-label">Ask Eko</span>
                 </button>
             </nav>
 
@@ -278,15 +277,19 @@
             <!-- Top App Header -->
             <header class="app-top-header">
                 <div class="header-left">
-                    <h1 class="header-title" id="page-header-title">Home Dashboard</h1>
-                    <p class="header-subtitle" id="page-header-subtitle">Good morning! Here's your store overview.</p>
+                    <h1 class="header-title" id="page-header-title">Eko AI Ops</h1>
+                    <p class="header-subtitle" id="page-header-subtitle">Good morning! Here's your operations overview.</p>
                 </div>
-                <div class="header-right">
-                    <div class="sync-indicator online" id="global-sync-badge">
-                        <span class="sync-dot"></span>
-                        <span id="sync-text">Synced</span>
-                    </div>
+                <div class="header-right" style="display:flex; align-items:center; gap:12px;">
+                <button class="btn-icon" id="header-notif-btn" onclick="showToast('Notification Center')" title="Notifications">
+                    <i data-lucide="bell"></i>
+                    <span class="notif-badge hidden" id="notif-badge-count"></span>
+                </button>
+                <div class="sync-indicator online" id="global-sync-badge">
+                    <span class="sync-dot"></span>
+                    <span id="sync-text">Synced</span>
                 </div>
+            </div>
             </header>
 
             <!-- Screen View Container -->
@@ -299,28 +302,24 @@
     <!-- ── Mobile Bottom Nav ──────────────────────────────────────────────── -->
     <nav class="bottom-nav">
         <button class="nav-item active" data-tab="home" onclick="navigateTo('home')">
-            <svg class="icon" viewBox="0 0 24 24"><path d="M3 9l9-7 9 7v11a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z"></path><polyline points="9 22 9 12 15 12 15 22"></polyline></svg>
+            <i data-lucide="layout-dashboard"></i>
             <span class="nav-label">Home</span>
         </button>
         <button class="nav-item" data-tab="customers" onclick="navigateTo('customers')">
-            <svg class="icon" viewBox="0 0 24 24"><path d="M17 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2"></path><circle cx="9" cy="7" r="4"></circle></svg>
-            <span class="nav-label">Customers</span>
+            <i data-lucide="users"></i>
+            <span class="nav-label">360</span>
         </button>
-        <button class="nav-item" data-tab="inventory" onclick="navigateTo('inventory')">
-            <svg class="icon" viewBox="0 0 24 24"><path d="M21 16V8a2 2 0 0 0-1-1.73l-7-4a2 2 0 0 0-2 0l-7 4A2 2 0 0 0 3 8v8a2 2 0 0 0 1 1.73l7 4a2 2 0 0 0 2 0l7-4A2 2 0 0 0 21 16z"></path><polyline points="3.27 6.96 12 12.01 20.73 6.96"></polyline><line x1="12" y1="22.08" x2="12" y2="12"></line></svg>
-            <span class="nav-label">Stock</span>
+        <button class="nav-item" data-tab="activity" onclick="navigateTo('activity')">
+            <i data-lucide="arrow-left-right"></i>
+            <span class="nav-label">Txns</span>
         </button>
-        <button class="nav-item nav-item-ai" data-tab="ai-tools" onclick="navigateTo('ai-tools')">
-            <svg class="icon" viewBox="0 0 24 24"><polygon points="12 2 15.09 8.26 22 9.27 17 14.14 18.18 21.02 12 17.77 5.82 21.02 7 14.14 2 9.27 8.91 8.26 12 2"></polygon></svg>
-            <span class="nav-label">AI Tools</span>
-        </button>
-        <button class="nav-item" data-tab="tasks" onclick="navigateTo('tasks')">
-            <svg class="icon" viewBox="0 0 24 24"><polyline points="9 11 12 14 22 4"></polyline><path d="M21 12v7a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h11"></path></svg>
-            <span class="nav-label">Tasks</span>
+        <button class="nav-item" data-tab="grievances" onclick="navigateTo('grievances')">
+            <i data-lucide="message-square-warning"></i>
+            <span class="nav-label">Grievance</span>
         </button>
         <button class="nav-item" data-tab="ask-eko" onclick="navigateTo('ask-eko')">
-            <svg class="icon" viewBox="0 0 24 24"><rect x="3" y="11" width="18" height="10" rx="2"></rect><circle cx="12" cy="5" r="2"></circle><path d="M12 7v4"></path></svg>
-            <span class="nav-label">Ask Eko</span>
+            <i data-lucide="sparkles"></i>
+            <span class="nav-label">Eko AI</span>
         </button>
     </nav>
 
@@ -330,7 +329,7 @@
 <div id="app-guide-modal" class="modal-overlay hidden">
     <div class="modal-card guide-card">
         <div class="modal-header">
-            <h2 id="guide-modal-title">Eko Worker Guide</h2>
+            <h2 id="guide-modal-title">Eko AI Operations Guide</h2>
             <button class="modal-close" onclick="closeModal('app-guide-modal')">✕</button>
         </div>
         <div class="modal-body" id="guide-modal-content"></div>
@@ -360,11 +359,12 @@
 <script src="js/offline.js?v=16"></script>
 <script src="js/api.js?v=16"></script>
 <script src="js/screens/customers.js?v=16"></script>
-<script src="js/screens/inventory.js?v=16"></script>
+<script src="js/screens/activity.js?v=17"></script>
 <script src="js/screens/tasks.js?v=16"></script>
 <script src="js/screens/notes.js?v=16"></script>
 <script src="js/screens/ask-eko.js?v=16"></script>
 <script src="js/screens/ai-tools.js?v=16"></script>
+<script src="js/screens/grievances.js?v=16"></script>
 <script src="js/app.js?v=16"></script>
 
 <script>

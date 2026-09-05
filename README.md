@@ -1,196 +1,85 @@
-# Eko Field Worker
+# Eko AI Operations 2.0
 
-Eko Field Worker is an offline-first business assistant for micro-entrepreneurs. It helps manage customers, payments, inventory and daily tasks, while Ask Eko uses business data to provide practical recommendations.
+Eko AI Operations is a professional, intelligent mobile assistant for Eko's financial-services ecosystem. It helps authorized operators manage customers, monitor live transaction activity, and automate operational tasks using context-grounded AI.
 
-📄 **Detailed Internship Submission Document**: See [ASSIGNMENT.md](ASSIGNMENT.md) for problem framing, reasoning loops, failure scenarios, and video demo script.
+📱 **Professional Fintech Assistant**: Transitioned from a micro-business tool to a high-fidelity fintech operations platform.
 
 ---
 
-
 ## What it does
 
-Micro-entrepreneurs (such as kirana store owners, wholesalers, and field agents) often struggle with credit recovery, manual stock tracking, and unorganized daily tasks. 
-
-Eko Field Worker organizes these daily operations into a single mobile-friendly workflow:
-- Tracks customer accounts and outstanding dues (Khata).
-- Monitors low stock thresholds and reorder triggers.
-- Provides a prioritized daily action plan (Daily Business Brief & Next Best Action).
-- Drafts polite, personalized customer follow-ups and payment reminders.
-- Requires explicit user confirmation before executing database actions.
-- Works offline on the road, syncing when connectivity is restored.
+Eko AI Operations organizes complex financial service workflows into a single, intelligent mobile experience:
+- **Transaction Monitoring**: Real-time tracking of DMT, AePS, and Bill Payment health.
+- **Customer Operations**: Detailed profiling and service history tracking for reliable financial service delivery.
+- **AI-Powered Insights**: "Ask Eko" analyzes live transaction data to identify failures, suggest resolution steps, and summarize daily performance.
+- **Operational Automation**: Generates professional service updates, kyc requests, and support responses via WhatsApp.
+- **Risk Assessment**: Calculates transaction-based trust scores to help operators manage service limits safely.
 
 ---
 
 ## Features
 
-- **Google Sign-In**: Quick sign-in across desktop web and Android WebView.
-- **Customer Management (Khata)**: Add, edit, search, and track customer contact information and balance due.
-- **Task Management**: Daily priority checklist with due dates and completion toggles.
-- **Business Notes**: Log supplier meetings, order details, and operational reminders.
-- **Inventory Tracking**: Manage item stock quantities, units, unit prices, and low-stock alerts.
-- **Payment Ledger**: Record incoming and outgoing payments with status tracking.
-- **Ask Eko AI**: Context-grounded business assistant powered by Gemini.
-- **Persistent Business Memory**: Remembers high-level business goals (e.g. reducing outstanding credit) across sessions.
-- **Daily Business Brief**: Aggregates pending payments, low stock counts, and overdue tasks into a daily summary.
-- **Next Best Action**: Automatically identifies the most important action for the day.
-- **AI Utility Tools**: Handwritten bill parser (OCR), voice note transcriber, and flyer copy generator.
-- **Offline-First Storage**: Caches data locally with IndexedDB and Service Worker support.
-- **Human-in-the-Loop Actions**: Displays confirmation cards before modifying business records.
-- **Android APK**: Native Android WebView app with intent handling for phone calls, WhatsApp, and email.
+- **Fintech Dashboard**: Real-time metrics for transaction volume, success rates, and service alerts.
+- **Activity Tracker**: Searchable, filterable history of all service interactions with deep-link resolution.
+- **Customer Profiles**: Secure management of customer data and service preferences.
+- **Operational Tasks**: Prioritized checklist for resolving failed transactions, verifications, and support follow-ups.
+- **Ask Eko AI**: Context-grounded reasoning engine powered by Gemini (1.5 Flash).
+- **Service Utility Tools**:
+    - **📊 Bill Scanner**: OCR extraction for utility bills and financial documents.
+    - **🎙️ Voice Records**: Record service activity and events via vernacular voice commands.
+    - **💬 WhatsApp Studio**: AI-assisted professional communication templates.
+    - **🛡️ Credit Scorer**: Transaction-velocity-based risk assessment.
+    - **🎨 Flyer Creator**: Marketing automation for Eko services.
+- **Offline-First Resilience**: Local data caching via Room (Android) and IndexedDB (Web) for reliability in low-connectivity areas.
 
 ---
 
 ## How Ask Eko works
 
-Ask Eko is designed to give grounded answers based strictly on actual business records:
+Ask Eko provides grounded operational advice based strictly on verified service activity:
 
 ```
-User Question
+Operator Question
       ↓
-Relevant Business Data (Customers, Inventory, Tasks, Payments, Goals)
+Relevant Operational Data (Activity, Tasks, Customers, Goals)
       ↓
-Gemini AI Engine (with system guardrails)
+Gemini AI Engine (with fintech system instruction)
       ↓
-Grounded Response (attributing facts to verified ledger data)
+Grounded Response (attributing facts to verified transaction logs)
       ↓
-Suggested Action (Optional action card)
+Action Proposal (Optional resolution steps)
       ↓
-User Approval ([Approve & Execute] / [Later])
+Operator Review & Approval
       ↓
-Database Update & Business Event Audit Log
+Database Update & Audit Logging
 ```
 
-### Anti-Hallucination Guardrails
-If necessary data is missing (for example, asking *"Kal kitna stock order karu?"* when recent sales movement data is not recorded), Eko refuses to guess arbitrary numbers. Instead, it explains what information is missing and suggests a safe next step.
+### Safety & Grounding
+Eko refuses to invent financial data. If a transaction ID or failure reason is missing from the context, Eko transparently identifies the information gap and suggests the correct investigative path.
 
 ---
 
 ## Architecture
 
-- **Android App**: Android WebView wrapper with native scheme interceptors (`tel:`, `whatsapp://`, `mailto:`) and offline caching.
-- **Web Frontend**: Single-page application written in HTML5, Vanilla CSS, and JavaScript. Uses IndexedDB and Service Worker for offline resilience.
-- **Backend API**: FastAPI REST service running on Python 3.11 with rate limiting, CORS configuration, and Pydantic validation.
-- **Database**: PostgreSQL (managed on Render) with SQLAlchemy ORM.
-- **AI Engine**: Google Gemini API (`gemini-3.7-flash` / `gemini-1.5-flash`) with fallback to local rule-based engine if offline.
-
----
-
-## Tech Stack
-
-| Layer | Technologies |
-|---|---|
-| **Mobile** | Kotlin, Android SDK 34, AndroidX, WebView |
-| **Frontend** | HTML5, Vanilla CSS, Vanilla JavaScript, Service Worker, IndexedDB |
-| **Backend** | Python 3.11, FastAPI, Uvicorn, SQLAlchemy, Pydantic, SlowAPI |
-| **Database** | PostgreSQL |
-| **AI / LLM** | Google Gemini API (`google-generativeai`) |
-| **Deployment** | Netlify (Frontend), Render (Backend & PostgreSQL) |
-
----
-
-## Project Structure
-
-```
-.
-├── android/               # Native Android application source & Gradle build
-│   └── app/src/main/
-│       ├── java/          # Kotlin WebView & native scheme handlers
-│       └── assets/        # Synchronized production web assets
-├── backend/               # FastAPI backend application
-│   ├── main.py            # API routes, Gemini integration & approval handlers
-│   ├── models.py          # SQLAlchemy database models
-│   ├── database.py        # Database session and connection pool
-│   └── Dockerfile         # Production container definition
-├── frontend/              # Production web application
-│   ├── index.html         # Main single-page application entry point
-│   ├── css/               # Application styling and responsive design tokens
-│   ├── js/                # Client logic, API bridge, and screen routers
-│   └── sw.js              # Service Worker for offline asset caching
-├── render.yaml            # Render deployment blueprint
-├── netlify.toml           # Netlify build and redirect configuration
-└── README.md              # Project documentation
-```
-
----
-
-## Running Locally
-
-### 1. Prerequisites
-- Python 3.10+
-- Node.js or simple HTTP server
-- Android Studio (optional, for APK build)
-
-### 2. Backend Setup
-```bash
-cd backend
-python -m venv venv
-
-# Windows:
-.\venv\Scripts\activate
-# Linux/macOS:
-source venv/bin/activate
-
-pip install -r requirements.txt
-```
-
-Create a `.env` file in the `backend/` folder:
-```ini
-ENVIRONMENT=development
-DATABASE_URL=sqlite:///./eko.db
-GEMINI_API_KEY=your_gemini_api_key_here
-GOOGLE_CLIENT_ID=your_google_client_id_here
-ALLOWED_ORIGINS=http://localhost:3000,http://127.0.0.1:3000
-```
-
-Start the API server:
-```bash
-uvicorn main:app --reload --port 8000
-```
-
-### 3. Frontend Setup
-Serve the `frontend/` folder with any local web server:
-```bash
-# Using Python
-cd frontend
-python -m http.server 3000
-```
-Open `http://localhost:3000` in your browser.
-
-### 4. Android Build
-```bash
-cd android
-./gradlew assembleRelease
-```
-The APK will be generated at `android/app/build/outputs/apk/release/app-release.apk`.
-
----
-
-## Production
-
-- **Live Web App**: [https://eko-field-worker.netlify.app](https://eko-field-worker.netlify.app)
-- **Live Backend API**: [https://eko-field-worker-api.onrender.com](https://eko-field-worker-api.onrender.com)
-- **Health Check**: [https://eko-field-worker-api.onrender.com/api/health](https://eko-field-worker-api.onrender.com/api/health)
-- **GitHub Repository**: [https://github.com/sharma930560-lab/eko-ai-worker](https://github.com/sharma930560-lab/eko-ai-worker)
-
----
-
-## Latest Android Release (v1.1.0)
-
-- 🏷️ **GitHub Releases Hub**: [https://github.com/sharma930560-lab/eko-ai-worker/releases](https://github.com/sharma930560-lab/eko-ai-worker/releases)
-- 📱 **Direct APK Download**: [Download app-release.apk (v1.1.0)](https://github.com/sharma930560-lab/eko-ai-worker/releases/download/v1.1.0/app-release.apk)
-- 📦 **Direct AAB Bundle**: [Download app-release.aab (v1.1.0)](https://github.com/sharma930560-lab/eko-ai-worker/releases/download/v1.1.0/app-release.aab)
-- 🏷️ **Release Page**: [Eko Field Worker v1.1.0](https://github.com/sharma930560-lab/eko-ai-worker/releases/tag/v1.1.0)
-- 🔨 **Local Build Path**: `android/app/build/outputs/apk/release/app-release.apk` (`versionName 1.1.0`, `versionCode 2`, 5.67 MB)
-
-
-
+- **Android App**: Native Kotlin shell using WebViewAssetLoader for secure, high-performance local asset delivery.
+- **FastAPI Backend**: Robust Python 3.11 service with structured error handling and secure AI orchestration.
+- **Database**: PostgreSQL with user-scoped isolation for all operational entities.
+- **AI Integration**: Server-side Google Gemini integration with structured error propagation (`AI_UNAVAILABLE` states).
 
 ---
 
 ## Security
 
-- API keys and database credentials are kept exclusively in environment variables and are never checked into source control.
-- All database queries for business data, tasks, notes, inventory, and memories enforce user-level scoping (`user_id == current_user`).
-- Authentication uses Google ID token verification with client ID matching.
-- CORS policy restricts API access to known frontend origins.
-- Rate limiting is configured on AI and auth endpoints to prevent abuse.
+- **Zero API Keys in APK**: Gemini and Database credentials remain server-side.
+- **User Isolation**: Strict `user_id` filtering on every database query.
+- **Hardware Security**: Integrated with Android Keystore and biometric unlock stubs.
+- **HTTPS Only**: All communications encrypted via TLS/HTTPS.
+- **Human-in-the-Loop**: Consequential database mutations require explicit operator confirmation.
+
+---
+
+## Latest Release (v1.1.0)
+
+- 📱 **Android Package**: `com.eko.fieldworker`
+- 🔨 **Build Result**: Fully compiled and verified.
+- 🚀 **AI Status**: Live Gemini-1.5-Flash integration with robust fallback.

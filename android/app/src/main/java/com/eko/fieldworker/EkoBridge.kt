@@ -3,15 +3,19 @@ package com.eko.fieldworker
 import android.content.Context
 import android.webkit.JavascriptInterface
 import android.widget.Toast
-import android.content.Intent
-import android.provider.MediaStore
-import android.app.Activity
 
+/**
+ * EkoBridge — JavascriptInterface exposed to the WebView as `window.AndroidBridge`.
+ *
+ * All camera launches are delegated to MainActivity.triggerCamera() which uses
+ * ActivityResultLauncher (ActivityResultContracts.StartActivityForResult) instead
+ * of the deprecated Activity.startActivityForResult(Intent, Int).
+ */
 class EkoBridge(private val context: Context, private val viewModel: EkoViewModel) {
 
     @JavascriptInterface
     fun showToast(message: String) {
-        if (context is Activity) {
+        if (context is MainActivity) {
             context.runOnUiThread {
                 Toast.makeText(context, message, Toast.LENGTH_SHORT).show()
             }
@@ -26,6 +30,11 @@ class EkoBridge(private val context: Context, private val viewModel: EkoViewMode
     @JavascriptInterface
     fun setConfig(baseUrl: String, userId: String) {
         viewModel.setConfig(baseUrl, userId)
+        if (context is MainActivity) {
+            context.runOnUiThread {
+                context.scheduleNotificationWorker(userId, baseUrl)
+            }
+        }
     }
 
     @JavascriptInterface
@@ -38,12 +47,24 @@ class EkoBridge(private val context: Context, private val viewModel: EkoViewMode
         return viewModel.status.value?.name ?: "UNKNOWN"
     }
 
+    /**
+     * Launches the camera via MainActivity's ActivityResultLauncher.
+     * This replaces the deprecated startActivityForResult(intent, 100) pattern.
+     */
     @JavascriptInterface
     fun openCamera() {
-        if (context is Activity) {
+        if (context is MainActivity) {
             context.runOnUiThread {
-                val intent = Intent(MediaStore.ACTION_IMAGE_CAPTURE)
-                context.startActivityForResult(intent, 100)
+                context.triggerCamera()
+            }
+        }
+    }
+
+    @JavascriptInterface
+    fun triggerBiometric() {
+        if (context is MainActivity) {
+            context.runOnUiThread {
+                context.showBiometricPrompt()
             }
         }
     }
