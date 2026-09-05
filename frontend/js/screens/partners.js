@@ -36,43 +36,6 @@ function renderPartnersScreen() {
         <div id="partners-list" class="item-list">
             <div class="loading-state"><div class="spinner"></div></div>
         </div>
-    </div>
-
-    <!-- Add Partner Modal -->
-    <div id="add-partner-modal" class="modal-overlay hidden">
-        <div class="modal-card">
-            <div class="modal-header">
-                <h2>Register New Partner</h2>
-                <button class="modal-close" onclick="closeModal('add-partner-modal')" aria-label="Close">${renderIcon('x', 16)}</button>
-            </div>
-            <div class="modal-body">
-                <div class="form-group">
-                    <label class="form-label">Full Legal Name *</label>
-                    <input id="p-name" type="text" placeholder="e.g. Sharma Telecom" class="form-input" required>
-                </div>
-                <div class="form-group">
-                    <label class="form-label">Contact Number *</label>
-                    <input id="p-phone" type="tel" placeholder="e.g. 9876543210" class="form-input" required>
-                </div>
-                <div class="form-group">
-                    <label class="form-label">Partner Category</label>
-                    <select id="p-type" class="form-input">
-                        <option value="Retailer">Retailer / Agent</option>
-                        <option value="Merchant">Merchant</option>
-                        <option value="Enterprise">Enterprise Business</option>
-                        <option value="Individual">Individual Customer</option>
-                    </select>
-                </div>
-                <div class="form-group">
-                    <label class="form-label">Email (Optional)</label>
-                    <input id="p-email" type="email" placeholder="e.g. contact@sharma.in" class="form-input">
-                </div>
-            </div>
-            <div class="modal-footer">
-                <button class="btn-ghost" onclick="closeModal('add-partner-modal')">Discard</button>
-                <button class="btn-primary" onclick="savePartner()">Save Partner</button>
-            </div>
-        </div>
     </div>`;
 }
 
@@ -268,7 +231,7 @@ function switchPartnerTab(tab) {
                 <button class="btn-secondary" style="flex:1; min-height:40px; font-size:0.85rem;" onclick="closeModal('customer-detail-modal'); openCreateComplaintModal(null, '${p.id}', '${escapeHtml(p.name)}');">
                     ${renderIcon('message-square-warning', 16)} Raise Complaint
                 </button>
-                <button class="btn-ghost" style="width:100%; min-height:40px; font-size:0.85rem;" onclick="closeModal('customer-detail-modal'); navigateTo('ask-eko'); sendToEko('${p.id}');">
+                <button class="btn-ghost" style="width:100%; min-height:40px; font-size:0.85rem;" onclick="closeModal('customer-detail-modal'); if (typeof setAiContext === 'function') setAiContext({ customer_id: '${p.id}', label: 'Partner: ${escapeHtml(p.name)}' }); navigateTo('ask-eko'); sendToEko('${p.id}', 'How is ${escapeHtml(p.name)} performing?');">
                     ${renderIcon('sparkles', 16)} Ask Eko About This Partner
                 </button>
             </div>

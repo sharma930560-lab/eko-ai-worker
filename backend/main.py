@@ -258,6 +258,39 @@ class AskEkoResponse(BaseModel):
     grounded: bool = True
     insufficient_data: bool = False
     missing_info: Optional[str] = None
+
+class TaskCreate(BaseModel):
+    title: str
+    due_date: Optional[str] = None
+    priority: Optional[str] = "medium"
+    customer_id: Optional[str] = None
+
+class TaskUpdate(BaseModel):
+    completed: Optional[bool] = None
+    title: Optional[str] = None
+    priority: Optional[str] = None
+    due_date: Optional[str] = None
+
+class TaskResponse(BaseModel):
+    id: str
+    title: str
+    due_date: Optional[str] = None
+    completed: bool
+    priority: str
+    customer_id: Optional[str] = None
+    created_at: Optional[datetime] = None
+    model_config = {"from_attributes": True}
+
+class NoteCreate(BaseModel):
+    content: str
+    customer_id: Optional[str] = None
+
+class NoteResponse(BaseModel):
+    id: str
+    content: str
+    customer_id: Optional[str] = None
+    created_at: Optional[datetime] = None
+    model_config = {"from_attributes": True}
     error: Optional[AIError] = None
 
 class CreditSimulationRequest(BaseModel):
@@ -346,6 +379,282 @@ def fmt_inr(n) -> str:
         rest = rest[:-2]
     if rest: parts.insert(0, rest)
     return f"₹{','.join(parts)},{last3}"
+
+# ─── Deterministic Sandbox / User Seeding ─────────────────────────────────────
+def ensure_user_seeded(user_id: str, db: Session):
+    """Seed comprehensive connected demo operations data for any fresh/demo user."""
+    if not user_id:
+        return
+
+    # Check if user already has data
+    existing_partners = db.query(models.Customer).filter(models.Customer.user_id == user_id).count()
+    if existing_partners > 0:
+        return
+
+    logger.info(f"Seeding connected operational environment for user: {user_id}")
+    now = datetime.now()
+
+    # 1. Connected Partners (Retailers / Agents / CSPs)
+    p_paras = models.Customer(
+        id=str(uuid.uuid4()), user_id=user_id,
+        name="Paras General Store & Banking Point",
+        phone="9811223344", email="paras.store@ekopartner.in",
+        business_type="Retail & CSP", kyc_status="verified",
+        amount_due=11200.0, notes="Top volume banking outlet. Handles DMT and AePS cash withdrawals daily.",
+        created_at=now - timedelta(days=45)
+    )
+    p_sharma = models.Customer(
+        id=str(uuid.uuid4()), user_id=user_id,
+        name="Sharma Telecom & Money Transfer",
+        phone="9876543210", email="sharma.telecom@ekopartner.in",
+        business_type="Telecom & Remittance", kyc_status="verified",
+        amount_due=14500.0, notes="High-volume DMT center near metro station. Fast settlement preferred.",
+        created_at=now - timedelta(days=60)
+    )
+    p_verma = models.Customer(
+        id=str(uuid.uuid4()), user_id=user_id,
+        name="Verma Communication Hub",
+        phone="9823456789", email="verma.hub@ekopartner.in",
+        business_type="Digital Services", kyc_status="verified",
+        amount_due=8200.0, notes="Primary BBPS bill collection and mobile recharge counter.",
+        created_at=now - timedelta(days=30)
+    )
+    p_gupta = models.Customer(
+        id=str(uuid.uuid4()), user_id=user_id,
+        name="Gupta Digital Services",
+        phone="9898989898", email="gupta.digital@ekopartner.in",
+        business_type="CSC & Utility", kyc_status="verified",
+        amount_due=5400.0, notes="Government services center & AePS mini-ATM point.",
+        created_at=now - timedelta(days=20)
+    )
+    p_patel = models.Customer(
+        id=str(uuid.uuid4()), user_id=user_id,
+        name="Patel Enterprise Banking",
+        phone="9765432109", email="patel.banking@ekopartner.in",
+        business_type="Enterprise Banking Point", kyc_status="verified",
+        amount_due=32000.0, notes="Commercial hub with high DMT transfers. Corporate settlement terms.",
+        created_at=now - timedelta(days=90)
+    )
+    p_rahul = models.Customer(
+        id=str(uuid.uuid4()), user_id=user_id,
+        name="Rahul Kumar",
+        phone="9988776655", email="rahul.k@ekopartner.in",
+        business_type="Kirana & CSP", kyc_status="pending",
+        amount_due=0.0, notes="Newly onboarded partner pending physical KYC document verification.",
+        created_at=now - timedelta(days=2)
+    )
+
+    all_partners = [p_paras, p_sharma, p_verma, p_gupta, p_patel, p_rahul]
+    for p in all_partners:
+        db.add(p)
+    db.commit()
+    for p in all_partners:
+        db.refresh(p)
+
+    # 2. Realistic Multi-Service Transactions
+    # TXN-DEMO-1001: Failed AePS cash withdrawal (linked to complaint and alert)
+    t_failed = models.ServiceActivity(
+        id="TXN-DEMO-1001", user_id=user_id,
+        customer_id=p_sharma.id, customer_name=p_sharma.name,
+        service_name="AePS", status="failed", amount=2500.0, commission=0.0,
+        reference_id="AEPS984729104",
+        failure_reason="Issuer bank switch timeout during biometric balance withdrawal.",
+        created_at=now - timedelta(hours=2)
+    )
+    # Additional realistic operational transactions
+    txns = [
+        t_failed,
+        models.ServiceActivity(
+            id=str(uuid.uuid4()), user_id=user_id,
+            customer_id=p_paras.id, customer_name=p_paras.name,
+            service_name="DMT", status="success", amount=5000.0, commission=22.5,
+            reference_id="DMT849201948",
+            created_at=now - timedelta(hours=1)
+        ),
+        models.ServiceActivity(
+            id=str(uuid.uuid4()), user_id=user_id,
+            customer_id=p_paras.id, customer_name=p_paras.name,
+            service_name="AePS", status="success", amount=2000.0, commission=8.0,
+            reference_id="AEPS849201882",
+            created_at=now - timedelta(hours=3)
+        ),
+        models.ServiceActivity(
+            id=str(uuid.uuid4()), user_id=user_id,
+            customer_id=p_verma.id, customer_name=p_verma.name,
+            service_name="BBPS", status="success", amount=1450.0, commission=5.0,
+            reference_id="BBPS849201773",
+            created_at=now - timedelta(hours=4)
+        ),
+        models.ServiceActivity(
+            id=str(uuid.uuid4()), user_id=user_id,
+            customer_id=p_verma.id, customer_name=p_verma.name,
+            service_name="Recharge", status="success", amount=299.0, commission=4.5,
+            reference_id="RCH849201664",
+            created_at=now - timedelta(hours=5)
+        ),
+        models.ServiceActivity(
+            id=str(uuid.uuid4()), user_id=user_id,
+            customer_id=p_patel.id, customer_name=p_patel.name,
+            service_name="DMT", status="pending", amount=10000.0, commission=45.0,
+            reference_id="DMT849201555",
+            failure_reason="Bank confirmation pending from beneficiary NEFT switch.",
+            created_at=now - timedelta(hours=6)
+        ),
+        models.ServiceActivity(
+            id=str(uuid.uuid4()), user_id=user_id,
+            customer_id=p_gupta.id, customer_name=p_gupta.name,
+            service_name="AePS", status="success", amount=3000.0, commission=12.0,
+            reference_id="AEPS849201446",
+            created_at=now - timedelta(hours=7)
+        ),
+        models.ServiceActivity(
+            id=str(uuid.uuid4()), user_id=user_id,
+            customer_id=p_sharma.id, customer_name=p_sharma.name,
+            service_name="DMT", status="success", amount=7500.0, commission=33.5,
+            reference_id="DMT849201337",
+            created_at=now - timedelta(hours=8)
+        ),
+        models.ServiceActivity(
+            id=str(uuid.uuid4()), user_id=user_id,
+            customer_id=p_gupta.id, customer_name=p_gupta.name,
+            service_name="BBPS", status="success", amount=3200.0, commission=10.0,
+            reference_id="BBPS849201228",
+            created_at=now - timedelta(days=1)
+        ),
+        models.ServiceActivity(
+            id=str(uuid.uuid4()), user_id=user_id,
+            customer_id=p_paras.id, customer_name=p_paras.name,
+            service_name="DMT", status="success", amount=4200.0, commission=18.0,
+            reference_id="DMT849201119",
+            created_at=now - timedelta(days=1)
+        ),
+    ]
+    for t in txns:
+        db.add(t)
+    db.commit()
+
+    # 3. Operational Complaints with realistic SLAs
+    c_urgent = models.Complaint(
+        id=str(uuid.uuid4()), user_id=user_id,
+        customer_id=p_sharma.id, transaction_id=t_failed.id,
+        subject="TXN-DEMO-1001 AePS Switch Timeout",
+        description="Biometric timeout on ₹2,500 withdrawal at Sharma Telecom. Customer account debited but cash dispenser did not dispense. Bank reversal escalation required.",
+        status="open", priority="urgent",
+        sla_deadline=now + timedelta(hours=3),
+        created_at=now - timedelta(hours=1)
+    )
+    c_high = models.Complaint(
+        id=str(uuid.uuid4()), user_id=user_id,
+        customer_id=p_patel.id, transaction_id=None,
+        subject="Commercial Settlement Delay — Patel Enterprise",
+        description="Pending settlement cycle reconciliation of ₹32,000 awaiting nodal account clearance confirmation.",
+        status="in_progress", priority="high",
+        sla_deadline=now + timedelta(hours=18),
+        created_at=now - timedelta(hours=6)
+    )
+    c_med = models.Complaint(
+        id=str(uuid.uuid4()), user_id=user_id,
+        customer_id=p_verma.id, transaction_id=None,
+        subject="BBPS Biller Reversal Verification",
+        description="Electricity bill payment of ₹1,450 for BSES Rajdhani processed, consumer requested physical receipt copy.",
+        status="acknowledged", priority="medium",
+        sla_deadline=now + timedelta(hours=36),
+        created_at=now - timedelta(hours=12)
+    )
+    complaints = [c_urgent, c_high, c_med]
+    for c in complaints:
+        db.add(c)
+    db.commit()
+
+    # 4. Operational Notifications (linked to entities)
+    notifs = [
+        models.OperationalNotification(
+            id=str(uuid.uuid4()), user_id=user_id,
+            title="Urgent: Failed AePS Transaction Alert",
+            message=f"₹2,500 AePS transaction failed for {p_sharma.name}. Switch timeout requires immediate escalation.",
+            category="alert", priority="urgent",
+            deep_link=f"/transactions/{t_failed.id}",
+            created_at=now - timedelta(hours=2)
+        ),
+        models.OperationalNotification(
+            id=str(uuid.uuid4()), user_id=user_id,
+            title="SLA Warning: 3h Remaining",
+            message=f"Complaint '{c_urgent.subject}' has only 3 hours left before SLA breach.",
+            category="complaint", priority="high",
+            deep_link=f"/complaints/{c_urgent.id}",
+            created_at=now - timedelta(hours=1)
+        ),
+        models.OperationalNotification(
+            id=str(uuid.uuid4()), user_id=user_id,
+            title="KYC Verification Pending",
+            message=f"{p_rahul.name} document submission awaiting operational field verification.",
+            category="reminder", priority="medium",
+            deep_link=f"/partners/{p_rahul.id}",
+            created_at=now - timedelta(hours=4)
+        ),
+    ]
+    for n in notifs:
+        db.add(n)
+
+    # 5. Connected Operational Tasks
+    tasks = [
+        models.Task(
+            id=str(uuid.uuid4()), user_id=user_id,
+            customer_id=p_sharma.id,
+            title="Follow up with bank desk on AePS TXN-DEMO-1001",
+            due_date=(now + timedelta(hours=2)).strftime("%Y-%m-%d"),
+            completed=False, priority="urgent",
+            created_at=now - timedelta(hours=1)
+        ),
+        models.Task(
+            id=str(uuid.uuid4()), user_id=user_id,
+            customer_id=p_rahul.id,
+            title="Complete on-site KYC verification for Rahul Kumar",
+            due_date=(now + timedelta(days=1)).strftime("%Y-%m-%d"),
+            completed=False, priority="high",
+            created_at=now - timedelta(hours=4)
+        ),
+        models.Task(
+            id=str(uuid.uuid4()), user_id=user_id,
+            customer_id=p_paras.id,
+            title="Audit daily float balance at Paras General Store",
+            due_date=(now + timedelta(days=2)).strftime("%Y-%m-%d"),
+            completed=True, priority="medium",
+            created_at=now - timedelta(days=1)
+        ),
+    ]
+    for tk in tasks:
+        db.add(tk)
+
+    # 6. Operational Field Notes
+    notes = [
+        models.Note(
+            id=str(uuid.uuid4()), user_id=user_id,
+            customer_id=p_sharma.id,
+            content="Sharma Telecom operator reported intermittent NPCI network latency around 2 PM today. Keep monitoring AePS success rates.",
+            created_at=now - timedelta(hours=2)
+        ),
+        models.Note(
+            id=str(uuid.uuid4()), user_id=user_id,
+            customer_id=p_paras.id,
+            content="Paras store owner requested higher daily DMT threshold (+₹50,000) ahead of upcoming festive season.",
+            created_at=now - timedelta(days=1)
+        ),
+    ]
+    for nt in notes:
+        db.add(nt)
+
+    # 7. Credit Score Assessments
+    for p in all_partners:
+        score_val, risk, conf, factors, recs = calculate_dynamic_score(db, user_id, p.id)
+        db.add(models.CreditScore(
+            id=str(uuid.uuid4()), user_id=user_id, customer_id=p.id,
+            customer_name=p.name, score=score_val or 75.0, risk_bracket=risk if score_val else "LOW",
+            factors=json.dumps(factors), recommendations=recs
+        ))
+
+    db.commit()
+    logger.info(f"Successfully initialized connected demo environment for user: {user_id}")
 
 # ─── Health & Readiness ───────────────────────────────────────────────────────
 @app.get("/api/health")
@@ -445,6 +754,7 @@ def google_login(payload: GoogleTokenRequest, db: Session = Depends(database.get
 # ─── Customer 360 ─────────────────────────────────────────────────────────────
 @app.get("/api/customers", response_model=List[CustomerResponse])
 def list_customers(user_id: str = Depends(verify_user_id), db: Session = Depends(database.get_db)):
+    ensure_user_seeded(user_id, db)
     return db.query(models.Customer).filter(models.Customer.user_id == user_id).all()
 
 @app.get("/api/customers/{cid}/timeline", response_model=List[TimelineEventResponse])
@@ -467,6 +777,7 @@ def create_customer(data: CustomerCreate, user_id: str = Depends(verify_user_id)
 # ─── Transaction Operations ───────────────────────────────────────────────────
 @app.get("/api/activity", response_model=List[ActivityResponse])
 def list_activity(user_id: str = Depends(verify_user_id), db: Session = Depends(database.get_db)):
+    ensure_user_seeded(user_id, db)
     return db.query(models.ServiceActivity).filter(models.ServiceActivity.user_id == user_id).order_by(desc(models.ServiceActivity.created_at)).all()
 
 @app.post("/api/activity", response_model=ActivityResponse)
@@ -479,6 +790,58 @@ def create_activity(data: ActivityCreate, user_id: str = Depends(verify_user_id)
     if data.customer_id:
         add_timeline_event(db, user_id, data.customer_id, "txn", f"{data.service_name} Transaction", f"Amount: {fmt_inr(data.amount)} - Status: {data.status}", aid)
     return act
+
+@app.get("/api/activity/{aid}")
+@app.get("/api/transactions/{aid}")
+def get_activity_detail(aid: str, user_id: str = Depends(verify_user_id), db: Session = Depends(database.get_db)):
+    ensure_user_seeded(user_id, db)
+    act = db.query(models.ServiceActivity).filter(
+        models.ServiceActivity.id == aid,
+        models.ServiceActivity.user_id == user_id
+    ).first()
+    if not act:
+        raise HTTPException(status_code=404, detail="Transaction not found.")
+
+    partner = None
+    if act.customer_id:
+        cust = db.query(models.Customer).filter(models.Customer.id == act.customer_id).first()
+        if cust:
+            partner = {
+                "id": cust.id,
+                "name": cust.name,
+                "phone": cust.phone,
+                "business_type": cust.business_type,
+                "kyc_status": cust.kyc_status
+            }
+
+    complaints = db.query(models.Complaint).filter(
+        models.Complaint.transaction_id == aid,
+        models.Complaint.user_id == user_id
+    ).all()
+
+    return {
+        "id": act.id,
+        "service_name": act.service_name,
+        "amount": act.amount,
+        "commission": act.commission,
+        "status": act.status,
+        "reference_id": act.reference_id,
+        "failure_reason": act.failure_reason,
+        "customer_id": act.customer_id,
+        "customer_name": act.customer_name,
+        "created_at": act.created_at.isoformat() if act.created_at else None,
+        "partner": partner,
+        "complaints": [
+            {
+                "id": c.id,
+                "subject": c.subject,
+                "status": c.status,
+                "priority": c.priority,
+                "created_at": c.created_at.isoformat() if c.created_at else None
+            }
+            for c in complaints
+        ]
+    }
 
 # ─── Grievance & SLA Tracking ──────────────────────────────────────────────────
 @app.post("/api/complaints", response_model=ComplaintResponse)
@@ -512,6 +875,7 @@ def create_complaint(data: ComplaintCreate, user_id: str = Depends(verify_user_i
 @app.get("/api/complaints")
 def list_complaints(user_id: str = Depends(verify_user_id), db: Session = Depends(database.get_db)):
     """List complaints with calculated SLA remaining time and customer context."""
+    ensure_user_seeded(user_id, db)
     complaints = db.query(models.Complaint).filter(models.Complaint.user_id == user_id).order_by(desc(models.Complaint.created_at)).all()
     results = []
     for c in complaints:
@@ -626,6 +990,7 @@ def recalculate_eko_score(cid: str, user_id: str = Depends(verify_user_id), db: 
 # ─── Operational Dashboard Metrics ────────────────────────────────────────────
 @app.get("/api/ops/dashboard")
 def get_ops_dashboard(user_id: str = Depends(verify_user_id), db: Session = Depends(database.get_db)):
+    ensure_user_seeded(user_id, db)
     today_start = datetime.combine(date.today(), datetime.min.time())
 
     activity = db.query(models.ServiceActivity).filter(
@@ -715,6 +1080,7 @@ def simulate_credit_score(body: CreditSimulationRequest, user_id: str = Depends(
 @app.post("/api/ai/ask", response_model=AskEkoResponse)
 async def ask_eko(body: AskEkoRequest, user_id: str = Depends(verify_user_id), db: Session = Depends(database.get_db)):
     """Deep contextual assistant with multi-stage historical retrieval and provider independence."""
+    ensure_user_seeded(user_id, db)
     context_lines = [f"Today's Date: {date.today()}"]
 
     customer = None
@@ -905,6 +1271,7 @@ async def ask_eko(body: AskEkoRequest, user_id: str = Depends(verify_user_id), d
 @app.get("/api/complaints/{cid}")
 def get_complaint_detail(cid: str, user_id: str = Depends(verify_user_id), db: Session = Depends(database.get_db)):
     """Full complaint detail with linked transaction and customer info."""
+    ensure_user_seeded(user_id, db)
     c = db.query(models.Complaint).filter(
         models.Complaint.id == cid,
         models.Complaint.user_id == user_id
@@ -992,6 +1359,7 @@ def create_partner(data: CustomerCreate, user_id: str = Depends(verify_user_id),
 @app.get("/api/partners")
 def list_partners(user_id: str = Depends(verify_user_id), db: Session = Depends(database.get_db)):
     """Partners list with aggregated transaction stats."""
+    ensure_user_seeded(user_id, db)
     customers = db.query(models.Customer).filter(models.Customer.user_id == user_id).all()
     results = []
     for cust in customers:
@@ -1032,6 +1400,7 @@ def list_partners(user_id: str = Depends(verify_user_id), db: Session = Depends(
 @app.get("/api/partners/{pid}")
 def get_partner_detail(pid: str, user_id: str = Depends(verify_user_id), db: Session = Depends(database.get_db)):
     """Single partner detail with full transaction and complaint history."""
+    ensure_user_seeded(user_id, db)
     cust = db.query(models.Customer).filter(
         models.Customer.id == pid,
         models.Customer.user_id == user_id
@@ -1290,6 +1659,7 @@ def initiate_recharge(data: RechargeRequest, user_id: str = Depends(verify_user_
 @app.get("/api/search")
 def global_search(q: str, user_id: str = Depends(verify_user_id), db: Session = Depends(database.get_db)):
     """Cross-module search: transactions, complaints, partners."""
+    ensure_user_seeded(user_id, db)
     if not q or len(q.strip()) < 2:
         return {"transactions": [], "complaints": [], "partners": []}
 
@@ -1350,6 +1720,7 @@ def global_search(q: str, user_id: str = Depends(verify_user_id), db: Session = 
 @app.get("/api/ai/brief")
 def get_daily_brief(user_id: str = Depends(verify_user_id), db: Session = Depends(database.get_db)):
     """Real operational brief from actual data."""
+    ensure_user_seeded(user_id, db)
     today_start = datetime.combine(date.today(), datetime.min.time())
 
     txns_today = db.query(models.ServiceActivity).filter(
@@ -1423,6 +1794,7 @@ def get_daily_brief(user_id: str = Depends(verify_user_id), db: Session = Depend
 # ─── Notifications Engine ─────────────────────────────────────────────────────
 @app.get("/api/notifications")
 def list_notifications(user_id: str = Depends(verify_user_id), db: Session = Depends(database.get_db)):
+    ensure_user_seeded(user_id, db)
     notifs = db.query(models.OperationalNotification).filter(
         models.OperationalNotification.user_id == user_id,
         models.OperationalNotification.is_read == False
@@ -1502,5 +1874,75 @@ def generate_message(data: GenerateMessageRequest, user_id: str = Depends(verify
         "message": msg,
         "recipient": cust_name
     }
+
+
+# ─── Operational Tasks & Notes Endpoints ──────────────────────────────────────
+@app.get("/api/tasks", response_model=List[TaskResponse])
+def list_tasks(user_id: str = Depends(verify_user_id), db: Session = Depends(database.get_db)):
+    ensure_user_seeded(user_id, db)
+    return db.query(models.Task).filter(models.Task.user_id == user_id).order_by(desc(models.Task.created_at)).all()
+
+@app.post("/api/tasks", response_model=TaskResponse)
+def create_task(data: TaskCreate, user_id: str = Depends(verify_user_id), db: Session = Depends(database.get_db)):
+    tid = str(uuid.uuid4())
+    t = models.Task(
+        id=tid,
+        user_id=user_id,
+        title=data.title,
+        due_date=data.due_date,
+        priority=data.priority or "medium",
+        customer_id=data.customer_id,
+        completed=False
+    )
+    db.add(t)
+    db.commit()
+    db.refresh(t)
+    return t
+
+@app.patch("/api/tasks/{tid}", response_model=TaskResponse)
+def update_task(tid: str, data: TaskUpdate, user_id: str = Depends(verify_user_id), db: Session = Depends(database.get_db)):
+    t = db.query(models.Task).filter(models.Task.id == tid, models.Task.user_id == user_id).first()
+    if not t:
+        raise HTTPException(status_code=404, detail="Task not found.")
+    if data.completed is not None:
+        t.completed = data.completed
+    if data.title is not None:
+        t.title = data.title
+    if data.priority is not None:
+        t.priority = data.priority
+    if data.due_date is not None:
+        t.due_date = data.due_date
+    db.commit()
+    db.refresh(t)
+    return t
+
+@app.get("/api/notes", response_model=List[NoteResponse])
+def list_notes(user_id: str = Depends(verify_user_id), db: Session = Depends(database.get_db)):
+    ensure_user_seeded(user_id, db)
+    return db.query(models.Note).filter(models.Note.user_id == user_id).order_by(desc(models.Note.created_at)).all()
+
+@app.post("/api/notes", response_model=NoteResponse)
+def create_note(data: NoteCreate, user_id: str = Depends(verify_user_id), db: Session = Depends(database.get_db)):
+    nid = str(uuid.uuid4())
+    n = models.Note(
+        id=nid,
+        user_id=user_id,
+        customer_id=data.customer_id,
+        content=data.content
+    )
+    db.add(n)
+    db.commit()
+    db.refresh(n)
+    return n
+
+@app.delete("/api/notes/{nid}")
+def delete_note(nid: str, user_id: str = Depends(verify_user_id), db: Session = Depends(database.get_db)):
+    n = db.query(models.Note).filter(models.Note.id == nid, models.Note.user_id == user_id).first()
+    if not n:
+        raise HTTPException(status_code=404, detail="Note not found.")
+    db.delete(n)
+    db.commit()
+    return {"status": "ok", "deleted_id": nid}
+
 
 

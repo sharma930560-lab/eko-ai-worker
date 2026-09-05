@@ -77,6 +77,17 @@
                     </button>
                 </div>
 
+                <div style="width:100%; margin: 8px 0 12px; display:flex; align-items:center; gap:8px;">
+                    <div style="flex:1; height:1px; background:var(--border);"></div>
+                    <span style="font-size:0.75rem; color:var(--text-light); text-transform:uppercase; letter-spacing:0.5px;">or</span>
+                    <div style="flex:1; height:1px; background:var(--border);"></div>
+                </div>
+
+                <button class="btn-ghost" id="demo-mode-btn" onclick="startDemoMode()" style="width:100%; padding:10px 14px; border:1px solid var(--border); border-radius:8px; display:flex; align-items:center; justify-content:center; gap:8px; font-weight:600; color:var(--text-main); background:var(--card-bg);" aria-label="Explore Demo Mode">
+                    <i data-lucide="play-circle" style="width:16px; height:16px; color:var(--primary);"></i>
+                    <span>Explore Demo Mode (Sandbox)</span>
+                </button>
+
                 <div id="auth-error" class="auth-error hidden"></div>
 
                 <p class="login-legal" style="margin-top:16px; font-size:0.78rem; color:var(--text-light)">
@@ -388,6 +399,88 @@
     </div>
 </div>
 
+<!-- ── Hoisted Create Complaint Modal ──────────────────────────────────────── -->
+<div id="create-complaint-modal" class="modal-overlay hidden">
+    <div class="modal-card">
+        <div class="modal-header">
+            <h2 id="create-comp-modal-title">File Operational Complaint</h2>
+            <button class="modal-close" onclick="closeModal('create-complaint-modal')" aria-label="Close"><i data-lucide="x" style="width:16px;height:16px;"></i></button>
+        </div>
+        <div class="modal-body">
+            <form id="create-complaint-form" onsubmit="submitCreateComplaint(event)">
+                <input type="hidden" id="comp-txn-id" name="transaction_id">
+                <input type="hidden" id="comp-cust-id" name="customer_id">
+                
+                <div id="comp-context-banner" class="card mb-3 hidden" style="padding:10px 14px; background:var(--primary-light); border-color:var(--primary-subtle);">
+                    <div class="text-xs text-primary font-bold">LINKED CONTEXT</div>
+                    <div class="text-xs text-main mt-1" id="comp-context-text"></div>
+                </div>
+
+                <div class="form-group">
+                    <label class="form-label">Subject / Issue Title *</label>
+                    <input id="comp-subject" name="subject" class="form-input" placeholder="e.g. DMT payout failed but bank debited" required>
+                </div>
+
+                <div class="form-group">
+                    <label class="form-label">Issue Details &amp; Observation</label>
+                    <textarea id="comp-description" name="description" class="form-input" rows="3" placeholder="Describe what happened, any bank error codes, or customer statement..."></textarea>
+                </div>
+
+                <div class="form-group">
+                    <label class="form-label">Priority Level</label>
+                    <select id="comp-priority" name="priority" class="form-input">
+                        <option value="medium">Medium (48h SLA)</option>
+                        <option value="high" selected>High (24h SLA)</option>
+                        <option value="urgent">Urgent (4h SLA)</option>
+                    </select>
+                </div>
+
+                <div class="modal-footer" style="padding:16px 0 0; border-top:1px solid var(--border); margin-top:20px;">
+                    <button type="button" class="btn-ghost" onclick="closeModal('create-complaint-modal')">Cancel</button>
+                    <button type="submit" class="btn-primary" id="btn-save-comp">Submit Complaint</button>
+                </div>
+            </form>
+        </div>
+    </div>
+</div>
+
+<!-- ── Hoisted Add Partner Modal ───────────────────────────────────────────── -->
+<div id="add-partner-modal" class="modal-overlay hidden">
+    <div class="modal-card">
+        <div class="modal-header">
+            <h2>Register New Partner</h2>
+            <button class="modal-close" onclick="closeModal('add-partner-modal')" aria-label="Close"><i data-lucide="x" style="width:16px;height:16px;"></i></button>
+        </div>
+        <div class="modal-body">
+            <div class="form-group">
+                <label class="form-label">Full Legal Name *</label>
+                <input id="p-name" type="text" placeholder="e.g. Sharma Telecom" class="form-input" required>
+            </div>
+            <div class="form-group">
+                <label class="form-label">Contact Number *</label>
+                <input id="p-phone" type="tel" placeholder="e.g. 9876543210" class="form-input" required>
+            </div>
+            <div class="form-group">
+                <label class="form-label">Partner Category</label>
+                <select id="p-type" class="form-input">
+                    <option value="Retailer">Retailer / Agent</option>
+                    <option value="Merchant">Merchant</option>
+                    <option value="Enterprise">Enterprise Business</option>
+                    <option value="Individual">Individual Customer</option>
+                </select>
+            </div>
+            <div class="form-group">
+                <label class="form-label">Email (Optional)</label>
+                <input id="p-email" type="email" placeholder="e.g. contact@sharma.in" class="form-input">
+            </div>
+        </div>
+        <div class="modal-footer">
+            <button class="btn-ghost" onclick="closeModal('add-partner-modal')">Discard</button>
+            <button class="btn-primary" onclick="savePartner()">Save Partner</button>
+        </div>
+    </div>
+</div>
+
 <!-- ── Global Search Modal ──────────────────────────────────────────────────── -->
 <div id="global-search-modal" class="modal-overlay hidden">
     <div class="modal-card" style="max-width:540px;">
@@ -415,19 +508,19 @@
 <div id="global-toast" class="toast"></div>
 
 <!-- ── Scripts ───────────────────────────────────────────────────────────────── -->
-<script src="js/auth.js?v=19"></script>
-<script src="js/offline.js?v=19"></script>
-<script src="js/api.js?v=19"></script>
-<script src="js/screens/customers.js?v=19"></script>
-<script src="js/screens/partners.js?v=19"></script>
-<script src="js/screens/activity.js?v=19"></script>
-<script src="js/screens/services.js?v=19"></script>
-<script src="js/screens/tasks.js?v=19"></script>
-<script src="js/screens/notes.js?v=19"></script>
-<script src="js/screens/ask-eko.js?v=19"></script>
-<script src="js/screens/ai-tools.js?v=19"></script>
-<script src="js/screens/grievances.js?v=19"></script>
-<script src="js/app.js?v=19"></script>
+<script src="js/auth.js?v=20"></script>
+<script src="js/offline.js?v=20"></script>
+<script src="js/api.js?v=20"></script>
+<script src="js/screens/customers.js?v=20"></script>
+<script src="js/screens/partners.js?v=20"></script>
+<script src="js/screens/activity.js?v=20"></script>
+<script src="js/screens/services.js?v=20"></script>
+<script src="js/screens/tasks.js?v=20"></script>
+<script src="js/screens/notes.js?v=20"></script>
+<script src="js/screens/ask-eko.js?v=20"></script>
+<script src="js/screens/ai-tools.js?v=20"></script>
+<script src="js/screens/grievances.js?v=20"></script>
+<script src="js/app.js?v=20"></script>
 <script>
 // Initialise Lucide icons for the landing page (rendered before auth/app JS runs)
 document.addEventListener('DOMContentLoaded', function() {

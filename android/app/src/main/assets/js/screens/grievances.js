@@ -45,51 +45,6 @@ function renderGrievancesScreen() {
             <div class="loading-state"><div class="spinner"></div></div>
         </div>
     </div>
-
-    <!-- Create Complaint Modal -->
-    <div id="create-complaint-modal" class="modal-overlay hidden">
-        <div class="modal-card">
-            <div class="modal-header">
-                <h2 id="create-comp-modal-title">File Operational Complaint</h2>
-                <button class="modal-close" onclick="closeModal('create-complaint-modal')" aria-label="Close">${renderIcon('x', 16)}</button>
-            </div>
-            <div class="modal-body">
-                <form id="create-complaint-form" onsubmit="submitCreateComplaint(event)">
-                    <input type="hidden" id="comp-txn-id" name="transaction_id">
-                    <input type="hidden" id="comp-cust-id" name="customer_id">
-                    
-                    <div id="comp-context-banner" class="card mb-3 hidden" style="padding:10px 14px; background:var(--primary-light); border-color:var(--primary-subtle);">
-                        <div class="text-xs text-primary font-bold">LINKED CONTEXT</div>
-                        <div class="text-xs text-main mt-1" id="comp-context-text"></div>
-                    </div>
-
-                    <div class="form-group">
-                        <label class="form-label">Subject / Issue Title *</label>
-                        <input id="comp-subject" name="subject" class="form-input" placeholder="e.g. DMT payout failed but bank debited" required>
-                    </div>
-
-                    <div class="form-group">
-                        <label class="form-label">Issue Details &amp; Observation</label>
-                        <textarea id="comp-description" name="description" class="form-input" rows="3" placeholder="Describe what happened, any bank error codes, or customer statement..."></textarea>
-                    </div>
-
-                    <div class="form-group">
-                        <label class="form-label">Priority Level</label>
-                        <select id="comp-priority" name="priority" class="form-input">
-                            <option value="medium">Medium (48h SLA)</option>
-                            <option value="high" selected>High (24h SLA)</option>
-                            <option value="urgent">Urgent (4h SLA)</option>
-                        </select>
-                    </div>
-
-                    <div class="modal-footer" style="padding:16px 0 0; border-top:1px solid var(--border); margin-top:20px;">
-                        <button type="button" class="btn-ghost" onclick="closeModal('create-complaint-modal')">Cancel</button>
-                        <button type="submit" class="btn-primary" id="btn-save-comp">Submit Complaint</button>
-                    </div>
-                </form>
-            </div>
-        </div>
-    </div>
     `;
 }
 
@@ -271,9 +226,9 @@ async function showComplaintDetail(id) {
 
             <!-- Linked Customer -->
             ${c.customer ? `
-                <div class="card mb-4" style="padding:12px 14px; background:var(--bg); border:none;">
+                <div class="card mb-4" style="padding:12px 14px; background:var(--bg); border:none; cursor:pointer;" onclick="closeModal('customer-detail-modal'); if (typeof openPartnerProfile === 'function') openPartnerProfile('${c.customer.id}');">
                     <div class="text-xs font-bold text-muted">PARTNER / CUSTOMER</div>
-                    <div class="font-bold text-sm mt-1">${escapeHtml(c.customer.name)} (${escapeHtml(c.customer.phone || 'No phone')})</div>
+                    <div class="font-bold text-sm mt-1" style="color:var(--primary);">${escapeHtml(c.customer.name)} (${escapeHtml(c.customer.phone || 'No phone')}) ↗</div>
                 </div>
             ` : ''}
 

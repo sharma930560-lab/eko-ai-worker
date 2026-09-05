@@ -67,6 +67,27 @@ function closeModal(id) {
     if (el) el.classList.add('hidden');
 }
 
+function closeActiveModals() {
+    ['customer-detail-modal', 'create-complaint-modal', 'add-partner-modal', 'global-search-modal', 'service-flow-modal', 'app-guide-modal'].forEach(id => {
+        closeModal(id);
+    });
+    document.getElementById('notification-panel')?.classList.add('hidden');
+}
+
+function switchLanguage(lang) {
+    if (!lang) return;
+    appLanguage = lang;
+    ['lang-select-sidebar', 'lang-select-desktop', 'lang-select-mobile'].forEach(id => {
+        const el = document.getElementById(id);
+        if (el) el.value = lang;
+    });
+    if (currentUser) {
+        currentUser.language_preference = lang;
+        saveSession(currentUser);
+    }
+    showToast(`Language set to ${lang === 'hi' ? 'Hindi (हिंदी)' : lang === 'hinglish' ? 'Hinglish (India)' : 'English (US)'}`);
+}
+
 function initializeIcons() {
     if (window.lucide) lucide.createIcons();
 }
@@ -521,13 +542,13 @@ function showServiceResult(res, label) {
                     <div class="text-xs text-danger">${escapeHtml(res.failure_reason)}</div>
                     <div class="text-xs text-muted mt-2">Simulation test: To test resolution, create an operational complaint below.</div>
                 </div>
-                <button class="btn-secondary mt-3" onclick="closeModal('service-flow-modal'); navigateTo('grievances');">
+                <button class="btn-secondary mt-3" onclick="closeModal('service-flow-modal'); openCreateComplaintModal('${res.id}', '${res.customer_id || ''}', '${escapeHtml(res.customer_name || '')}');">
                     ${renderIcon('message-square-warning', 14)} File Operational Complaint
                 </button>
             ` : ''}
             ${isSuccess && res.commission ? `<div class="text-xs text-success mt-2">Partner Commission Credited: ₹${res.commission.toFixed(2)}</div>` : ''}
         </div>
-        <button class="btn-ghost" style="width:100%;" onclick="closeModal('service-flow-modal'); navigateTo('activity');">
+        <button class="btn-ghost" style="width:100%;" onclick="closeModal('service-flow-modal'); if (typeof showActivityDetail === 'function') { showActivityDetail('${res.id}'); } else { navigateTo('activity'); }">
             ${renderIcon('arrow-left-right', 14)} View in Transaction Center
         </button>
     `;
@@ -552,7 +573,7 @@ function renderHomeScreen() {
         </div>
 
         <div class="metrics-grid">
-            <div class="card stat-card" onclick="navigateTo('activity')" style="cursor:pointer;">
+            <div class="card stat-card" onclick="navigateTo('activity'); setTimeout(() => { if (typeof filterActivityTab === 'function') filterActivityTab('all'); }, 100);" style="cursor:pointer;">
                 <div style="display:flex; justify-content:space-between; align-items:center;">
                     <div class="metric-icon-wrap" style="background:var(--primary-subtle); color:var(--primary);">${renderIcon('activity', 20)}</div>
                     <span class="badge badge-success" style="font-size:0.6rem;">Today</span>
@@ -561,7 +582,7 @@ function renderHomeScreen() {
                 <div class="stat-value" id="stat-today-txn">--</div>
             </div>
 
-            <div class="card stat-card" onclick="navigateTo('activity')" style="cursor:pointer;">
+            <div class="card stat-card" onclick="navigateTo('activity'); setTimeout(() => { if (typeof filterActivityTab === 'function') filterActivityTab('success'); }, 100);" style="cursor:pointer;">
                 <div style="display:flex; justify-content:space-between; align-items:center;">
                     <div class="metric-icon-wrap" style="background:var(--success-bg); color:var(--success);">${renderIcon('wallet', 20)}</div>
                 </div>
@@ -569,7 +590,7 @@ function renderHomeScreen() {
                 <div class="stat-value" id="stat-success-rate">--</div>
             </div>
 
-            <div class="card stat-card" onclick="navigateTo('activity')" style="cursor:pointer;">
+            <div class="card stat-card" onclick="navigateTo('activity'); setTimeout(() => { if (typeof filterActivityTab === 'function') filterActivityTab('failed'); }, 100);" style="cursor:pointer;">
                 <div style="display:flex; justify-content:space-between; align-items:center;">
                     <div class="metric-icon-wrap" style="background:var(--danger-bg); color:var(--danger);">${renderIcon('alert-triangle', 20)}</div>
                 </div>
@@ -577,7 +598,7 @@ function renderHomeScreen() {
                 <div class="stat-value" id="stat-failed">--</div>
             </div>
 
-            <div class="card stat-card" onclick="navigateTo('grievances')" style="cursor:pointer;">
+            <div class="card stat-card" onclick="navigateTo('grievances'); setTimeout(() => { if (typeof filterComplaintTab === 'function') filterComplaintTab('pending'); }, 100);" style="cursor:pointer;">
                 <div style="display:flex; justify-content:space-between; align-items:center;">
                     <div class="metric-icon-wrap" style="background:var(--danger-bg); color:var(--danger);">${renderIcon('message-square-warning', 20)}</div>
                 </div>
@@ -754,5 +775,19 @@ function openAppGuide() {
 document.addEventListener('DOMContentLoaded', () => {
     window.addEventListener('online', () => { updateSyncIndicator('syncing'); navigateTo(currentScreen); });
     window.addEventListener('offline', () => updateSyncIndicator('offline'));
+
+    // Global Escape key and modal overlay backdrop click handler for zero dead UI
+    document.addEventListener('keydown', (e) => {
+        if (e.key === 'Escape') {
+            closeActiveModals();
+        }
+    });
+
+    document.addEventListener('click', (e) => {
+        if (e.target.classList && e.target.classList.contains('modal-overlay')) {
+            e.target.classList.add('hidden');
+        }
+    });
+
     initAuth();
 });

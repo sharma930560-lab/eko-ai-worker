@@ -85,7 +85,7 @@ function loadSession() {
     const raw = localStorage.getItem('eko_user');
     if (!raw) return null;
     const user = JSON.parse(raw);
-    if (!user || typeof user !== 'object' || !user.id || !user.email || user.id === 'demo' || user.isDemo) {
+    if (!user || typeof user !== 'object' || !user.id || !user.email) {
       localStorage.removeItem('eko_user');
       return null;
     }
@@ -105,6 +105,28 @@ function clearSession() {
   localStorage.removeItem('eko_user');
   currentUser = null;
   isDemoMode = false;
+}
+
+function startDemoMode() {
+  console.log('Auth: Starting connected operational demo mode');
+  const demoUser = {
+    id: 'demo-operator-01',
+    name: 'Demo Operations Manager',
+    email: 'demo@ekopartner.in',
+    picture: null,
+    business_name: 'Eko Operations Center — Sandbox',
+    business_type: 'Eko Authorized CSP & Retail Hub',
+    language_preference: 'en',
+    location_city: 'New Delhi',
+    onboarding_completed: true,
+    wallet_balance: 45000.0,
+    isDemo: true
+  };
+  currentUser = demoUser;
+  isDemoMode = true;
+  saveSession(demoUser);
+  hideLoginScreen();
+  enterApp(demoUser);
 }
 
 // ── Error Display ─────────────────────────────────────────────────────────────

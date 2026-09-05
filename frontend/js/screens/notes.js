@@ -46,5 +46,34 @@ async function loadNotes() {
             </div>
         `).join('');
         lucide.createIcons();
-    } catch (e) { list.innerHTML = `<p>Error.</p>`; }
+    } catch (e) { list.innerHTML = `<p>Error loading notes.</p>`; }
+}
+
+async function saveNote() {
+    const input = document.getElementById('new-note-input');
+    const content = input?.value.trim();
+    if (!content) {
+        showToast('Please enter note content', 'error');
+        return;
+    }
+
+    try {
+        await api.createNote({ content });
+        input.value = '';
+        showToast('Note saved successfully!', 'success');
+        loadNotes();
+    } catch (e) {
+        showToast('Failed to save note: ' + (e.message || 'Error'), 'error');
+    }
+}
+
+async function deleteNoteById(id) {
+    if (!confirm('Delete this operational note?')) return;
+    try {
+        await api.deleteNote(id);
+        showToast('Note deleted', 'success');
+        loadNotes();
+    } catch (e) {
+        showToast('Failed to delete note: ' + (e.message || 'Error'), 'error');
+    }
 }

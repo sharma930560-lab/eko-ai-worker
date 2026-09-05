@@ -50,3 +50,64 @@ async function loadTasks() {
         lucide.createIcons();
     } catch (e) { list.innerHTML = `<p>Error loading tasks.</p>`; }
 }
+
+async function toggleTask(id, completed) {
+    try {
+        await api.updateTask(id, { completed });
+        loadTasks();
+    } catch (e) {
+        showToast('Failed to update task: ' + (e.message || 'Error'), 'error');
+    }
+}
+
+function openAddTaskModal() {
+    const modal = document.getElementById('customer-detail-modal');
+    const title = document.getElementById('cd-modal-title');
+    const body = document.getElementById('cd-modal-body');
+    if (!modal || !title || !body) return;
+
+    title.textContent = 'Create Operational Task';
+    body.innerHTML = `
+        <form onsubmit="submitCreateTask(event)">
+            <div class="form-group mb-3">
+                <label class="form-label">Task Title *</label>
+                <input type="text" id="task-title-input" class="form-input" placeholder="e.g. Audit float balance at Sharma Telecom" required>
+            </div>
+            <div class="form-group mb-3">
+                <label class="form-label">Priority</label>
+                <select id="task-priority-input" class="form-input">
+                    <option value="medium">Medium</option>
+                    <option value="high">High</option>
+                    <option value="urgent">Urgent</option>
+                </select>
+            </div>
+            <div class="form-group mb-4">
+                <label class="form-label">Due Date</label>
+                <input type="date" id="task-duedate-input" class="form-input">
+            </div>
+            <div style="display:flex; justify-content:flex-end; gap:8px;">
+                <button type="button" class="btn-ghost" onclick="closeModal('customer-detail-modal')">Cancel</button>
+                <button type="submit" class="btn-primary">Save Task</button>
+            </div>
+        </form>
+    `;
+    modal.classList.remove('hidden');
+    if (window.lucide) lucide.createIcons();
+}
+
+async function submitCreateTask(e) {
+    e.preventDefault();
+    const title = document.getElementById('task-title-input')?.value.trim();
+    const priority = document.getElementById('task-priority-input')?.value;
+    const due_date = document.getElementById('task-duedate-input')?.value;
+    if (!title) return;
+
+    try {
+        await api.createTask({ title, priority, due_date: due_date || null });
+        closeModal('customer-detail-modal');
+        showToast('Task created successfully!', 'success');
+        loadTasks();
+    } catch (err) {
+        showToast('Failed to create task: ' + (err.message || 'Error'), 'error');
+    }
+}

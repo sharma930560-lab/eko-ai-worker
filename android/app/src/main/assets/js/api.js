@@ -70,6 +70,8 @@ const api = {
 
     // Transactions / Service Activity
     getActivity: () => apiRequest('GET', '/api/activity'),
+    getActivityDetail: (aid) => apiRequest('GET', `/api/activity/${aid}`),
+    getTransaction: (aid) => apiRequest('GET', `/api/activity/${aid}`),
     createActivity: (data) => apiRequest('POST', '/api/activity', data),
 
     // Service Flows (Sandbox)
@@ -97,15 +99,27 @@ const api = {
     simulateScore: (data) => apiRequest('POST', '/api/credit-score/simulate', data),
 
     // AI
-    askEko: (question, history = [], customer_id = null, transaction_id = null, complaint_id = null, page_context = null) =>
-        apiRequest('POST', '/api/ai/ask', { question, history, customer_id, transaction_id, complaint_id, page_context }),
+    askEko: (question, history = [], customer_id = null, transaction_id = null, complaint_id = null, page_context = null) => {
+        if (typeof question === 'object' && question !== null) {
+            return apiRequest('POST', '/api/ai/ask', question);
+        }
+        return apiRequest('POST', '/api/ai/ask', { question, history, customer_id, transaction_id, complaint_id, page_context });
+    },
+    askAi: (question, history = [], customer_id = null, transaction_id = null, complaint_id = null, page_context = null) => {
+        if (typeof question === 'object' && question !== null) {
+            return apiRequest('POST', '/api/ai/ask', question);
+        }
+        return apiRequest('POST', '/api/ai/ask', { question, history, customer_id, transaction_id, complaint_id, page_context });
+    },
     getDailyBrief: () => apiRequest('GET', '/api/ai/brief'),
 
     // Tasks & Notes
     getTasks: () => apiRequest('GET', '/api/tasks'),
     createTask: (data) => apiRequest('POST', '/api/tasks', data),
+    updateTask: (id, data) => apiRequest('PATCH', `/api/tasks/${id}`, data),
     getNotes: () => apiRequest('GET', '/api/notes'),
     createNote: (data) => apiRequest('POST', '/api/notes', data),
+    deleteNote: (id) => apiRequest('DELETE', `/api/notes/${id}`),
 
     // AI Tools
     scanBill: (data) => apiRequest('POST', '/api/ai/scan-bill', data),

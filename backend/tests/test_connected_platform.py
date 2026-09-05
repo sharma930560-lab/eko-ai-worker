@@ -2,7 +2,7 @@ import sys
 import os
 import json
 
-backend_dir = os.path.abspath(os.path.join(os.path.dirname(__file__), "..", "backend"))
+backend_dir = os.path.abspath(os.path.join(os.path.dirname(__file__), ".."))
 if backend_dir not in sys.path:
     sys.path.insert(0, backend_dir)
 
@@ -169,7 +169,8 @@ res = client.post("/api/ai/ask", json={
 }, headers=headers)
 assert res.status_code == 200
 ai_res = res.json()
-print("[PASS] 15. Ask Eko with Active Transaction Context:", ai_res["answer"][:120], "...")
+ai_ans = ai_res["answer"][:120].encode("ascii", "replace").decode("ascii")
+print("[PASS] 15. Ask Eko with Active Transaction Context:", ai_ans, "...")
 
 # 15. AI Utilities: Scan Bill, Voice Parse, Generate Message
 res = client.post("/api/ai/scan-bill", json={"image_base64": "mock_data"}, headers=headers)
@@ -190,11 +191,93 @@ res = client.patch(f"/api/complaints/{complaint_id}", json={"status": "resolved"
 assert res.status_code == 200
 print("[PASS] 17. Complaint Resolved successfully")
 
-# 17. Ops Dashboard re-check (complaint count should update)
+# 18. Tasks API (GET, POST, PATCH)
+res = client.get("/api/tasks", headers=headers)
+assert res.status_code == 200
+tasks = res.json()
+print(f"[PASS] 18. Tasks List: {len(tasks)} tasks found")
+
+res = client.post("/api/tasks", json={
+    "title": "Visit Sharma Telecom for biometric device check",
+    "due_date": "Today"
+}, headers=headers)
+assert res.status_code == 200
+new_task = res.json()
+task_id = new_task["id"]
+assert new_task["completed"] is False
+print(f"[PASS] 19. Task Created: {task_id}")
+
+res = client.patch(f"/api/tasks/{task_id}", json={"completed": True}, headers=headers)
+assert res.status_code == 200
+assert res.json()["completed"] is True
+print("[PASS] 20. Task Completed via PATCH")
+
+# 19. Notes API (GET, POST, DELETE)
+res = client.get("/api/notes", headers=headers)
+assert res.status_code == 200
+notes = res.json()
+print(f"[PASS] 21. Notes List: {len(notes)} notes found")
+
+res = client.post("/api/notes", json={
+    "title": "Sharma Telecom Route Memo",
+    "content": "Retailer needs updated marketing banner and new QR standee."
+}, headers=headers)
+assert res.status_code == 200
+new_note = res.json()
+note_id = new_note["id"]
+print(f"[PASS] 22. Note Created: {note_id}")
+
+res = client.delete(f"/api/notes/{note_id}", headers=headers)
+assert res.status_code == 200
+print("[PASS] 23. Note Deleted successfully")
+
+# 20. Direct Activity / Transaction Detail Endpoint
+res = client.get(f"/api/activity/{txn_id}", headers=headers)
+assert res.status_code == 200
+assert res.json()["id"] == txn_id
+
+res = client.get(f"/api/transactions/{txn_id}", headers=headers)
+assert res.status_code == 200
+assert res.json()["id"] == txn_id
+print("[PASS] 24. Direct /api/activity and /api/transactions verified")
+
+# 21. Demo Operator 01 Pre-seeded State
+demo_headers = {"X-User-Id": "demo-operator-01"}
+res = client.get("/api/partners", headers=demo_headers)
+assert res.status_code == 200
+demo_partners = res.json()
+assert len(demo_partners) >= 6
+paras_store = next((p for p in demo_partners if "Paras" in p["name"]), None)
+assert paras_store is not None, "Paras General Store must be seeded"
+print(f"[PASS] 25. Demo Operator Seeding: {len(demo_partners)} partners, found {paras_store['name']}")
+
+# 22. Grounded AI Operational Prompts - No Inventory / Retail Items
+ai_prompts = [
+    "Who is Paras General Store?",
+    "Why did transaction TXN-DEMO-1001 fail?",
+    "Show me today's urgent complaints",
+    "Which partners have pending payments?",
+    "What is today's operations brief?",
+    "Tell me about operator Rahul Kumar",
+    "Help me with AePS timeout"
+]
+
+for prompt in ai_prompts:
+    res = client.post("/api/ai/ask", json={"question": prompt}, headers=demo_headers)
+    assert res.status_code == 200
+    ans = res.json()["answer"].lower()
+    # Ensure no stock/inventory/retail items are returned
+    forbidden = ["in stock", "out of stock", "inventory count", "shelf life", "grocery item", "sku-", "warehouse aisle"]
+    for word in forbidden:
+        assert word not in ans, f"Forbidden inventory term '{word}' found in response to: {prompt}"
+print(f"[PASS] 26. Grounded AI: All {len(ai_prompts)} operational prompts answered cleanly with zero inventory/stock hallucinations")
+
+# 23. Ops Dashboard re-check (complaint count should update)
 res = client.get("/api/ops/dashboard", headers=headers)
 assert res.status_code == 200
 updated_dash = res.json()
-print("[PASS] 18. Ops Dashboard after updates:", updated_dash)
+print("[PASS] 27. Ops Dashboard after updates:", updated_dash)
 
-print("\nSUCCESS: ALL 18 CONNECTED PLATFORM WORKFLOWS PASSED EMPIRICALLY!")
+print("\nSUCCESS: ALL 27 CONNECTED PLATFORM & GROUNDED AI QA WORKFLOWS PASSED EMPIRICALLY!")
+
 

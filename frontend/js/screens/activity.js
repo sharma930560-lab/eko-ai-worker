@@ -159,8 +159,16 @@ function getServiceIcon(service) {
     return renderIcon('arrow-left-right', 18);
 }
 
-function showActivityDetail(id) {
-    const record = activityRecords.find(r => r.id === id);
+async function showActivityDetail(id) {
+    let record = activityRecords.find(r => r.id === id);
+    if (!record) {
+        try {
+            record = await api.getTransaction(id);
+        } catch(e) {
+            console.error('Could not fetch transaction detail:', e);
+            return;
+        }
+    }
     if (!record) return;
 
     const modal = document.getElementById('customer-detail-modal');
@@ -191,8 +199,10 @@ function showActivityDetail(id) {
                 <div class="font-bold text-sm text-success mt-1">₹${(record.commission || 0).toFixed(2)}</div>
             </div>
             <div>
-                <label class="text-xs text-muted font-bold">Customer / Agent</label>
-                <div class="font-semibold text-sm mt-1">${escapeHtml(record.customer_name || 'N/A')}</div>
+                <label class="text-xs text-muted font-bold">Customer / Partner</label>
+                <div class="font-semibold text-sm mt-1" ${record.customer_id ? `style="color:var(--primary); cursor:pointer;" onclick="closeModal('customer-detail-modal'); if (typeof openPartnerProfile === 'function') openPartnerProfile('${record.customer_id}');"` : ''}>
+                    ${escapeHtml(record.customer_name || 'N/A')} ${record.customer_id ? '↗' : ''}
+                </div>
             </div>
             <div>
                 <label class="text-xs text-muted font-bold">Date & Time</label>
