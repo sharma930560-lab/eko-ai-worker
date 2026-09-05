@@ -21,9 +21,6 @@ function getEkoApiBase() {
   } catch (e) {}
 
   if (typeof AndroidBridge !== 'undefined') {
-    if (typeof AndroidBridge.isDebug === 'function' && AndroidBridge.isDebug()) {
-      return 'http://10.0.2.2:8000';
-    }
     if (typeof AndroidBridge.getProductionApiBase === 'function') {
       return AndroidBridge.getProductionApiBase();
     }
@@ -37,7 +34,7 @@ function getEkoApiBase() {
     return 'https://eko-field-worker-api.onrender.com';
   }
 
-  return 'http://localhost:8000';
+  return 'https://eko-field-worker-api.onrender.com';
 }
 
 try {
@@ -156,7 +153,7 @@ async function handleCredentialResponse(response) {
   // We skip the offline check and let the fetch fail naturally with a network error if truly offline.
   console.log('Auth: [WEBVIEW AUTH CALLBACK] navigator.onLine =', navigator.onLine, '(skipping offline guard — unreliable in WebView)');
 
-  const apiBase = window.EKO_API_BASE || 'http://10.0.2.2:8000';
+  const apiBase = window.EKO_API_BASE || 'https://eko-field-worker-api.onrender.com';
   const authUrl = `${apiBase}/api/auth/google`;
   console.log('Auth: [POST /api/auth/google] Sending request to:', authUrl);
 

@@ -14,13 +14,14 @@ from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
 from pydantic import BaseModel, Field
 from sqlalchemy.orm import Session
-from sqlalchemy import desc, and_, or_, text
+from sqlalchemy import desc, and_, or_, text, inspect
 from dotenv import load_dotenv
 from google.oauth2 import id_token
 from google.auth.transport import requests as google_requests
 
 import database
 import models
+from ai_provider import get_ai_provider, LocalDeterministicProvider
 
 # ─── Setup ────────────────────────────────────────────────────────────────────
 load_dotenv()
@@ -33,8 +34,8 @@ GEMINI_MODEL = os.getenv("GEMINI_MODEL", "gemini-1.5-flash")
 ENVIRONMENT = os.getenv("ENVIRONMENT", "development")
 
 app = FastAPI(
-    title="Eko AI Operations API",
-    version="2.0.0",
+    title="Eko Partner Operations API",
+    version="1.2.0",
     description="Intelligent fintech operations assistant for Eko partners.",
 )
 
@@ -43,26 +44,28 @@ models.Base.metadata.create_all(bind=database.engine)
 def run_migrations():
     """Ensure newly added columns exist in existing SQLite/PostgreSQL tables."""
     try:
+        inspector = inspect(database.engine)
+        table_names = inspector.get_table_names()
         with database.engine.connect() as conn:
             # Check users table
-            res = conn.execute(text("PRAGMA table_info(users)")).fetchall()
-            user_cols = {row[1] for row in res}
-            if user_cols and "wallet_balance" not in user_cols:
-                logger.info("Migrating DB: Adding wallet_balance column to users table")
-                conn.execute(text("ALTER TABLE users ADD COLUMN wallet_balance FLOAT DEFAULT 0.0"))
-                conn.commit()
+            if "users" in table_names:
+                user_cols = {col["name"] for col in inspector.get_columns("users")}
+                if "wallet_balance" not in user_cols:
+                    logger.info("Migrating DB: Adding wallet_balance column to users table")
+                    conn.execute(text("ALTER TABLE users ADD COLUMN wallet_balance FLOAT DEFAULT 0.0"))
+                    conn.commit()
 
             # Check customers table
-            res = conn.execute(text("PRAGMA table_info(customers)")).fetchall()
-            cust_cols = {row[1] for row in res}
-            if cust_cols and "email" not in cust_cols:
-                logger.info("Migrating DB: Adding email column to customers table")
-                conn.execute(text("ALTER TABLE customers ADD COLUMN email VARCHAR"))
-                conn.commit()
-            if cust_cols and "kyc_status" not in cust_cols:
-                logger.info("Migrating DB: Adding kyc_status column to customers table")
-                conn.execute(text("ALTER TABLE customers ADD COLUMN kyc_status VARCHAR DEFAULT 'pending'"))
-                conn.commit()
+            if "customers" in table_names:
+                cust_cols = {col["name"] for col in inspector.get_columns("customers")}
+                if "email" not in cust_cols:
+                    logger.info("Migrating DB: Adding email column to customers table")
+                    conn.execute(text("ALTER TABLE customers ADD COLUMN email VARCHAR"))
+                    conn.commit()
+                if "kyc_status" not in cust_cols:
+                    logger.info("Migrating DB: Adding kyc_status column to customers table")
+                    conn.execute(text("ALTER TABLE customers ADD COLUMN kyc_status VARCHAR DEFAULT 'pending'"))
+                    conn.commit()
     except Exception as e:
         logger.warning("Auto-migration notice: %s", e)
 
@@ -214,14 +217,25 @@ class Recommendation(BaseModel):
     text: str
     reason: str
 
+class AIError(BaseModel):
+    code: str
+    message: str
+    retryable: bool = True
+
 class AskEkoResponse(BaseModel):
+    success: bool = True
     answer: str
     facts: List[Fact] = []
     inferences: List[Inference] = []
     recommendations: List[Recommendation] = []
+    actions: List[Dict[str, Any]] = []
+    sources: List[str] = []
+    confidence: float = 1.0
+    data_mode: str = "online"
     grounded: bool = True
     insufficient_data: bool = False
     missing_info: Optional[str] = None
+    error: Optional[AIError] = None
 
 class CreditSimulationRequest(BaseModel):
     customer_id: str
@@ -310,10 +324,29 @@ def fmt_inr(n) -> str:
     if rest: parts.insert(0, rest)
     return f"₹{','.join(parts)},{last3}"
 
-# ─── Health ───────────────────────────────────────────────────────────────────
+# ─── Health & Readiness ───────────────────────────────────────────────────────
 @app.get("/api/health")
 def health():
-    return {"status": "ok", "version": "2.0.0", "ai_ready": bool(GEMINI_API_KEY)}
+    db_ok = database.check_db_connection()
+    ai_ok = bool(GEMINI_API_KEY or os.getenv("OPENAI_API_KEY"))
+    return {
+        "status": "ok" if db_ok else "degraded",
+        "service": "Eko Partner Operations API",
+        "version": "1.2.0",
+        "environment": ENVIRONMENT,
+        "ai_configured": ai_ok,
+        "ai_provider": os.getenv("AI_PROVIDER", "gemini" if GEMINI_API_KEY else "local"),
+        "ai_model": GEMINI_MODEL,
+        "auth_configured": bool(GOOGLE_CLIENT_ID),
+        "database": "connected" if db_ok else "disconnected",
+    }
+
+@app.get("/api/ready")
+def ready():
+    db_ok = database.check_db_connection()
+    if not db_ok:
+        raise HTTPException(status_code=503, detail="Database not ready")
+    return {"status": "ready", "version": "1.2.0"}
 
 # ─── Auth ─────────────────────────────────────────────────────────────────────
 @app.post("/api/auth/google", response_model=UserResponse)
@@ -633,68 +666,156 @@ def simulate_credit_score(body: CreditSimulationRequest, user_id: str = Depends(
 # ─── Ask Eko AI Core (Refined for Historical Retrieval & Structured Output) ──
 @app.post("/api/ai/ask", response_model=AskEkoResponse)
 async def ask_eko(body: AskEkoRequest, user_id: str = Depends(verify_user_id), db: Session = Depends(database.get_db)):
-    """Deep contextual assistant with multi-stage historical retrieval."""
+    """Deep contextual assistant with multi-stage historical retrieval and provider independence."""
     context_lines = [f"Today's Date: {date.today()}"]
 
+    customer = None
     if body.customer_id:
-        customer = db.query(models.Customer).filter(models.Customer.id == body.customer_id).first()
-        if customer:
-            context_lines.append(f"Subject Customer: {customer.name} (KYC: {customer.kyc_status})")
+        customer = db.query(models.Customer).filter(
+            models.Customer.id == body.customer_id,
+            models.Customer.user_id == user_id
+        ).first()
 
-            # Smart retrieval: if dates provided or question mentions history
-            query = db.query(models.TimelineEvent).filter(models.TimelineEvent.customer_id == body.customer_id)
+    if not customer and body.question:
+        all_custs = db.query(models.Customer).filter(models.Customer.user_id == user_id).all()
+        q_lower = body.question.lower()
+        for c in all_custs:
+            if c.name and c.name.lower() in q_lower:
+                customer = c
+                break
 
-            if body.date_from:
-                query = query.filter(models.TimelineEvent.created_at >= body.date_from)
-            if body.date_to:
-                query = query.filter(models.TimelineEvent.created_at <= body.date_to)
+    if customer:
+        context_lines.append(f"Subject Customer Profile: Name={customer.name}, Phone={customer.phone or 'N/A'}, KYC Status={customer.kyc_status}, Business Type={customer.business_type or 'General'}, Amount Due={fmt_inr(customer.amount_due)}")
+        if customer.notes:
+            context_lines.append(f"Customer Notes: {customer.notes}")
 
-            # If no dates but keywords suggest history, fetch more
-            hist_keywords = ["history", "last year", "old", "previous", "was", "happened"]
-            limit = 50 if any(k in body.question.lower() for k in hist_keywords) else 15
+        # Credit Score and factors
+        score_record = db.query(models.CreditScore).filter(
+            models.CreditScore.customer_id == customer.id
+        ).order_by(desc(models.CreditScore.created_at)).first()
+        if score_record:
+            context_lines.append(f"Customer Credit Assessment: Score={score_record.score}/100, Risk Bracket={score_record.risk_bracket}, Confidence={score_record.confidence}")
+            if score_record.factors:
+                context_lines.append(f"Assessment Risk Factors: {score_record.factors}")
+            if score_record.recommendations:
+                context_lines.append(f"Assessment Recommendations: {score_record.recommendations}")
 
-            timeline = query.order_by(desc(models.TimelineEvent.created_at)).limit(limit).all()
+        # Credit Score History
+        score_history = db.query(models.CreditScoreHistory).filter(
+            models.CreditScoreHistory.customer_id == customer.id
+        ).order_by(desc(models.CreditScoreHistory.created_at)).limit(5).all()
+        if score_history:
+            context_lines.append("Assessment History Changes:")
+            for sh in score_history:
+                context_lines.append(f"- {sh.created_at.date()}: Old={sh.old_score}, New={sh.new_score}, Reason: {sh.change_reason}")
 
-            if timeline:
-                context_lines.append(f"Retrieved {len(timeline)} timeline events for context:")
-                for e in timeline:
-                    context_lines.append(f"- {e.created_at.date()} | {e.event_type.upper()} | {e.title}: {e.description}")
-            else:
-                context_lines.append("No relevant historical events found for the specified period.")
+        # Timeline events
+        query = db.query(models.TimelineEvent).filter(models.TimelineEvent.customer_id == customer.id)
+        if body.date_from:
+            query = query.filter(models.TimelineEvent.created_at >= body.date_from)
+        if body.date_to:
+            query = query.filter(models.TimelineEvent.created_at <= body.date_to)
+
+        hist_keywords = ["history", "last year", "old", "previous", "was", "happened"]
+        limit = 50 if any(k in body.question.lower() for k in hist_keywords) else 15
+        timeline = query.order_by(desc(models.TimelineEvent.created_at)).limit(limit).all()
+
+        if timeline:
+            context_lines.append(f"Retrieved {len(timeline)} timeline events for {customer.name}:")
+            for e in timeline:
+                context_lines.append(f"- {e.created_at.date()} | {e.event_type.upper()} | {e.title}: {e.description}")
+        else:
+            context_lines.append(f"No timeline events recorded yet for {customer.name}.")
+
+        # Complaints / Grievances
+        complaints = db.query(models.Complaint).filter(models.Complaint.customer_id == customer.id).all()
+        if complaints:
+            context_lines.append(f"Customer Grievances/Complaints ({len(complaints)}):")
+            for comp in complaints:
+                context_lines.append(f"- Status: {comp.status.upper()} | Priority: {comp.priority} | Subject: {comp.subject} | {comp.description}")
+
+        # Recent transactions for customer
+        txns = db.query(models.ServiceActivity).filter(
+            or_(models.ServiceActivity.customer_id == customer.id, models.ServiceActivity.customer_name == customer.name)
+        ).order_by(desc(models.ServiceActivity.created_at)).limit(10).all()
+        if txns:
+            context_lines.append(f"Recent Transactions for {customer.name}:")
+            for t in txns:
+                reason = f" (Failure Reason: {t.failure_reason})" if t.failure_reason else ""
+                context_lines.append(f"- {t.created_at.date()} | {t.service_name} | {fmt_inr(t.amount)} | Status: {t.status.upper()}{reason}")
+    else:
+        # Check if query specifically mentioned a name
+        import re
+        name_match = re.search(r'\b([A-Z][a-z]+)\b', body.question)
+        if name_match:
+            potential_name = name_match.group(1)
+            context_lines.append(f"Information Notice: The query mentions '{potential_name}', but no customer record exists for '{potential_name}' in the verified database.")
 
     # General Operational Summary
     dashboard = get_ops_dashboard(user_id, db)
-    context_lines.append(f"Business Summary: {dashboard['today_transactions']} txns today, Volume {fmt_inr(dashboard['total_volume'])}, Success Rate {dashboard['success_rate']}.")
+    context_lines.append(f"Operational Business Summary: {dashboard['today_transactions']} txns today, Volume {fmt_inr(dashboard['total_volume'])}, Success Rate {dashboard['success_rate']}, Active Customers {dashboard.get('active_customers', 0)}.")
 
-    if not is_gemini_ready():
-        return AskEkoResponse(
-            answer="I'm in offline reasoning mode. I can verify current transaction success, but complex analysis is unavailable.",
-            grounded=True, insufficient_data=True, missing_info="Gemini API connection"
-        )
+    # Recent Failed Transactions across system
+    failed_txns = db.query(models.ServiceActivity).filter(
+        models.ServiceActivity.user_id == user_id,
+        models.ServiceActivity.status == "failed"
+    ).order_by(desc(models.ServiceActivity.created_at)).limit(5).all()
+    if failed_txns:
+        context_lines.append("Recent System Failures:")
+        for ft in failed_txns:
+            context_lines.append(f"- {ft.service_name} for {ft.customer_name or 'Anonymous'} ({fmt_inr(ft.amount)}): {ft.failure_reason or 'Bank server timeout'}")
+
+    ai_provider = get_ai_provider()
+    system_instruction = f"{SYSTEM_PROMPT}\n\nVERIFIED BUSINESS CONTEXT:\n" + "\n".join(context_lines)
+    prompt = f"User Question: {body.question}\nPrevious History: {body.history}"
 
     try:
-        import google.generativeai as genai
-        genai.configure(api_key=GEMINI_API_KEY)
-        model = genai.GenerativeModel(GEMINI_MODEL)
+        res_data = await ai_provider.generate(system_instruction, prompt, timeout=25.0)
 
-        system_instruction = f"{SYSTEM_PROMPT}\n\nCONTEXT:\n" + "\n".join(context_lines)
-        prompt = f"User Question: {body.question}\nHistory: {body.history}"
+        facts = [Fact(**f) if isinstance(f, dict) else Fact(text=str(f)) for f in res_data.get("facts", [])]
+        inferences = [Inference(**i) if isinstance(i, dict) else Inference(text=str(i), confidence=0.9) for i in res_data.get("inferences", [])]
+        recommendations = [Recommendation(**r) if isinstance(r, dict) else Recommendation(text=str(r), reason="Operational advice") for r in res_data.get("recommendations", [])]
 
-        response = await asyncio.wait_for(asyncio.to_thread(model.generate_content, f"{system_instruction}\n\n{prompt}"), timeout=10.0)
-
-        raw_text = response.text.strip()
-        if raw_text.startswith("```json"):
-            raw_text = raw_text[7:-3].strip()
-        elif raw_text.startswith("```"):
-            raw_text = raw_text[3:-3].strip()
-
-        parsed = json.loads(raw_text)
-        return AskEkoResponse(**parsed)
-    except Exception as e:
-        logger.error(f"AI Error: {e}")
         return AskEkoResponse(
-            answer="I'm having trouble connecting to my reasoning engine. Please try again.",
-            grounded=False, insufficient_data=True, missing_info=str(e)
+            success=True,
+            answer=res_data.get("answer", "Here is the operational assessment based on your records."),
+            facts=facts,
+            inferences=inferences,
+            recommendations=recommendations,
+            actions=res_data.get("actions", []),
+            sources=res_data.get("sources", ["Eko Core Database"]),
+            confidence=float(res_data.get("confidence", 0.95)),
+            data_mode="online",
+            grounded=res_data.get("grounded", True),
+            insufficient_data=res_data.get("insufficient_data", False),
+            missing_info=res_data.get("missing_info")
+        )
+    except Exception as e:
+        logger.error(f"AI Provider execution failed: {e}")
+        local_provider = LocalDeterministicProvider()
+        fallback_res = await local_provider.generate(system_instruction, prompt)
+        facts = [Fact(**f) if isinstance(f, dict) else Fact(text=str(f)) for f in fallback_res.get("facts", [])]
+        inferences = [Inference(**i) if isinstance(i, dict) else Inference(text=str(i), confidence=0.85) for i in fallback_res.get("inferences", [])]
+        recommendations = [Recommendation(**r) if isinstance(r, dict) else Recommendation(text=str(r), reason="Operational advice") for r in fallback_res.get("recommendations", [])]
+
+        return AskEkoResponse(
+            success=True,
+            answer=fallback_res.get("answer", "Cloud reasoning engine is temporarily unavailable. Local operational records are intact."),
+            facts=facts,
+            inferences=inferences,
+            recommendations=recommendations,
+            actions=[],
+            sources=["Local Database Cache"],
+            confidence=0.8,
+            data_mode="grounded-local",
+            grounded=True,
+            insufficient_data=fallback_res.get("insufficient_data", True),
+            missing_info=fallback_res.get("missing_info", "Cloud reasoning connection paused"),
+            error=AIError(
+                code="AI_PROVIDER_UNAVAILABLE",
+                message="Cloud reasoning engine is temporarily unavailable. Displaying local grounded evaluation.",
+                retryable=True
+            )
         )
 
 # ─── Notifications Engine ─────────────────────────────────────────────────────

@@ -3,8 +3,8 @@
  * Enhanced for Fintech Ops 2.0
  */
 
-const DEFAULT_API_TIMEOUT_MS = 15000;
-const AI_API_TIMEOUT_MS = 60000;
+const DEFAULT_API_TIMEOUT_MS = 20000;
+const AI_API_TIMEOUT_MS = 45000;
 
 function getHeaders() {
     const headers = { 'Content-Type': 'application/json' };
@@ -19,19 +19,27 @@ function getHeaders() {
 async function apiRequest(method, path, body = null) {
     let base = window.EKO_API_BASE || 'https://eko-field-worker-api.onrender.com';
 
-    // Explicit emulator override if running in Android and base is still default/localhost
-    if (typeof AndroidBridge !== 'undefined') {
-        if (base.includes('localhost') || base.includes('127.0.0.1')) {
-            base = 'http://10.0.2.2:8000';
-        }
-    }
+    // Allow explicit developer override via localStorage if configured
+    try {
+        const devOverride = localStorage.getItem('eko_api_base_override');
+        if (devOverride) base = devOverride;
+    } catch (e) {}
 
     const url = `${base}${path}`;
-    const opts = { method, headers: getHeaders() };
+    const timeoutMs = path.includes('/api/ai/') ? AI_API_TIMEOUT_MS : DEFAULT_API_TIMEOUT_MS;
+    const controller = new AbortController();
+    const timer = setTimeout(() => controller.abort(), timeoutMs);
+
+    const opts = { 
+        method, 
+        headers: getHeaders(),
+        signal: controller.signal
+    };
     if (body) opts.body = JSON.stringify(body);
 
     try {
         const res = await fetch(url, opts);
+        clearTimeout(timer);
         if (!res.ok) {
             if (res.status === 401 && !path.includes('/api/auth/')) {
                 console.warn(`API Error 401 on ${path}: Clearing invalid session and returning to login.`);
@@ -43,6 +51,10 @@ async function apiRequest(method, path, body = null) {
         }
         return await res.json();
     } catch (e) {
+        clearTimeout(timer);
+        if (e.name === 'AbortError') {
+            throw { status: 408, message: `Request timed out after ${Math.round(timeoutMs / 1000)}s. Please try again.` };
+        }
         console.error(`API Error [${method} ${path}]:`, e);
         throw e;
     }
