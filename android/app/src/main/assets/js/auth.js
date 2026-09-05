@@ -57,6 +57,7 @@ function isAndroidApk() {
 // ── State ─────────────────────────────────────────────────────────────────────
 let currentUser = null;   // { id, email, name, picture, business_name, ... }
 let isDemoMode = false;
+let isAiRequestInProgress = false;
 
 // ── Session Helpers ───────────────────────────────────────────────────────────
 function saveSession(user) {

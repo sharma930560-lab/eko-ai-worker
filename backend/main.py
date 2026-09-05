@@ -66,6 +66,22 @@ def run_migrations():
                     logger.info("Migrating DB: Adding kyc_status column to customers table")
                     conn.execute(text("ALTER TABLE customers ADD COLUMN kyc_status VARCHAR DEFAULT 'pending'"))
                     conn.commit()
+
+            # Check tasks table
+            if "tasks" in table_names:
+                task_cols = {col["name"] for col in inspector.get_columns("tasks")}
+                if "customer_id" not in task_cols:
+                    logger.info("Migrating DB: Adding customer_id column to tasks table")
+                    conn.execute(text("ALTER TABLE tasks ADD COLUMN customer_id VARCHAR"))
+                    conn.commit()
+
+            # Check notes table
+            if "notes" in table_names:
+                note_cols = {col["name"] for col in inspector.get_columns("notes")}
+                if "customer_id" not in note_cols:
+                    logger.info("Migrating DB: Adding customer_id column to notes table")
+                    conn.execute(text("ALTER TABLE notes ADD COLUMN customer_id VARCHAR"))
+                    conn.commit()
     except Exception as e:
         logger.warning("Auto-migration notice: %s", e)
 
@@ -77,10 +93,14 @@ _default_origins = (
     "http://appassets.androidplatform.net,"
     "https://eko-field-worker.netlify.app,"
     "http://localhost:3000,"
-    "http://127.0.0.1:3000"
+    "http://127.0.0.1:3000,"
+    "http://localhost:8000,"
+    "http://127.0.0.1:8000"
 )
 _origins_env = os.getenv("ALLOWED_ORIGINS", _default_origins)
 ALLOWED_ORIGINS = [o.strip() for o in _origins_env.split(",") if o.strip()]
+
+# Extra protection: ensure common origins are always included
 for _essential in [
     "https://appassets.androidplatform.net",
     "http://appassets.androidplatform.net",
@@ -91,10 +111,10 @@ for _essential in [
 
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=ALLOWED_ORIGINS,
+    allow_origins=["*"] if ENVIRONMENT == "development" else ALLOWED_ORIGINS,
     allow_credentials=True,
-    allow_methods=["GET", "POST", "PATCH", "DELETE", "OPTIONS"],
-    allow_headers=["Content-Type", "X-User-Id", "Authorization", "Accept", "Origin"],
+    allow_methods=["*"],
+    allow_headers=["*"],
 )
 
 # ─── Auth Helpers ──────────────────────────────────────────────────────────────
@@ -818,14 +838,492 @@ async def ask_eko(body: AskEkoRequest, user_id: str = Depends(verify_user_id), d
             )
         )
 
+
+# ─── Complaint Detail & Update ─────────────────────────────────────────────────
+@app.get("/api/complaints/{cid}")
+def get_complaint_detail(cid: str, user_id: str = Depends(verify_user_id), db: Session = Depends(database.get_db)):
+    """Full complaint detail with linked transaction and customer info."""
+    c = db.query(models.Complaint).filter(
+        models.Complaint.id == cid,
+        models.Complaint.user_id == user_id
+    ).first()
+    if not c:
+        raise HTTPException(status_code=404, detail="Complaint not found.")
+
+    # Linked transaction
+    txn = None
+    if c.transaction_id:
+        t = db.query(models.ServiceActivity).filter(models.ServiceActivity.id == c.transaction_id).first()
+        if t:
+            txn = {
+                "id": t.id,
+                "service_name": t.service_name,
+                "amount": t.amount,
+                "status": t.status,
+                "failure_reason": t.failure_reason,
+                "customer_name": t.customer_name,
+                "reference_id": t.reference_id,
+                "created_at": t.created_at.isoformat() if t.created_at else None,
+            }
+
+    # Customer info
+    customer = None
+    if c.customer_id:
+        cust = db.query(models.Customer).filter(models.Customer.id == c.customer_id).first()
+        if cust:
+            customer = {"id": cust.id, "name": cust.name, "phone": cust.phone, "kyc_status": cust.kyc_status}
+
+    remaining = None
+    if c.sla_deadline and c.status not in ("closed", "resolved"):
+        remaining = (c.sla_deadline - datetime.now()).total_seconds() / 3600
+
+    return {
+        "id": c.id,
+        "subject": c.subject,
+        "description": c.description,
+        "status": c.status,
+        "priority": c.priority,
+        "sla_hours_remaining": remaining,
+        "sla_deadline": c.sla_deadline.isoformat() if c.sla_deadline else None,
+        "created_at": c.created_at.isoformat() if c.created_at else None,
+        "transaction": txn,
+        "customer": customer,
+        "transaction_id": c.transaction_id,
+        "customer_id": c.customer_id,
+    }
+
+
+class ComplaintUpdate(BaseModel):
+    status: Optional[str] = None
+    priority: Optional[str] = None
+    resolution_notes: Optional[str] = None
+
+
+@app.patch("/api/complaints/{cid}")
+def update_complaint(cid: str, data: ComplaintUpdate, user_id: str = Depends(verify_user_id), db: Session = Depends(database.get_db)):
+    c = db.query(models.Complaint).filter(
+        models.Complaint.id == cid,
+        models.Complaint.user_id == user_id
+    ).first()
+    if not c:
+        raise HTTPException(status_code=404, detail="Complaint not found.")
+    if data.status:
+        c.status = data.status
+    if data.priority:
+        c.priority = data.priority
+    db.commit()
+    db.refresh(c)
+    return {"id": c.id, "status": c.status, "priority": c.priority}
+
+
+# ─── Partners (Customers as Partners) ─────────────────────────────────────────
+@app.get("/api/partners")
+def list_partners(user_id: str = Depends(verify_user_id), db: Session = Depends(database.get_db)):
+    """Partners list with aggregated transaction stats."""
+    customers = db.query(models.Customer).filter(models.Customer.user_id == user_id).all()
+    results = []
+    for cust in customers:
+        txns = db.query(models.ServiceActivity).filter(
+            models.ServiceActivity.user_id == user_id,
+            models.ServiceActivity.customer_id == cust.id
+        ).all()
+        total = len(txns)
+        success = len([t for t in txns if t.status == "success"])
+        failed = len([t for t in txns if t.status == "failed"])
+        pending = len([t for t in txns if t.status == "pending"])
+        volume = sum(t.amount for t in txns if t.status == "success")
+
+        open_complaints = db.query(models.Complaint).filter(
+            models.Complaint.customer_id == cust.id,
+            models.Complaint.status.notin_(["closed", "resolved"])
+        ).count()
+
+        results.append({
+            "id": cust.id,
+            "name": cust.name,
+            "phone": cust.phone,
+            "business_type": cust.business_type,
+            "kyc_status": cust.kyc_status,
+            "amount_due": cust.amount_due,
+            "total_transactions": total,
+            "success_transactions": success,
+            "failed_transactions": failed,
+            "pending_transactions": pending,
+            "total_volume": volume,
+            "success_rate": f"{(success/total*100 if total else 0):.0f}%",
+            "open_complaints": open_complaints,
+            "created_at": cust.created_at.isoformat() if cust.created_at else None,
+        })
+    return results
+
+
+@app.get("/api/partners/{pid}")
+def get_partner_detail(pid: str, user_id: str = Depends(verify_user_id), db: Session = Depends(database.get_db)):
+    """Single partner detail with full transaction and complaint history."""
+    cust = db.query(models.Customer).filter(
+        models.Customer.id == pid,
+        models.Customer.user_id == user_id
+    ).first()
+    if not cust:
+        raise HTTPException(status_code=404, detail="Partner not found.")
+
+    txns = db.query(models.ServiceActivity).filter(
+        models.ServiceActivity.user_id == user_id,
+        models.ServiceActivity.customer_id == pid
+    ).order_by(desc(models.ServiceActivity.created_at)).limit(50).all()
+
+    complaints = db.query(models.Complaint).filter(
+        models.Complaint.user_id == user_id,
+        models.Complaint.customer_id == pid
+    ).order_by(desc(models.Complaint.created_at)).all()
+
+    total = len(txns)
+    success = len([t for t in txns if t.status == "success"])
+    failed = [t for t in txns if t.status == "failed"]
+    pending = [t for t in txns if t.status == "pending"]
+    volume = sum(t.amount for t in txns if t.status == "success")
+
+    def txn_dict(t):
+        return {
+            "id": t.id, "service_name": t.service_name, "amount": t.amount,
+            "status": t.status, "failure_reason": t.failure_reason,
+            "customer_name": t.customer_name, "reference_id": t.reference_id,
+            "created_at": t.created_at.isoformat() if t.created_at else None,
+        }
+
+    def comp_dict(c):
+        remaining = None
+        if c.sla_deadline and c.status not in ("closed", "resolved"):
+            remaining = (c.sla_deadline - datetime.now()).total_seconds() / 3600
+        return {
+            "id": c.id, "subject": c.subject, "status": c.status, "priority": c.priority,
+            "transaction_id": c.transaction_id, "sla_hours_remaining": remaining,
+            "created_at": c.created_at.isoformat() if c.created_at else None,
+        }
+
+    return {
+        "id": cust.id, "name": cust.name, "phone": cust.phone,
+        "email": cust.email, "business_type": cust.business_type,
+        "kyc_status": cust.kyc_status, "amount_due": cust.amount_due,
+        "notes": cust.notes, "created_at": cust.created_at.isoformat() if cust.created_at else None,
+        "stats": {
+            "total_transactions": total, "success_transactions": success,
+            "failed_transactions": len(failed), "pending_transactions": len(pending),
+            "total_volume": volume,
+            "success_rate": f"{(success/total*100 if total else 0):.0f}%",
+            "open_complaints": len([c for c in complaints if c.status not in ("closed","resolved")]),
+        },
+        "transactions": [txn_dict(t) for t in txns],
+        "complaints": [comp_dict(c) for c in complaints],
+    }
+
+
+# ─── Service Flow Endpoints (Sandbox Adapters) ────────────────────────────────
+# All services write to service_activity for unified transaction history.
+# Provider adapters are clearly isolated — replace sandbox logic with real provider calls.
+
+SANDBOX_FAILURE_SCENARIOS = [
+    "Bank server did not respond in time. Please retry after a few minutes.",
+    "Beneficiary account is not registered on the bank network.",
+    "Daily transaction limit reached for this service.",
+]
+
+class DMTRequest(BaseModel):
+    customer_id: Optional[str] = None
+    customer_name: str
+    receiver_name: str
+    receiver_account: str
+    receiver_ifsc: str
+    amount: float
+    remarks: Optional[str] = None
+
+class AePSRequest(BaseModel):
+    customer_id: Optional[str] = None
+    customer_name: str
+    aadhaar_last4: str
+    service_type: str  # withdrawal | balance | mini_statement
+    amount: Optional[float] = 0.0
+
+class BBPSRequest(BaseModel):
+    customer_id: Optional[str] = None
+    customer_name: str
+    category: str       # electricity | water | gas | broadband | etc.
+    provider: str
+    consumer_number: str
+    amount: float
+
+class RechargeRequest(BaseModel):
+    customer_id: Optional[str] = None
+    customer_name: str
+    mobile_number: str
+    operator: str
+    plan_amount: float
+    plan_description: Optional[str] = None
+
+
+def _sandbox_process(service_name: str, amount: float) -> tuple[str, Optional[str], float]:
+    """Sandbox: ~85% success rate simulation. Returns (status, failure_reason, commission)."""
+    import random
+    success = random.random() > 0.15
+    if success:
+        commission = round(amount * 0.005, 2)  # 0.5% commission simulation
+        return "success", None, commission
+    else:
+        reason = random.choice(SANDBOX_FAILURE_SCENARIOS)
+        return "failed", reason, 0.0
+
+
+@app.post("/api/services/dmt")
+def initiate_dmt(data: DMTRequest, user_id: str = Depends(verify_user_id), db: Session = Depends(database.get_db)):
+    """Sandbox DMT — Send Money. Replace _sandbox_process with real provider call."""
+    status, failure_reason, commission = _sandbox_process("DMT", data.amount)
+    ref_id = f"DMT{uuid.uuid4().hex[:10].upper()}"
+    act = models.ServiceActivity(
+        id=str(uuid.uuid4()), user_id=user_id,
+        customer_id=data.customer_id, customer_name=data.customer_name,
+        service_name="DMT", status=status, amount=data.amount,
+        commission=commission, reference_id=ref_id, failure_reason=failure_reason
+    )
+    db.add(act)
+    db.commit()
+    db.refresh(act)
+    if data.customer_id:
+        add_timeline_event(db, user_id, data.customer_id, "txn",
+                           f"Send Money — {fmt_inr(data.amount)}",
+                           f"To {data.receiver_name} ({data.receiver_account}) • Status: {status}", act.id)
+    if status == "failed":
+        notif = models.OperationalNotification(
+            id=str(uuid.uuid4()), user_id=user_id,
+            title="Send Money Failed",
+            message=f"₹{data.amount:,.0f} transfer to {data.receiver_name} failed. {failure_reason}",
+            category="alert", priority="high",
+            deep_link=f"/transactions/{act.id}"
+        )
+        db.add(notif)
+        db.commit()
+    return {"id": act.id, "status": status, "reference_id": ref_id,
+            "failure_reason": failure_reason, "commission": commission,
+            "amount": data.amount, "service": "DMT", "sandbox": True}
+
+
+@app.post("/api/services/aeps")
+def initiate_aeps(data: AePSRequest, user_id: str = Depends(verify_user_id), db: Session = Depends(database.get_db)):
+    """Sandbox AePS — Aadhaar Banking."""
+    service_label = {"withdrawal": "Cash Withdrawal", "balance": "Balance Check", "mini_statement": "Mini Statement"}.get(data.service_type, "AePS")
+    status, failure_reason, commission = _sandbox_process("AePS", data.amount or 1.0)
+    ref_id = f"AePS{uuid.uuid4().hex[:10].upper()}"
+    act = models.ServiceActivity(
+        id=str(uuid.uuid4()), user_id=user_id,
+        customer_id=data.customer_id, customer_name=data.customer_name,
+        service_name=f"AePS-{service_label}", status=status, amount=data.amount or 0.0,
+        commission=commission, reference_id=ref_id, failure_reason=failure_reason
+    )
+    db.add(act)
+    db.commit()
+    db.refresh(act)
+    if data.customer_id:
+        add_timeline_event(db, user_id, data.customer_id, "txn",
+                           f"Aadhaar Banking — {service_label}",
+                           f"Aadhaar ****{data.aadhaar_last4} • Status: {status}", act.id)
+    return {"id": act.id, "status": status, "reference_id": ref_id,
+            "service_type": service_label, "failure_reason": failure_reason,
+            "amount": data.amount, "sandbox": True}
+
+
+@app.post("/api/services/bbps")
+def initiate_bbps(data: BBPSRequest, user_id: str = Depends(verify_user_id), db: Session = Depends(database.get_db)):
+    """Sandbox BBPS — Pay Bills."""
+    status, failure_reason, commission = _sandbox_process("BBPS", data.amount)
+    ref_id = f"BBPS{uuid.uuid4().hex[:10].upper()}"
+    act = models.ServiceActivity(
+        id=str(uuid.uuid4()), user_id=user_id,
+        customer_id=data.customer_id, customer_name=data.customer_name,
+        service_name=f"BBPS-{data.category}", status=status, amount=data.amount,
+        commission=commission, reference_id=ref_id, failure_reason=failure_reason
+    )
+    db.add(act)
+    db.commit()
+    db.refresh(act)
+    if data.customer_id:
+        add_timeline_event(db, user_id, data.customer_id, "txn",
+                           f"Bill Payment — {data.category} ({data.provider})",
+                           f"Consumer: {data.consumer_number} • {fmt_inr(data.amount)} • Status: {status}", act.id)
+    return {"id": act.id, "status": status, "reference_id": ref_id,
+            "category": data.category, "provider": data.provider,
+            "failure_reason": failure_reason, "commission": commission,
+            "amount": data.amount, "sandbox": True}
+
+
+@app.post("/api/services/recharge")
+def initiate_recharge(data: RechargeRequest, user_id: str = Depends(verify_user_id), db: Session = Depends(database.get_db)):
+    """Sandbox Mobile Recharge."""
+    status, failure_reason, commission = _sandbox_process("Recharge", data.plan_amount)
+    ref_id = f"RCH{uuid.uuid4().hex[:10].upper()}"
+    act = models.ServiceActivity(
+        id=str(uuid.uuid4()), user_id=user_id,
+        customer_id=data.customer_id, customer_name=data.customer_name,
+        service_name="Recharge", status=status, amount=data.plan_amount,
+        commission=commission, reference_id=ref_id, failure_reason=failure_reason
+    )
+    db.add(act)
+    db.commit()
+    db.refresh(act)
+    if data.customer_id:
+        add_timeline_event(db, user_id, data.customer_id, "txn",
+                           f"Mobile Recharge — {data.operator}",
+                           f"{data.mobile_number} • {fmt_inr(data.plan_amount)} • Status: {status}", act.id)
+    return {"id": act.id, "status": status, "reference_id": ref_id,
+            "mobile_number": data.mobile_number, "operator": data.operator,
+            "failure_reason": failure_reason, "commission": commission,
+            "amount": data.plan_amount, "sandbox": True}
+
+
+# ─── Global Search ─────────────────────────────────────────────────────────────
+@app.get("/api/search")
+def global_search(q: str, user_id: str = Depends(verify_user_id), db: Session = Depends(database.get_db)):
+    """Cross-module search: transactions, complaints, partners."""
+    if not q or len(q.strip()) < 2:
+        return {"transactions": [], "complaints": [], "partners": []}
+
+    q_lower = q.lower().strip()
+
+    # Transactions
+    txns = db.query(models.ServiceActivity).filter(
+        models.ServiceActivity.user_id == user_id,
+        or_(
+            models.ServiceActivity.customer_name.ilike(f"%{q}%"),
+            models.ServiceActivity.reference_id.ilike(f"%{q}%"),
+            models.ServiceActivity.service_name.ilike(f"%{q}%"),
+        )
+    ).order_by(desc(models.ServiceActivity.created_at)).limit(10).all()
+
+    # Complaints
+    complaints = db.query(models.Complaint).filter(
+        models.Complaint.user_id == user_id,
+        or_(
+            models.Complaint.subject.ilike(f"%{q}%"),
+            models.Complaint.description.ilike(f"%{q}%"),
+        )
+    ).limit(5).all()
+
+    # Partners
+    partners = db.query(models.Customer).filter(
+        models.Customer.user_id == user_id,
+        or_(
+            models.Customer.name.ilike(f"%{q}%"),
+            models.Customer.phone.ilike(f"%{q}%"),
+            models.Customer.business_type.ilike(f"%{q}%"),
+        )
+    ).limit(5).all()
+
+    return {
+        "transactions": [
+            {"id": t.id, "service_name": t.service_name, "amount": t.amount,
+             "status": t.status, "customer_name": t.customer_name,
+             "reference_id": t.reference_id,
+             "created_at": t.created_at.isoformat() if t.created_at else None}
+            for t in txns
+        ],
+        "complaints": [
+            {"id": c.id, "subject": c.subject, "status": c.status,
+             "priority": c.priority,
+             "created_at": c.created_at.isoformat() if c.created_at else None}
+            for c in complaints
+        ],
+        "partners": [
+            {"id": p.id, "name": p.name, "phone": p.phone,
+             "business_type": p.business_type, "kyc_status": p.kyc_status}
+            for p in partners
+        ],
+    }
+
+
+# ─── AI Daily Brief ────────────────────────────────────────────────────────────
+@app.get("/api/ai/brief")
+def get_daily_brief(user_id: str = Depends(verify_user_id), db: Session = Depends(database.get_db)):
+    """Real operational brief from actual data."""
+    today_start = datetime.combine(date.today(), datetime.min.time())
+
+    txns_today = db.query(models.ServiceActivity).filter(
+        models.ServiceActivity.user_id == user_id,
+        models.ServiceActivity.created_at >= today_start
+    ).all()
+
+    failed_today = [t for t in txns_today if t.status == "failed"]
+    pending_today = [t for t in txns_today if t.status == "pending"]
+    success_today = [t for t in txns_today if t.status == "success"]
+
+    open_complaints = db.query(models.Complaint).filter(
+        models.Complaint.user_id == user_id,
+        models.Complaint.status.notin_(["closed", "resolved"])
+    ).all()
+
+    overdue_complaints = [c for c in open_complaints if c.sla_deadline and c.sla_deadline < datetime.now()]
+
+    pending_tasks = db.query(models.Task).filter(
+        models.Task.user_id == user_id,
+        models.Task.completed == False
+    ).count()
+
+    items = []
+    if overdue_complaints:
+        items.append(f"🔴 {len(overdue_complaints)} overdue complaint{'s' if len(overdue_complaints)>1 else ''}")
+    if failed_today:
+        total_failed_amount = sum(t.amount for t in failed_today)
+        items.append(f"🔴 {len(failed_today)} failed transaction{'s' if len(failed_today)>1 else ''} today (₹{total_failed_amount:,.0f} affected)")
+    if len(open_complaints) - len(overdue_complaints) > 0:
+        items.append(f"🟠 {len(open_complaints) - len(overdue_complaints)} open complaint{'s' if len(open_complaints)>1 else ''} pending resolution")
+    if pending_today:
+        items.append(f"🟠 {len(pending_today)} transaction{'s' if len(pending_today)>1 else ''} still processing")
+    if pending_tasks:
+        items.append(f"🟡 {pending_tasks} pending task{'s' if pending_tasks>1 else ''}")
+    if success_today:
+        vol = sum(t.amount for t in success_today)
+        items.append(f"🟢 {len(success_today)} successful transaction{'s' if len(success_today)>1 else ''} (₹{vol:,.0f})")
+
+    # Priority recommendation
+    if overdue_complaints:
+        next_step = f"Resolve overdue complaint '{overdue_complaints[0].subject[:40]}' immediately — SLA has passed."
+    elif failed_today:
+        ft = failed_today[0]
+        next_step = f"Investigate failed {ft.service_name} transaction of ₹{ft.amount:,.0f} for {ft.customer_name or 'customer'}."
+    elif open_complaints:
+        oc = open_complaints[0]
+        next_step = f"Follow up on complaint '{oc.subject[:40]}' to meet SLA deadline."
+    elif pending_today:
+        next_step = "Check pending transactions — some may need manual resolution."
+    else:
+        next_step = "Operations are running smoothly. Great work!"
+
+    return {
+        "date": date.today().isoformat(),
+        "summary_items": items,
+        "next_step": next_step,
+        "brief_markdown": "\n".join(items) if items else "All operations are running smoothly today.",
+        "stats": {
+            "total_today": len(txns_today),
+            "success_today": len(success_today),
+            "failed_today": len(failed_today),
+            "pending_today": len(pending_today),
+            "open_complaints": len(open_complaints),
+            "overdue_complaints": len(overdue_complaints),
+        }
+    }
+
+
 # ─── Notifications Engine ─────────────────────────────────────────────────────
 @app.get("/api/notifications")
 def list_notifications(user_id: str = Depends(verify_user_id), db: Session = Depends(database.get_db)):
-    # Simple polling endpoint for SLA/Follow-up alerts
-    return db.query(models.OperationalNotification).filter(
+    notifs = db.query(models.OperationalNotification).filter(
         models.OperationalNotification.user_id == user_id,
         models.OperationalNotification.is_read == False
-    ).order_by(desc(models.OperationalNotification.created_at)).all()
+    ).order_by(desc(models.OperationalNotification.created_at)).limit(20).all()
+    return [
+        {"id": n.id, "title": n.title, "message": n.message, "category": n.category,
+         "priority": n.priority, "deep_link": n.deep_link, "is_read": n.is_read,
+         "created_at": n.created_at.isoformat() if n.created_at else None}
+        for n in notifs
+    ]
 
 @app.post("/api/notifications/mark-read/{nid}")
 def mark_notification_read(nid: str, user_id: str = Depends(verify_user_id), db: Session = Depends(database.get_db)):
@@ -834,3 +1332,4 @@ def mark_notification_read(nid: str, user_id: str = Depends(verify_user_id), db:
         n.is_read = True
         db.commit()
     return {"status": "ok"}
+

@@ -2193,3 +2193,143 @@ input[type="tel"], textarea, select {
     .landing-section { padding: 40px 12px; }
     .features-grid { grid-template-columns: 1fr; }
 }
+
+/* ── Notification Slide-in Panel ─────────────────────────────────────────── */
+.notification-panel {
+    position: fixed;
+    top: 0;
+    right: 0;
+    bottom: 0;
+    width: 100%;
+    max-width: 380px;
+    background: var(--surface);
+    box-shadow: -4px 0 24px rgba(15, 23, 42, 0.15);
+    z-index: 500;
+    display: flex;
+    flex-direction: column;
+    animation: slideInRight 0.2s ease-out;
+}
+
+@keyframes slideInRight {
+    from { transform: translateX(100%); }
+    to { transform: translateX(0); }
+}
+
+.notif-panel-header {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    padding: 18px 20px;
+    border-bottom: 1px solid var(--border);
+}
+
+.notif-panel-body {
+    flex: 1;
+    overflow-y: auto;
+    padding: 12px 16px;
+    display: flex;
+    flex-direction: column;
+    gap: 10px;
+}
+
+.notif-item {
+    background: var(--bg);
+    border: 1px solid var(--border);
+    border-radius: var(--radius-md);
+    padding: 14px;
+    cursor: pointer;
+    transition: all 0.15s ease;
+}
+
+.notif-item:hover {
+    border-color: var(--primary);
+    background: var(--surface-hover);
+}
+
+.notif-item.notif-urgent {
+    border-left: 4px solid var(--danger);
+    background: var(--danger-bg);
+}
+
+.notif-title {
+    font-size: 0.88rem;
+    font-weight: 700;
+    color: var(--navy);
+    margin-bottom: 4px;
+}
+
+.notif-msg {
+    font-size: 0.8rem;
+    color: var(--text-muted);
+    line-height: 1.4;
+    margin-bottom: 6px;
+}
+
+.notif-time {
+    font-size: 0.7rem;
+    color: var(--text-light);
+    font-weight: 500;
+}
+
+.notif-badge {
+    position: absolute;
+    top: -4px;
+    right: -4px;
+    background: var(--danger);
+    color: #FFF;
+    font-size: 0.65rem;
+    font-weight: 800;
+    min-width: 18px;
+    height: 18px;
+    border-radius: 9px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    padding: 0 4px;
+    border: 2px solid var(--surface);
+}
+
+/* ── Filter Tabs ─────────────────────────────────────────────────────────── */
+.filter-tabs {
+    display: flex;
+    gap: 8px;
+    overflow-x: auto;
+    scrollbar-width: none;
+    margin-bottom: 16px;
+    padding-bottom: 4px;
+}
+
+.filter-tab {
+    padding: 7px 14px;
+    border-radius: var(--radius-full);
+    border: 1px solid var(--border);
+    background: var(--surface);
+    color: var(--text-muted);
+    font-size: 0.8rem;
+    font-weight: 600;
+    cursor: pointer;
+    white-space: nowrap;
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    transition: all 0.15s ease;
+}
+
+.filter-tab.active {
+    background: var(--primary);
+    color: #FFF;
+    border-color: var(--primary);
+}
+
+.filter-tab .tab-count {
+    background: rgba(0,0,0,0.1);
+    padding: 1px 6px;
+    border-radius: 10px;
+    font-size: 0.7rem;
+}
+
+.filter-tab.active .tab-count {
+    background: rgba(255,255,255,0.25);
+    color: #FFF;
+}
+

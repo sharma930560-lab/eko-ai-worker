@@ -235,9 +235,9 @@
                     <i data-lucide="layout-dashboard"></i>
                     <span class="nav-label">Dashboard</span>
                 </button>
-                <button class="nav-item" data-tab="customers" onclick="navigateTo('customers')">
+                <button class="nav-item" data-tab="partners" onclick="navigateTo('partners')">
                     <i data-lucide="users"></i>
-                    <span class="nav-label">Customer 360</span>
+                    <span class="nav-label">Partners</span>
                 </button>
                 <button class="nav-item" data-tab="activity" onclick="navigateTo('activity')">
                     <i data-lucide="arrow-left-right"></i>
@@ -245,7 +245,7 @@
                 </button>
                 <button class="nav-item" data-tab="grievances" onclick="navigateTo('grievances')">
                     <i data-lucide="message-square-warning"></i>
-                    <span class="nav-label">Grievances</span>
+                    <span class="nav-label">Complaints</span>
                 </button>
                 <button class="nav-item" data-tab="ai-tools" onclick="navigateTo('ai-tools')">
                     <i data-lucide="wrench"></i>
@@ -283,7 +283,7 @@
                     <p class="header-subtitle" id="page-header-subtitle">Good morning! Here's your operations overview.</p>
                 </div>
                 <div class="header-right" style="display:flex; align-items:center; gap:12px;">
-                <button class="btn-icon" id="header-notif-btn" onclick="showToast('Notification Center')" title="Notifications">
+                <button class="btn-icon" id="header-notif-btn" onclick="openNotificationPanel()" title="Notifications" style="position:relative;">
                     <i data-lucide="bell" style="width:18px;height:18px;"></i>
                     <span class="notif-badge hidden" id="notif-badge-count"></span>
                 </button>
@@ -310,24 +310,53 @@
             <i data-lucide="layout-dashboard"></i>
             <span class="nav-label">Home</span>
         </button>
-        <button class="nav-item" data-tab="customers" onclick="navigateTo('customers')">
+        <button class="nav-item" data-tab="partners" onclick="navigateTo('partners')">
             <i data-lucide="users"></i>
-            <span class="nav-label">360</span>
+            <span class="nav-label">Partners</span>
         </button>
         <button class="nav-item" data-tab="activity" onclick="navigateTo('activity')">
             <i data-lucide="arrow-left-right"></i>
-            <span class="nav-label">Txns</span>
+            <span class="nav-label">Transactions</span>
         </button>
         <button class="nav-item" data-tab="grievances" onclick="navigateTo('grievances')">
             <i data-lucide="message-square-warning"></i>
-            <span class="nav-label">Grievance</span>
+            <span class="nav-label">Complaints</span>
         </button>
         <button class="nav-item" data-tab="ask-eko" onclick="navigateTo('ask-eko')">
             <i data-lucide="sparkles"></i>
-            <span class="nav-label">Eko AI</span>
+            <span class="nav-label">AI</span>
         </button>
     </nav>
 
+</div>
+
+<!-- ── Notification Slide-in Panel ─────────────────────────────────────────── -->
+<div id="notification-panel" class="notification-panel hidden">
+    <div class="notif-panel-header">
+        <div style="display:flex; align-items:center; gap:8px;">
+            <i data-lucide="bell" style="width:18px; height:18px; color:var(--primary);"></i>
+            <span style="font-weight:700; font-size:1rem;">Operational Notifications</span>
+        </div>
+        <button class="modal-close" onclick="openNotificationPanel()" aria-label="Close">
+            <i data-lucide="x" style="width:16px;height:16px;"></i>
+        </button>
+    </div>
+    <div id="notification-panel-body" class="notif-panel-body">
+        <div class="text-sm text-muted text-center p-4">Loading notifications...</div>
+    </div>
+</div>
+
+<!-- ── Service Flow Modal (DMT / AePS / BBPS / Recharge) ──────────────────── -->
+<div id="service-flow-modal" class="modal-overlay hidden">
+    <div class="modal-card" style="max-width:480px;">
+        <div class="modal-header">
+            <h2 id="service-flow-title">Service Flow</h2>
+            <button class="modal-close" onclick="closeModal('service-flow-modal')" aria-label="Close">
+                <i data-lucide="x" style="width:16px;height:16px;"></i>
+            </button>
+        </div>
+        <div class="modal-body" id="service-flow-body"></div>
+    </div>
 </div>
 
 <!-- ── App Guide Modal ──────────────────────────────────────────────────────── -->
@@ -342,11 +371,11 @@
     </div>
 </div>
 
-<!-- ── Customer Detail Drawer / Modal ──────────────────────────────────────── -->
+<!-- ── Customer / Partner Detail Drawer / Modal ────────────────────────────── -->
 <div id="customer-detail-modal" class="modal-overlay hidden">
-    <div class="modal-card" style="max-width:520px;">
+    <div class="modal-card" style="max-width:540px;">
         <div class="modal-header">
-            <h2 id="cd-modal-title">Customer Details</h2>
+            <h2 id="cd-modal-title">Partner Details</h2>
             <button class="modal-close" onclick="closeModal('customer-detail-modal')" aria-label="Close"><i data-lucide="x" style="width:16px;height:16px;"></i></button>
         </div>
         <div class="modal-body" id="cd-modal-body"></div>
@@ -364,7 +393,9 @@
 <script src="js/offline.js?v=18"></script>
 <script src="js/api.js?v=18"></script>
 <script src="js/screens/customers.js?v=18"></script>
+<script src="js/screens/partners.js?v=18"></script>
 <script src="js/screens/activity.js?v=18"></script>
+<script src="js/screens/services.js?v=18"></script>
 <script src="js/screens/tasks.js?v=18"></script>
 <script src="js/screens/notes.js?v=18"></script>
 <script src="js/screens/ask-eko.js?v=18"></script>

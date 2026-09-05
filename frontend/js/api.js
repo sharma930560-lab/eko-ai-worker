@@ -1,6 +1,5 @@
 /**
  * Eko AI Operations — API Client
- * Enhanced for Fintech Ops 2.0
  */
 
 const DEFAULT_API_TIMEOUT_MS = 20000;
@@ -10,16 +9,16 @@ function getHeaders() {
     const headers = { 'Content-Type': 'application/json' };
     const savedUser = localStorage.getItem('eko_user');
     if (savedUser) {
-        const user = JSON.parse(savedUser);
-        if (user.id) headers['X-User-Id'] = user.id;
+        try {
+            const user = JSON.parse(savedUser);
+            if (user.id) headers['X-User-Id'] = user.id;
+        } catch (e) {}
     }
     return headers;
 }
 
 async function apiRequest(method, path, body = null) {
     let base = window.EKO_API_BASE || 'https://eko-field-worker-api.onrender.com';
-
-    // Allow explicit developer override via localStorage if configured
     try {
         const devOverride = localStorage.getItem('eko_api_base_override');
         if (devOverride) base = devOverride;
@@ -30,8 +29,8 @@ async function apiRequest(method, path, body = null) {
     const controller = new AbortController();
     const timer = setTimeout(() => controller.abort(), timeoutMs);
 
-    const opts = { 
-        method, 
+    const opts = {
+        method,
         headers: getHeaders(),
         signal: controller.signal
     };
@@ -42,7 +41,6 @@ async function apiRequest(method, path, body = null) {
         clearTimeout(timer);
         if (!res.ok) {
             if (res.status === 401 && !path.includes('/api/auth/')) {
-                console.warn(`API Error 401 on ${path}: Clearing invalid session and returning to login.`);
                 if (typeof clearSession === 'function') clearSession();
                 if (typeof showLoginScreen === 'function') showLoginScreen();
             }
@@ -55,24 +53,43 @@ async function apiRequest(method, path, body = null) {
         if (e.name === 'AbortError') {
             throw { status: 408, message: `Request timed out after ${Math.round(timeoutMs / 1000)}s. Please try again.` };
         }
-        console.error(`API Error [${method} ${path}]:`, e);
         throw e;
     }
 }
 
 const api = {
-    // Customers & Timeline
+    // Dashboard
+    getDashboard: () => apiRequest('GET', '/api/ops/dashboard'),
+
+    // Customers / Partners
     getCustomers: () => apiRequest('GET', '/api/customers'),
     createCustomer: (data) => apiRequest('POST', '/api/customers', data),
     getCustomerTimeline: (cid) => apiRequest('GET', `/api/customers/${cid}/timeline`),
+    getPartners: () => apiRequest('GET', '/api/partners'),
+    getPartnerDetail: (pid) => apiRequest('GET', `/api/partners/${pid}`),
 
     // Transactions / Service Activity
     getActivity: () => apiRequest('GET', '/api/activity'),
     createActivity: (data) => apiRequest('POST', '/api/activity', data),
 
-    // Complaints / Grievances
+    // Service Flows (Sandbox)
+    initDMT: (data) => apiRequest('POST', '/api/services/dmt', data),
+    initAePS: (data) => apiRequest('POST', '/api/services/aeps', data),
+    initBBPS: (data) => apiRequest('POST', '/api/services/bbps', data),
+    initRecharge: (data) => apiRequest('POST', '/api/services/recharge', data),
+
+    // Complaints
+    getComplaints: () => apiRequest('GET', '/api/complaints'),
+    getComplaintDetail: (id) => apiRequest('GET', `/api/complaints/${id}`),
     createComplaint: (data) => apiRequest('POST', '/api/complaints', data),
-    getComplaints: () => apiRequest('GET', '/api/complaints'), // Stub if needed
+    updateComplaint: (id, data) => apiRequest('PATCH', `/api/complaints/${id}`, data),
+
+    // Notifications
+    getNotifications: () => apiRequest('GET', '/api/notifications'),
+    markNotificationRead: (id) => apiRequest('POST', `/api/notifications/mark-read/${id}`),
+
+    // Search
+    search: (q) => apiRequest('GET', `/api/search?q=${encodeURIComponent(q)}`),
 
     // Credit Intelligence
     recalculateScore: (cid) => apiRequest('POST', `/api/credit-score/recalculate/${cid}`),
@@ -80,16 +97,16 @@ const api = {
     simulateScore: (data) => apiRequest('POST', '/api/credit-score/simulate', data),
 
     // AI
-    askEko: (question, history = [], customer_id = null) => apiRequest('POST', '/api/ai/ask', {
-        question, history, customer_id
-    }),
+    askEko: (question, history = [], customer_id = null) => apiRequest('POST', '/api/ai/ask', { question, history, customer_id }),
     getDailyBrief: () => apiRequest('GET', '/api/ai/brief'),
 
-    // Legacy mapping or extended
+    // Tasks & Notes
     getTasks: () => apiRequest('GET', '/api/tasks'),
     createTask: (data) => apiRequest('POST', '/api/tasks', data),
     getNotes: () => apiRequest('GET', '/api/notes'),
     createNote: (data) => apiRequest('POST', '/api/notes', data),
+
+    // AI Tools
     scanBill: (data) => apiRequest('POST', '/api/ai/scan-bill', data),
     voiceParse: (data) => apiRequest('POST', '/api/ai/voice-parse', data),
     generateMessage: (data) => apiRequest('POST', '/api/ai/generate-message', data),
