@@ -830,10 +830,12 @@ def health():
     )
     ai_ok = configured_provider in ("ollama", "local", "local-llm", "deterministic") or has_optional_hosted
     ollama_model = os.getenv("OLLAMA_MODEL", "qwen3:4b")
+    git_sha = os.getenv("RENDER_GIT_COMMIT", "ded7f30")[:7]
     return {
         "status": "ok" if db_ok else "degraded",
         "service": "Eko Partner Operations API",
         "version": "1.3.0",
+        "commit_sha": git_sha,
         "environment": ENVIRONMENT,
         "ai_configured": ai_ok,
         "ai_provider": configured_provider,
