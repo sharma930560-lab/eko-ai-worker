@@ -9,8 +9,8 @@ services:
     envVars:
       - key: GOOGLE_CLIENT_ID
         sync: false
-      - key: GEMINI_API_KEY
-        sync: false
+      - key: AI_PROVIDER
+        value: deterministic
       - key: ENVIRONMENT
         value: production
       - key: ALLOWED_ORIGINS

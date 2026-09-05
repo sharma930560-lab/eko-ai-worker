@@ -328,6 +328,9 @@ function renderChatHistory() {
 }
 
 function sendQuickPrompt(q) {
+    if (q.toLowerCase().includes('rahul') && q.toLowerCase().includes('assessment')) {
+        clearAiContext();
+    }
     const inp = document.getElementById('eko-input');
     if (inp) inp.value = q;
     sendToEko();

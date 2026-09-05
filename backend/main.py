@@ -30,14 +30,16 @@ logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(mess
 logger = logging.getLogger("eko")
 
 GOOGLE_CLIENT_ID = os.getenv("GOOGLE_CLIENT_ID", "")
-GEMINI_API_KEY = os.getenv("GEMINI_API_KEY", "")
-GEMINI_MODEL = os.getenv("GEMINI_MODEL", "gemini-1.5-flash")
+# NOTE: AI API keys are never loaded at module level.
+# They are managed exclusively inside ai_provider.py via get_ai_provider().
+# This ensures keys never accidentally appear in logs or tracebacks.
+OLLAMA_MODEL = os.getenv("OLLAMA_MODEL", "qwen3:4b")
 ENVIRONMENT = os.getenv("ENVIRONMENT", "development")
 DEMO_MODE = os.getenv("DEMO_MODE", "false").lower() == "true"
 
 app = FastAPI(
     title="Eko Partner Operations API",
-    version="1.2.0",
+    version="1.3.0",
     description="Intelligent fintech operations assistant for Eko partners.",
 )
 
@@ -180,6 +182,7 @@ class ActivityResponse(BaseModel):
     status: str
     amount: float
     commission: float
+    customer_id: Optional[str]
     customer_name: Optional[str]
     reference_id: Optional[str]
     failure_reason: Optional[str]
@@ -257,6 +260,9 @@ class AskEkoResponse(BaseModel):
     sources: List[str] = []
     confidence: float = 1.0
     data_mode: str = "online"
+    ai_mode: str = "demo_fallback"
+    ai_provider: str = "deterministic"
+    ai_model: Optional[str] = None
     grounded: bool = True
     insufficient_data: bool = False
     missing_info: Optional[str] = None
@@ -432,9 +438,12 @@ def ensure_user_seeded(user_id: str, db: Session):
     def seed_ref(reference: str) -> str:
         return f"{reference}{seed_suffix}"
 
+    def seed_id(label: str) -> str:
+        return str(uuid.uuid5(uuid.NAMESPACE_URL, f"eko-demo:{user_id}:{label}"))
+
     # 1. Connected Partners (Retailers / Agents / CSPs)
     p_paras = models.Customer(
-        id=str(uuid.uuid4()), user_id=user_id,
+        id=seed_id("partner-paras"), user_id=user_id,
         name="Paras General Store & Banking Point",
         phone="9811223344", email="paras.store@ekopartner.in",
         business_type="Retail & CSP", kyc_status="verified",
@@ -442,7 +451,7 @@ def ensure_user_seeded(user_id: str, db: Session):
         created_at=now - timedelta(days=45)
     )
     p_sharma = models.Customer(
-        id=str(uuid.uuid4()), user_id=user_id,
+        id=seed_id("partner-sharma"), user_id=user_id,
         name="Sharma Telecom & Money Transfer",
         phone="9876543210", email="sharma.telecom@ekopartner.in",
         business_type="Telecom & Remittance", kyc_status="verified",
@@ -450,7 +459,7 @@ def ensure_user_seeded(user_id: str, db: Session):
         created_at=now - timedelta(days=60)
     )
     p_verma = models.Customer(
-        id=str(uuid.uuid4()), user_id=user_id,
+        id=seed_id("partner-verma"), user_id=user_id,
         name="Verma Communication Hub",
         phone="9823456789", email="verma.hub@ekopartner.in",
         business_type="Digital Services", kyc_status="verified",
@@ -458,7 +467,7 @@ def ensure_user_seeded(user_id: str, db: Session):
         created_at=now - timedelta(days=30)
     )
     p_gupta = models.Customer(
-        id=str(uuid.uuid4()), user_id=user_id,
+        id=seed_id("partner-gupta"), user_id=user_id,
         name="Gupta Digital Services",
         phone="9898989898", email="gupta.digital@ekopartner.in",
         business_type="CSC & Utility", kyc_status="verified",
@@ -466,7 +475,7 @@ def ensure_user_seeded(user_id: str, db: Session):
         created_at=now - timedelta(days=20)
     )
     p_patel = models.Customer(
-        id=str(uuid.uuid4()), user_id=user_id,
+        id=seed_id("partner-patel"), user_id=user_id,
         name="Patel Enterprise Banking",
         phone="9765432109", email="patel.banking@ekopartner.in",
         business_type="Enterprise Banking Point", kyc_status="verified",
@@ -474,7 +483,7 @@ def ensure_user_seeded(user_id: str, db: Session):
         created_at=now - timedelta(days=90)
     )
     p_rahul = models.Customer(
-        id=str(uuid.uuid4()), user_id=user_id,
+        id=seed_id("partner-rahul"), user_id=user_id,
         name="Rahul Kumar",
         phone="9988776655", email="rahul.k@ekopartner.in",
         business_type="Kirana & CSP", kyc_status="pending",
@@ -503,35 +512,35 @@ def ensure_user_seeded(user_id: str, db: Session):
     txns = [
         t_failed,
         models.ServiceActivity(
-            id=str(uuid.uuid4()), user_id=user_id,
+            id=seed_id("txn-paras-dmt-01"), user_id=user_id,
             customer_id=p_paras.id, customer_name=p_paras.name,
             service_name="DMT", status="success", amount=5000.0, commission=22.5,
             reference_id=seed_ref("DMT849201948"),
             created_at=now - timedelta(hours=1)
         ),
         models.ServiceActivity(
-            id=str(uuid.uuid4()), user_id=user_id,
+            id=seed_id("txn-paras-aeps-01"), user_id=user_id,
             customer_id=p_paras.id, customer_name=p_paras.name,
             service_name="AePS", status="success", amount=2000.0, commission=8.0,
             reference_id=seed_ref("AEPS849201882"),
             created_at=now - timedelta(hours=3)
         ),
         models.ServiceActivity(
-            id=str(uuid.uuid4()), user_id=user_id,
+            id=seed_id("txn-verma-bbps-01"), user_id=user_id,
             customer_id=p_verma.id, customer_name=p_verma.name,
             service_name="BBPS", status="success", amount=1450.0, commission=5.0,
             reference_id=seed_ref("BBPS849201773"),
             created_at=now - timedelta(hours=4)
         ),
         models.ServiceActivity(
-            id=str(uuid.uuid4()), user_id=user_id,
+            id=seed_id("txn-verma-recharge-01"), user_id=user_id,
             customer_id=p_verma.id, customer_name=p_verma.name,
             service_name="Recharge", status="success", amount=299.0, commission=4.5,
             reference_id=seed_ref("RCH849201664"),
             created_at=now - timedelta(hours=5)
         ),
         models.ServiceActivity(
-            id=str(uuid.uuid4()), user_id=user_id,
+            id=seed_id("txn-patel-dmt-01"), user_id=user_id,
             customer_id=p_patel.id, customer_name=p_patel.name,
             service_name="DMT", status="pending", amount=10000.0, commission=45.0,
             reference_id=seed_ref("DMT849201555"),
@@ -539,39 +548,69 @@ def ensure_user_seeded(user_id: str, db: Session):
             created_at=now - timedelta(hours=6)
         ),
         models.ServiceActivity(
-            id=str(uuid.uuid4()), user_id=user_id,
+            id=seed_id("txn-gupta-aeps-01"), user_id=user_id,
             customer_id=p_gupta.id, customer_name=p_gupta.name,
             service_name="AePS", status="success", amount=3000.0, commission=12.0,
             reference_id=seed_ref("AEPS849201446"),
             created_at=now - timedelta(hours=7)
         ),
         models.ServiceActivity(
-            id=str(uuid.uuid4()), user_id=user_id,
+            id=seed_id("txn-sharma-dmt-01"), user_id=user_id,
             customer_id=p_sharma.id, customer_name=p_sharma.name,
             service_name="DMT", status="success", amount=7500.0, commission=33.5,
             reference_id=seed_ref("DMT849201337"),
             created_at=now - timedelta(hours=8)
         ),
         models.ServiceActivity(
-            id=str(uuid.uuid4()), user_id=user_id,
+            id=seed_id("txn-gupta-bbps-01"), user_id=user_id,
             customer_id=p_gupta.id, customer_name=p_gupta.name,
             service_name="BBPS", status="success", amount=3200.0, commission=10.0,
             reference_id=seed_ref("BBPS849201228"),
             created_at=now - timedelta(days=1)
         ),
         models.ServiceActivity(
-            id=str(uuid.uuid4()), user_id=user_id,
+            id=seed_id("txn-rahul-aeps-01"), user_id=user_id,
             customer_id=p_rahul.id, customer_name=p_rahul.name,
             service_name="AePS-Mini Statement", status="success", amount=0.0, commission=0.0,
             reference_id=seed_ref("AEPS849201020"),
             created_at=now - timedelta(hours=10)
         ),
         models.ServiceActivity(
-            id=str(uuid.uuid4()), user_id=user_id,
+            id=seed_id("txn-paras-dmt-02"), user_id=user_id,
             customer_id=p_paras.id, customer_name=p_paras.name,
             service_name="DMT", status="success", amount=4200.0, commission=18.0,
             reference_id=seed_ref("DMT849201119"),
             created_at=now - timedelta(days=1)
+        ),
+        models.ServiceActivity(
+            id=seed_id("txn-sharma-bbps-01"), user_id=user_id,
+            customer_id=p_sharma.id, customer_name=p_sharma.name,
+            service_name="BBPS", status="failed", amount=850.0, commission=0.0,
+            reference_id=seed_ref("BBPS849201010"),
+            failure_reason="Biller acknowledgement timed out before confirmation.",
+            created_at=now - timedelta(hours=9)
+        ),
+        models.ServiceActivity(
+            id=seed_id("txn-gupta-recharge-01"), user_id=user_id,
+            customer_id=p_gupta.id, customer_name=p_gupta.name,
+            service_name="Mobile Recharge", status="failed", amount=399.0, commission=0.0,
+            reference_id=seed_ref("RCH849201001"),
+            failure_reason="Operator gateway rejected the recharge request.",
+            created_at=now - timedelta(hours=11)
+        ),
+        models.ServiceActivity(
+            id=seed_id("txn-rahul-dmt-01"), user_id=user_id,
+            customer_id=p_rahul.id, customer_name=p_rahul.name,
+            service_name="DMT", status="success", amount=1500.0, commission=7.5,
+            reference_id=seed_ref("DMT849200990"),
+            created_at=now - timedelta(hours=13)
+        ),
+        models.ServiceActivity(
+            id=seed_id("txn-verma-dmt-01"), user_id=user_id,
+            customer_id=p_verma.id, customer_name=p_verma.name,
+            service_name="DMT", status="success", amount=2800.0, commission=12.6,
+            reference_id=seed_ref("DMT849200989"),
+            created_at=now - timedelta(hours=14)
         ),
     ]
     for t in txns:
@@ -580,7 +619,7 @@ def ensure_user_seeded(user_id: str, db: Session):
 
     # 3. Operational Complaints with realistic SLAs
     c_urgent = models.Complaint(
-        id=str(uuid.uuid4()), user_id=user_id,
+        id=seed_id("complaint-sharma-aeps"), user_id=user_id,
         customer_id=p_sharma.id, transaction_id=t_failed.id,
         subject="TXN-DEMO-1001 AePS Switch Timeout",
         description="Biometric timeout on ₹2,500 withdrawal at Sharma Telecom. Customer account debited but cash dispenser did not dispense. Bank reversal escalation required.",
@@ -589,7 +628,7 @@ def ensure_user_seeded(user_id: str, db: Session):
         created_at=now - timedelta(hours=1)
     )
     c_high = models.Complaint(
-        id=str(uuid.uuid4()), user_id=user_id,
+        id=seed_id("complaint-patel-settlement"), user_id=user_id,
         customer_id=p_patel.id, transaction_id=None,
         subject="Commercial Settlement Delay — Patel Enterprise",
         description="Pending settlement cycle reconciliation of ₹32,000 awaiting nodal account clearance confirmation.",
@@ -598,15 +637,33 @@ def ensure_user_seeded(user_id: str, db: Session):
         created_at=now - timedelta(hours=6)
     )
     c_med = models.Complaint(
-        id=str(uuid.uuid4()), user_id=user_id,
-        customer_id=p_verma.id, transaction_id=None,
+        id=seed_id("complaint-verma-bbps"), user_id=user_id,
+        customer_id=p_verma.id, transaction_id=txns[3].id,
         subject="BBPS Biller Reversal Verification",
         description="Electricity bill payment of ₹1,450 for BSES Rajdhani processed, consumer requested physical receipt copy.",
         status="acknowledged", priority="medium",
         sla_deadline=now + timedelta(hours=36),
         created_at=now - timedelta(hours=12)
     )
-    complaints = [c_urgent, c_high, c_med]
+    c_bbps = models.Complaint(
+        id=seed_id("complaint-sharma-bbps"), user_id=user_id,
+        customer_id=p_sharma.id, transaction_id=txns[11].id,
+        subject="BBPS Confirmation Timeout — Sharma Telecom",
+        description="The biller acknowledgement timed out for the linked BBPS payment and requires status reconciliation.",
+        status="open", priority="high",
+        sla_deadline=now + timedelta(hours=12),
+        created_at=now - timedelta(hours=9)
+    )
+    c_recharge = models.Complaint(
+        id=seed_id("complaint-gupta-recharge"), user_id=user_id,
+        customer_id=p_gupta.id, transaction_id=txns[12].id,
+        subject="Recharge Gateway Rejection — Gupta Digital Services",
+        description="The linked mobile recharge was rejected by the operator gateway and needs retry confirmation.",
+        status="in_progress", priority="medium",
+        sla_deadline=now + timedelta(hours=24),
+        created_at=now - timedelta(hours=11)
+    )
+    complaints = [c_urgent, c_high, c_med, c_bbps, c_recharge]
     for c in complaints:
         db.add(c)
     db.commit()
@@ -614,7 +671,7 @@ def ensure_user_seeded(user_id: str, db: Session):
     # 4. Operational Notifications (linked to entities)
     notifs = [
         models.OperationalNotification(
-            id=str(uuid.uuid4()), user_id=user_id,
+            id=seed_id("notification-sharma-aeps"), user_id=user_id,
             title="Urgent: Failed AePS Transaction Alert",
             message=f"₹2,500 AePS transaction failed for {p_sharma.name}. Switch timeout requires immediate escalation.",
             category="alert", priority="urgent",
@@ -622,7 +679,7 @@ def ensure_user_seeded(user_id: str, db: Session):
             created_at=now - timedelta(hours=2)
         ),
         models.OperationalNotification(
-            id=str(uuid.uuid4()), user_id=user_id,
+            id=seed_id("notification-sharma-sla"), user_id=user_id,
             title="SLA Warning: 3h Remaining",
             message=f"Complaint '{c_urgent.subject}' has only 3 hours left before SLA breach.",
             category="complaint", priority="high",
@@ -630,12 +687,36 @@ def ensure_user_seeded(user_id: str, db: Session):
             created_at=now - timedelta(hours=1)
         ),
         models.OperationalNotification(
-            id=str(uuid.uuid4()), user_id=user_id,
+            id=seed_id("notification-rahul-kyc"), user_id=user_id,
             title="KYC Verification Pending",
             message=f"{p_rahul.name} document submission awaiting operational field verification.",
             category="reminder", priority="medium",
             deep_link=f"/partners/{p_rahul.id}",
             created_at=now - timedelta(hours=4)
+        ),
+        models.OperationalNotification(
+            id=seed_id("notification-sharma-bbps"), user_id=user_id,
+            title="BBPS Confirmation Needs Review",
+            message=f"{p_sharma.name} has a BBPS acknowledgement timeout linked to a high-priority complaint.",
+            category="complaint", priority="high",
+            deep_link=f"/complaints/{c_bbps.id}",
+            created_at=now - timedelta(hours=8)
+        ),
+        models.OperationalNotification(
+            id=seed_id("notification-gupta-recharge"), user_id=user_id,
+            title="Recharge Gateway Rejection",
+            message=f"{p_gupta.name} has a failed mobile recharge awaiting retry confirmation.",
+            category="alert", priority="medium",
+            deep_link=f"/transactions/{txns[12].id}",
+            created_at=now - timedelta(hours=10)
+        ),
+        models.OperationalNotification(
+            id=seed_id("notification-patel-settlement"), user_id=user_id,
+            title="Settlement Reconciliation Pending",
+            message=f"{p_patel.name} settlement reconciliation remains linked to an open operational complaint.",
+            category="reminder", priority="high",
+            deep_link=f"/complaints/{c_high.id}",
+            created_at=now - timedelta(hours=5)
         ),
     ]
     for n in notifs:
@@ -644,7 +725,7 @@ def ensure_user_seeded(user_id: str, db: Session):
     # 5. Connected Operational Tasks
     tasks = [
         models.Task(
-            id=str(uuid.uuid4()), user_id=user_id,
+            id=seed_id("task-sharma-aeps"), user_id=user_id,
             customer_id=p_sharma.id,
             title="Follow up with bank desk on AePS TXN-DEMO-1001",
             due_date=(now + timedelta(hours=2)).strftime("%Y-%m-%d"),
@@ -652,7 +733,7 @@ def ensure_user_seeded(user_id: str, db: Session):
             created_at=now - timedelta(hours=1)
         ),
         models.Task(
-            id=str(uuid.uuid4()), user_id=user_id,
+            id=seed_id("task-rahul-kyc"), user_id=user_id,
             customer_id=p_rahul.id,
             title="Complete on-site KYC verification for Rahul Kumar",
             due_date=(now + timedelta(days=1)).strftime("%Y-%m-%d"),
@@ -660,12 +741,36 @@ def ensure_user_seeded(user_id: str, db: Session):
             created_at=now - timedelta(hours=4)
         ),
         models.Task(
-            id=str(uuid.uuid4()), user_id=user_id,
+            id=seed_id("task-paras-float"), user_id=user_id,
             customer_id=p_paras.id,
             title="Audit daily float balance at Paras General Store",
             due_date=(now + timedelta(days=2)).strftime("%Y-%m-%d"),
             completed=True, priority="medium",
             created_at=now - timedelta(days=1)
+        ),
+        models.Task(
+            id=seed_id("task-sharma-bbps"), user_id=user_id,
+            customer_id=p_sharma.id,
+            title="Reconcile BBPS acknowledgement for Sharma Telecom",
+            due_date=(now + timedelta(days=1)).strftime("%Y-%m-%d"),
+            completed=False, priority="high",
+            created_at=now - timedelta(hours=8)
+        ),
+        models.Task(
+            id=seed_id("task-gupta-recharge"), user_id=user_id,
+            customer_id=p_gupta.id,
+            title="Retry failed mobile recharge for Gupta Digital Services",
+            due_date=(now + timedelta(days=1)).strftime("%Y-%m-%d"),
+            completed=False, priority="medium",
+            created_at=now - timedelta(hours=10)
+        ),
+        models.Task(
+            id=seed_id("task-patel-settlement"), user_id=user_id,
+            customer_id=p_patel.id,
+            title="Confirm Patel Enterprise settlement clearance",
+            due_date=(now + timedelta(days=2)).strftime("%Y-%m-%d"),
+            completed=False, priority="high",
+            created_at=now - timedelta(hours=5)
         ),
     ]
     for tk in tasks:
@@ -674,16 +779,28 @@ def ensure_user_seeded(user_id: str, db: Session):
     # 6. Operational Field Notes
     notes = [
         models.Note(
-            id=str(uuid.uuid4()), user_id=user_id,
+            id=seed_id("note-sharma-network"), user_id=user_id,
             customer_id=p_sharma.id,
             content="Sharma Telecom operator reported intermittent NPCI network latency around 2 PM today. Keep monitoring AePS success rates.",
             created_at=now - timedelta(hours=2)
         ),
         models.Note(
-            id=str(uuid.uuid4()), user_id=user_id,
+            id=seed_id("note-paras-float"), user_id=user_id,
             customer_id=p_paras.id,
             content="Paras store owner requested higher daily DMT threshold (+₹50,000) ahead of upcoming festive season.",
             created_at=now - timedelta(days=1)
+        ),
+        models.Note(
+            id=seed_id("note-verma-bbps"), user_id=user_id,
+            customer_id=p_verma.id,
+            content="Verma Communication Hub confirmed the BBPS receipt request and needs follow-up after biller reconciliation.",
+            created_at=now - timedelta(hours=12)
+        ),
+        models.Note(
+            id=seed_id("note-rahul-kyc"), user_id=user_id,
+            customer_id=p_rahul.id,
+            content="Rahul Kumar submitted onboarding documents; physical KYC verification remains pending.",
+            created_at=now - timedelta(hours=4)
         ),
     ]
     for nt in notes:
@@ -693,7 +810,7 @@ def ensure_user_seeded(user_id: str, db: Session):
     for p in all_partners:
         score_val, risk, conf, factors, recs = calculate_dynamic_score(db, user_id, p.id)
         db.add(models.CreditScore(
-            id=str(uuid.uuid4()), user_id=user_id, customer_id=p.id,
+            id=seed_id(f"credit-{p.id}"), user_id=user_id, customer_id=p.id,
             customer_name=p.name, score=score_val or 75.0, risk_bracket=risk if score_val else "LOW",
             confidence=conf, factors=json.dumps(factors), recommendations=recs
         ))
@@ -705,17 +822,70 @@ def ensure_user_seeded(user_id: str, db: Session):
 @app.get("/api/health")
 def health():
     db_ok = database.check_db_connection()
-    ai_ok = bool(GEMINI_API_KEY or os.getenv("OPENAI_API_KEY"))
+    configured_provider = os.getenv("AI_PROVIDER", "ollama").lower()
+    has_optional_hosted = bool(
+        os.getenv("GEMINI_API_KEY", "").strip() or
+        os.getenv("OPENAI_API_KEY", "").strip()
+    )
+    ai_ok = configured_provider in ("ollama", "local", "local-llm", "deterministic") or has_optional_hosted
+    ollama_model = os.getenv("OLLAMA_MODEL", "qwen3:4b")
     return {
         "status": "ok" if db_ok else "degraded",
         "service": "Eko Partner Operations API",
-        "version": "1.2.0",
+        "version": "1.3.0",
         "environment": ENVIRONMENT,
         "ai_configured": ai_ok,
-        "ai_provider": os.getenv("AI_PROVIDER", "gemini" if GEMINI_API_KEY else "local"),
-        "ai_model": GEMINI_MODEL,
+        "ai_provider": configured_provider,
+        "ai_model": ollama_model if configured_provider in ("ollama", "local-llm") else ("database-grounded" if configured_provider in ("local", "deterministic") else "hosted"),
         "auth_configured": bool(GOOGLE_CLIENT_ID),
         "database": "connected" if db_ok else "disconnected",
+    }
+
+
+@app.get("/api/ai/health")
+def ai_health():
+    """
+    Safe AI health check — never returns API keys, tokens, or secrets.
+    Distinguishes LIVE AI from DEMO FALLBACK.
+    """
+    configured_provider = os.getenv("AI_PROVIDER", "ollama").lower()
+    ollama_url = os.getenv("OLLAMA_BASE_URL", "http://127.0.0.1:11434")
+    ollama_model = os.getenv("OLLAMA_MODEL", "qwen3:4b")
+
+    # Determine live vs fallback
+    is_local_llm = configured_provider in ("ollama", "local-llm")
+    has_optional_hosted = bool(
+        os.getenv("GEMINI_API_KEY", "").strip() or
+        os.getenv("OPENAI_API_KEY", "").strip()
+    )
+    is_deterministic = configured_provider in ("local", "deterministic")
+
+    if is_local_llm:
+        ai_mode = "live_ai"
+        provider_display = "ollama_local"
+        model_display = ollama_model
+        status_msg = "healthy"
+    elif has_optional_hosted:
+        ai_mode = "live_ai"
+        provider_display = configured_provider
+        model_display = os.getenv("AI_MODEL", os.getenv("GEMINI_MODEL", "hosted"))
+        status_msg = "healthy"
+    else:
+        ai_mode = "demo_fallback"
+        provider_display = "deterministic"
+        model_display = "database-grounded"
+        status_msg = "fallback_only"
+
+    return {
+        "configured": True,
+        "provider": provider_display,
+        "model": model_display,
+        "status": status_msg,
+        "ai_mode": ai_mode,
+        "multilingual": True,
+        "languages": ["en", "hi", "hinglish"],
+        "grounded": True,
+        "note": "AI provider credentials are never returned in this endpoint."
     }
 
 @app.get("/api/ready")
@@ -723,7 +893,7 @@ def ready():
     db_ok = database.check_db_connection()
     if not db_ok:
         raise HTTPException(status_code=503, detail="Database not ready")
-    return {"status": "ready", "version": "1.2.0"}
+    return {"status": "ready", "version": "1.3.0"}
 
 @app.post("/api/demo/reset")
 def reset_demo(user_id: str = Depends(verify_user_id), db: Session = Depends(database.get_db)):
@@ -1253,9 +1423,36 @@ def simulate_credit_score(body: CreditSimulationRequest, user_id: str = Depends(
     }
 
 # ─── Ask Eko AI Core (Refined for Historical Retrieval & Structured Output) ──
+@app.post("/api/ai/ask-eko", response_model=AskEkoResponse)
 @app.post("/api/ai/ask", response_model=AskEkoResponse)
 async def ask_eko(body: AskEkoRequest, user_id: str = Depends(verify_user_id), db: Session = Depends(database.get_db)):
     """Deep contextual assistant with multi-stage historical retrieval and provider independence."""
+    if not body.question or not body.question.strip():
+        raise HTTPException(status_code=400, detail="Question cannot be empty.")
+    if len(body.question) > 2000:
+        raise HTTPException(status_code=400, detail="Question exceeds maximum allowed length of 2000 characters.")
+
+    # Defense against prompt injection
+    suspicious_patterns = [
+        "ignore previous instructions",
+        "ignore all instructions",
+        "disregard previous instructions",
+        "you are now a",
+        "print system prompt",
+        "show system prompt",
+        "override safety"
+    ]
+    q_lower = body.question.lower()
+    if any(pattern in q_lower for pattern in suspicious_patterns):
+        return AskEkoResponse(
+            success=False,
+            answer="I am Eko Business Partner Operations Copilot. I cannot process requests that attempt to override my system guidelines or role.",
+            grounded=True,
+            insufficient_data=False,
+            sources=["System Security Filter"],
+            error=AIError(code="PROMPT_INJECTION_DETECTED", message="Security validation failed: prompt injection pattern detected.", retryable=False)
+        )
+
     ensure_user_seeded(user_id, db)
     context_lines = [f"Today's Date: {date.today()}"]
 
@@ -1270,9 +1467,7 @@ async def ask_eko(body: AskEkoRequest, user_id: str = Depends(verify_user_id), d
         customer = find_customer_for_question(db, user_id, body.question)
 
     if customer:
-        context_lines.append(f"Subject Customer Profile: Name={customer.name}, Phone={customer.phone or 'N/A'}, KYC Status={customer.kyc_status}, Business Type={customer.business_type or 'General'}, Amount Due={fmt_inr(customer.amount_due)}")
-        if customer.notes:
-            context_lines.append(f"Customer Notes: {customer.notes}")
+        context_lines.append(f"Subject Customer Profile: Name={customer.name}, KYC Status={customer.kyc_status}, Business Type={customer.business_type or 'General'}, Amount Due={fmt_inr(customer.amount_due)}")
 
         # Credit Score and factors
         score_record = db.query(models.CreditScore).filter(
@@ -1394,8 +1589,10 @@ async def ask_eko(body: AskEkoRequest, user_id: str = Depends(verify_user_id), d
             )
 
     ai_provider = get_ai_provider()
-    system_instruction = f"{SYSTEM_PROMPT}\n\nVERIFIED BUSINESS CONTEXT:\n" + "\n".join(context_lines)
-    prompt = f"User Question: {body.question}\nPrevious History: {body.history}"
+    provider_name = type(ai_provider).__name__
+    provider_model = getattr(ai_provider, "model_name", None)
+    system_instruction = f"{SYSTEM_PROMPT}\n\n<VERIFIED_DATABASE_CONTEXT>\n" + "\n".join(context_lines) + "\n</VERIFIED_DATABASE_CONTEXT>"
+    prompt = f"<USER_QUESTION>\n{body.question}\n</USER_QUESTION>\nPrevious History: {body.history}"
 
     try:
         res_data = await ai_provider.generate(system_instruction, prompt, timeout=25.0)
@@ -1414,6 +1611,9 @@ async def ask_eko(body: AskEkoRequest, user_id: str = Depends(verify_user_id), d
             sources=res_data.get("sources", ["Eko Core Database"]),
             confidence=float(res_data.get("confidence", 0.95)),
             data_mode="online",
+            ai_mode="live_ai",
+            ai_provider=provider_name,
+            ai_model=provider_model,
             grounded=res_data.get("grounded", True),
             insufficient_data=res_data.get("insufficient_data", False),
             missing_info=res_data.get("missing_info")
@@ -1436,6 +1636,9 @@ async def ask_eko(body: AskEkoRequest, user_id: str = Depends(verify_user_id), d
             sources=["Local Database Cache"],
             confidence=0.8,
             data_mode="grounded-local",
+            ai_mode="demo_fallback",
+            ai_provider="deterministic",
+            ai_model="database-grounded",
             grounded=True,
             insufficient_data=fallback_res.get("insufficient_data", True),
             missing_info=fallback_res.get("missing_info", "Cloud reasoning connection paused"),

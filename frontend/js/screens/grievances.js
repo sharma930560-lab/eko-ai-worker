@@ -246,7 +246,7 @@ async function showComplaintDetail(id) {
                         ${renderIcon('rotate-ccw', 16)} Re-open Complaint
                     </button>
                 `}
-                <button class="btn-ghost" onclick="closeModal('customer-detail-modal'); if (typeof setAiContext === 'function') setAiContext({ complaint_id: '${c.id}', customer_id: '${c.customer_id || ''}', label: 'Complaint: ' + ${JSON.stringify(c.subject || '')} }); navigateTo('ask-eko'); sendToEko(null, 'Draft support message for complaint ${c.id}: ${escapeHtml(c.subject).replace(/'/g, "\\'")}');">
+                <button class="btn-ghost" onclick="closeModal('customer-detail-modal'); if (typeof setAiContext === 'function') setAiContext({ complaint_id: '${c.id}', customer_id: '${c.customer_id || ''}', label: 'Complaint' }); navigateTo('ask-eko'); sendToEko(null, 'Draft support message for complaint ${c.id}: ${escapeHtml(c.subject).replace(/'/g, "\\'")}');">
                     ${renderIcon('sparkles', 16)} Ask Eko to Draft Customer Response
                 </button>
             </div>

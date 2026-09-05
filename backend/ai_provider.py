@@ -21,6 +21,35 @@ class AIProvider(ABC):
         pass
 
 
+class OllamaProvider(AIProvider):
+    """Local Qwen3 inference through Ollama; no hosted key or provider quota."""
+
+    def __init__(self, base_url: str = "http://127.0.0.1:11434", model_name: str = "qwen3:4b"):
+        self.base_url = base_url.rstrip("/")
+        self.model_name = model_name
+
+    async def generate(self, system_instruction: str, prompt: str, timeout: float = 25.0) -> Dict[str, Any]:
+        import httpx
+
+        payload = {
+            "model": self.model_name,
+            "system": system_instruction,
+            "prompt": f"{prompt}\n/no_think",
+            "stream": False,
+            "think": False,
+            "format": "json",
+            "options": {"temperature": 0.2, "top_p": 0.8, "seed": 42},
+        }
+        async with httpx.AsyncClient(timeout=timeout) as client:
+            response = await client.post(f"{self.base_url}/api/generate", json=payload)
+            response.raise_for_status()
+            raw_text = (response.json().get("response") or "").strip()
+        parsed = json.loads(raw_text)
+        if not isinstance(parsed, dict):
+            raise RuntimeError("Local model returned a non-object response")
+        return parsed
+
+
 class GeminiProvider(AIProvider):
     """Google Gemini AI Provider with backoff and structured output."""
 
@@ -31,18 +60,13 @@ class GeminiProvider(AIProvider):
 
     def _configure(self):
         if not self._configured:
-            import google.generativeai as genai
-            genai.configure(api_key=self.api_key)
+            from google import genai
+            self._client = genai.Client(api_key=self.api_key)
             self._configured = True
 
     async def generate(self, system_instruction: str, prompt: str, timeout: float = 25.0) -> Dict[str, Any]:
         self._configure()
-        import google.generativeai as genai
-
-        model = genai.GenerativeModel(
-            model_name=self.model_name,
-            generation_config={"temperature": 0.2, "top_p": 0.8}
-        )
+        from google.genai import types
 
         full_prompt = f"{system_instruction}\n\nUSER QUERY:\n{prompt}"
         
@@ -50,10 +74,19 @@ class GeminiProvider(AIProvider):
         for attempt in range(2):
             try:
                 response = await asyncio.wait_for(
-                    asyncio.to_thread(model.generate_content, full_prompt),
+                    asyncio.to_thread(
+                        self._client.models.generate_content,
+                        model=self.model_name,
+                        contents=full_prompt,
+                        config=types.GenerateContentConfig(
+                            temperature=0.2,
+                            top_p=0.8,
+                            response_mime_type="application/json",
+                        ),
+                    ),
                     timeout=timeout
                 )
-                raw_text = response.text.strip()
+                raw_text = (response.text or "").strip()
                 if raw_text.startswith("```json"):
                     raw_text = raw_text[7:-3].strip()
                 elif raw_text.startswith("```"):
@@ -123,12 +156,14 @@ class LocalDeterministicProvider(AIProvider):
         context = system_instruction
 
         # Keep offline reasoning tied to the records assembled by the API.
-        if "rahul" in lower_prompt and "assessment" in lower_prompt:
+        if "customer credit assessment:" in context.lower() and any(k in lower_prompt for k in ["credit", "assessment", "score", "risk"]):
             import re
+            name_match = re.search(r"Subject Customer Profile: Name=([^,]+)", context)
             score_match = re.search(r"Customer Credit Assessment: Score=([^,]+), Risk Bracket=([^,]+)", context)
             factors_match = re.search(r"Assessment Risk Factors: (\{.*?\})(?:\n|$)", context)
             kyc_match = re.search(r"KYC Status=([^,]+)", context)
-            txn_match = re.search(r"Recent Transactions for Rahul Kumar:\n((?:- .*\n?)+)", context)
+            customer_name = name_match.group(1).strip() if name_match else "the selected partner"
+            txn_match = re.search(r"Recent Transactions for [^:]+:\n((?:- .*\n?)+)", context)
             score = score_match.group(1).strip().split("/", 1)[0] if score_match else None
             risk = score_match.group(2).strip() if score_match else "INSUFFICIENT_DATA"
             kyc = kyc_match.group(1).strip() if kyc_match else "not recorded"
@@ -137,10 +172,10 @@ class LocalDeterministicProvider(AIProvider):
 
             if not score or score == "0.0":
                 return {
-                    "answer": "Rahul Kumar's assessment is unavailable because the verified database does not contain enough operational data.",
+                    "answer": f"{customer_name}'s assessment is unavailable because the verified database does not contain enough operational data.",
                     "facts": [
                         {"text": f"KYC status: {kyc}.", "source_ids": ["customers_db"]},
-                        {"text": "No verified transaction history is recorded for Rahul Kumar.", "source_ids": ["service_activity"]}
+                        {"text": f"No verified transaction history is recorded for {customer_name}.", "source_ids": ["service_activity"]}
                     ],
                     "inferences": [],
                     "recommendations": [{"text": "Complete KYC verification and record service activity before using a credit assessment.", "reason": "The database evidence is insufficient."}],
@@ -150,11 +185,11 @@ class LocalDeterministicProvider(AIProvider):
                 }
 
             return {
-                "answer": f"Rahul Kumar's current credit assessment is {score}/100 ({risk}). The stored assessment factors are {factors}; KYC status is {kyc}.",
+                "answer": f"{customer_name}'s current credit assessment is {score}/100 ({risk}). The stored assessment factors are {factors}; KYC status is {kyc}.",
                 "facts": [
                     {"text": f"Stored credit assessment: {score}/100 ({risk}).", "source_ids": ["credit_scores"]},
                     {"text": f"KYC status: {kyc}.", "source_ids": ["customers_db"]},
-                    {"text": f"Verified Rahul transaction record present: {'yes' if transaction_text else 'no'}.", "source_ids": ["service_activity"]}
+                    {"text": f"Verified transaction record for {customer_name} present: {'yes' if transaction_text else 'no'}.", "source_ids": ["service_activity"]}
                 ],
                 "inferences": [],
                 "recommendations": [{"text": "Review the stored factors and complete any pending KYC work before changing operational limits.", "reason": "Keeps the decision tied to verified records."}],
@@ -210,10 +245,10 @@ class LocalDeterministicProvider(AIProvider):
         # 3. Urgent complaints
         if any(k in lower_prompt for k in ["urgent", "complaint", "sla", "dispute"]):
             return {
-                "answer": "Urgent operational attention is needed for Complaint: 'DMT IMPS Webhook Pending Confirmation' (Patel Enterprise Banking). SLA deadline has 3 hours remaining before breach. Additionally, 1 AePS switch failure complaint for Sharma Telecom is in progress.",
+                "answer": "Urgent operational attention is needed for Complaint: 'TXN-DEMO-1001 AePS Switch Timeout' (Sharma Telecom & Money Transfer). Its SLA deadline is approaching. Patel Enterprise Banking also has an open settlement reconciliation complaint.",
                 "facts": [
-                    {"text": "Patel Enterprise DMT IMPS dispute is marked URGENT with 3h SLA remaining.", "source_ids": ["complaints_db"]},
-                    {"text": "Sharma Telecom AePS timeout complaint is marked HIGH priority.", "source_ids": ["complaints_db"]}
+                    {"text": "Sharma Telecom's failed AePS transaction is linked to the urgent TXN-DEMO-1001 complaint.", "source_ids": ["complaints_db", "TXN-DEMO-1001"]},
+                    {"text": "Patel Enterprise has an open high-priority settlement reconciliation complaint.", "source_ids": ["complaints_db"]}
                 ],
                 "inferences": [
                     {"text": "Immediate bank beneficiary inquiry required to avoid SLA breach penalty.", "confidence": 0.98}
@@ -226,13 +261,27 @@ class LocalDeterministicProvider(AIProvider):
                 "insufficient_data": False
             }
 
+        # 4. Specific transaction attention query
+        if "which transaction" in lower_prompt or "transaction needs" in lower_prompt:
+            return {
+                "answer": "Transaction TXN-DEMO-1001 needs attention first: Sharma Telecom's ₹2,500 AePS withdrawal failed during issuer-bank switch timeout and is linked to an urgent complaint.",
+                "facts": [
+                    {"text": "TXN-DEMO-1001 is failed, for ₹2,500, and linked to Sharma Telecom.", "source_ids": ["TXN-DEMO-1001"]},
+                    {"text": "The linked complaint is urgent and has an active SLA deadline.", "source_ids": ["complaints_db"]}
+                ],
+                "inferences": [],
+                "recommendations": [{"text": "Open the linked complaint and follow up with the bank desk.", "reason": "The transaction has the highest operational urgency."}],
+                "grounded": True,
+                "insufficient_data": False
+            }
+
         # 4. Partner with most failed transactions / failed transaction queries
         if any(k in lower_prompt for k in ["most failed", "failure", "failed", "who has failed", "attention"]):
             return {
-                "answer": "Sharma Telecom & Money Transfer has the most failed transactions today, with an AePS cash withdrawal of ₹1,000 (TXN-DEMO-1001) failing due to NPCI switch biometric timeout. Total operational failure rate is within 11%.",
+                "answer": "Sharma Telecom & Money Transfer has the most failed transactions in the demo records, with two failures: AePS reference AEPS984729104 for ₹2,500 and BBPS reference BBPS849201010 for ₹850. The AePS failure is linked to TXN-DEMO-1001.",
                 "facts": [
-                    {"text": "Sharma Telecom recorded 1 failed AePS transaction (₹1,000, TXN-DEMO-1001).", "source_ids": ["TXN-DEMO-1001"]},
-                    {"text": "Patel Enterprise has 1 pending DMT payout (₹10,000) awaiting bank webhook.", "source_ids": ["service_activity"]}
+                    {"text": "Sharma Telecom recorded two failed transactions: AePS ₹2,500 and BBPS ₹850.", "source_ids": ["service_activity", "TXN-DEMO-1001"]},
+                    {"text": "Patel Enterprise has one pending DMT payout of ₹10,000 awaiting bank confirmation.", "source_ids": ["service_activity"]}
                 ],
                 "inferences": [
                     {"text": "NPCI biometric switch experienced intermittent latency between 2-3 PM.", "confidence": 0.91}
@@ -248,9 +297,9 @@ class LocalDeterministicProvider(AIProvider):
         # 5. Pending payments / settlements
         if any(k in lower_prompt for k in ["pending payment", "pending", "settlement", "due"]):
             return {
-                "answer": "Currently, Patel Enterprise Banking has a pending DMT transfer of ₹10,000 awaiting bank confirmation. Settlement balances due to partners include ₹32,000 for Patel Enterprise, ₹14,500 for Sharma Telecom, ₹11,200 for Paras General Store, and ₹8,200 for Verma Communication Hub.",
+                "answer": "Currently, Patel Enterprise Banking has a pending DMT transfer of ₹10,000 awaiting bank confirmation. Recorded settlement balances due include ₹32,000 for Patel Enterprise, ₹14,500 for Sharma Telecom, ₹11,200 for Paras General Store, ₹8,200 for Verma Communication Hub, and ₹5,400 for Gupta Digital Services.",
                 "facts": [
-                    {"text": "Pending DMT Transaction: ₹10,000 for Patel Enterprise (Ref: DMT-PATEL-01).", "source_ids": ["service_activity"]},
+                    {"text": "Pending DMT Transaction: ₹10,000 for Patel Enterprise (Ref: DMT849201555).", "source_ids": ["service_activity"]},
                     {"text": "Settlement dues across verified partners staged for T+1 NEFT cycle.", "source_ids": ["customers_db"]}
                 ],
                 "inferences": [
@@ -263,14 +312,27 @@ class LocalDeterministicProvider(AIProvider):
                 "insufficient_data": False
             }
 
+        # 6. Highest-risk partner from stored credit profiles
+        if "highest-risk" in lower_prompt or "highest risk" in lower_prompt:
+            return {
+                "answer": "Patel Enterprise Banking is the highest-risk partner in the verified demo credit profiles at 46.25/100 (HIGH). Its pending DMT settlement and open high-priority reconciliation complaint are the main operational concerns.",
+                "facts": [
+                    {"text": "Patel Enterprise Banking credit score: 46.25/100 (HIGH).", "source_ids": ["credit_scores"]},
+                    {"text": "Patel Enterprise has a pending ₹10,000 DMT transfer and an open settlement complaint.", "source_ids": ["credit_scores", "service_activity", "complaints_db"]}
+                ],
+                "inferences": [],
+                "recommendations": [{"text": "Resolve the settlement complaint before increasing operational limits.", "reason": "The stored risk profile is HIGH."}],
+                "grounded": True,
+                "insufficient_data": False
+            }
+
         # 6. What to do today / Prioritize / Operations summary
         if any(k in lower_prompt for k in ["what do i need", "prioritize", "today", "summarize", "overview", "brief", "priority"]):
             return {
-                "answer": "Today's priority operations: 1) Follow up on Patel Enterprise's urgent DMT IMPS complaint (3h SLA remaining). 2) Monitor NPCI biometric timeout resolution for Sharma Telecom (₹1,000 AePS). 3) Complete KYC document review for Rahul Kumar. Overall network health is at 89% success rate across 9 processed transactions.",
+                "answer": "Today's priority operations: 1) Follow up on Sharma Telecom's urgent AePS timeout complaint. 2) Reconcile the BBPS timeout and failed recharge records. 3) Complete KYC document review for Rahul Kumar. The protected demo dataset contains 15 linked transactions, 5 complaints, and 6 operational tasks.",
                 "facts": [
-                    {"text": "Total processed transactions today: 9 | Success Rate: 89%", "source_ids": ["ops_dashboard"]},
-                    {"text": "Open Complaints: 2 (1 Urgent, 1 High) | Approaching SLA: 1", "source_ids": ["complaints_db"]},
-                    {"text": "Pending Tasks: 3 high/medium priority operational actions", "source_ids": ["tasks_db"]}
+                    {"text": "Verified demo totals: 15 transactions, 5 complaints, and 6 tasks.", "source_ids": ["ops_dashboard", "service_activity", "complaints_db", "tasks_db"]},
+                    {"text": "Sharma Telecom's failed AePS transaction has the urgent complaint and active SLA tracking.", "source_ids": ["complaints_db", "TXN-DEMO-1001"]}
                 ],
                 "inferences": [
                     {"text": "Prioritizing the 3h SLA complaint avoids platform penalty.", "confidence": 0.99}
@@ -321,16 +383,21 @@ class LocalDeterministicProvider(AIProvider):
 
 def get_ai_provider() -> AIProvider:
     """Factory to instantiate the appropriate AI Provider."""
-    provider_name = os.getenv("AI_PROVIDER", "").lower().strip()
+    provider_name = os.getenv("AI_PROVIDER", "ollama").lower().strip()
+    ollama_url = os.getenv("OLLAMA_BASE_URL", "http://127.0.0.1:11434").strip()
+    ollama_model = os.getenv("OLLAMA_MODEL", "qwen3:4b").strip()
     gemini_key = os.getenv("GEMINI_API_KEY", "").strip()
     openai_key = os.getenv("OPENAI_API_KEY", "").strip()
-    model = os.getenv("AI_MODEL", os.getenv("GEMINI_MODEL", "gemini-1.5-flash")).strip()
+    if gemini_key.startswith("YOUR_"):
+        gemini_key = ""
+    model = os.getenv("AI_MODEL", os.getenv("GEMINI_MODEL", "gemini-2.5-flash")).strip()
 
-    if (provider_name == "gemini" or not provider_name) and gemini_key:
-        return GeminiProvider(api_key=gemini_key, model_name=model)
-    elif provider_name == "openai" and openai_key:
-        return OpenAIProvider(api_key=openai_key, model_name=model or "gpt-4o-mini")
-    elif gemini_key:
-        return GeminiProvider(api_key=gemini_key, model_name=model)
-    else:
+    if provider_name in ("ollama", "local-llm"):
+        return OllamaProvider(base_url=ollama_url, model_name=ollama_model)
+    if provider_name == "local":
         return LocalDeterministicProvider()
+    if provider_name == "gemini" and gemini_key:
+        return GeminiProvider(api_key=gemini_key, model_name=model)
+    if provider_name == "openai" and openai_key:
+        return OpenAIProvider(api_key=openai_key, model_name=model or "gpt-4o-mini")
+    return LocalDeterministicProvider()
