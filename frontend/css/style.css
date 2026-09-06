@@ -2380,3 +2380,104 @@ input[type="tel"], textarea, select {
 }
 
 
+
+
+/* ==========================================================================
+   Poster Studio Mobile-First Marketing Editor (v1.4.0)
+   ========================================================================== */
+.poster-editor-container {
+    width: 100%;
+    max-width: 600px;
+    margin: 0 auto;
+    padding: 0 4px 40px 4px;
+}
+.pe-header {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    padding: 8px 4px 12px 4px;
+    gap: 6px;
+}
+.pe-canvas-hero {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    margin-bottom: 12px;
+}
+.pe-canvas-box {
+    background: #0f172a;
+    padding: 10px;
+    border-radius: 16px;
+    box-shadow: 0 8px 28px rgba(0, 0, 0, 0.25);
+    width: 100%;
+    max-width: 380px;
+    display: flex;
+    justify-content: center;
+    align-items: center;
+    position: relative;
+}
+.pe-tabs {
+    display: flex;
+    gap: 6px;
+    overflow-x: auto;
+    padding: 6px 2px;
+    margin-bottom: 12px;
+    -webkit-overflow-scrolling: touch;
+    scrollbar-width: none;
+}
+.pe-tabs::-webkit-scrollbar {
+    display: none;
+}
+.pe-tab-btn {
+    flex: 0 0 auto;
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    padding: 7px 14px;
+    border-radius: 20px;
+    font-size: 12px;
+    font-weight: 600;
+    background: var(--bg);
+    border: 1px solid var(--border);
+    color: var(--text-muted);
+    cursor: pointer;
+    transition: all 0.15s ease;
+    white-space: nowrap;
+}
+.pe-tab-btn:hover {
+    background: var(--surface-hover);
+    color: var(--text-main);
+}
+.pe-tab-btn.active {
+    background: var(--primary);
+    border-color: var(--primary);
+    color: #ffffff;
+    box-shadow: 0 2px 8px rgba(249, 115, 22, 0.25);
+}
+.pe-tab-btn.ai-tab.active {
+    background: #7c3aed;
+    border-color: #7c3aed;
+    box-shadow: 0 2px 8px rgba(124, 58, 237, 0.25);
+}
+.pe-tab-btn.ai-tab:not(.active) {
+    color: #7c3aed;
+    border-color: rgba(124, 58, 237, 0.25);
+}
+.pe-actions-bar {
+    display: grid;
+    grid-template-columns: repeat(4, 1fr);
+    gap: 8px;
+    padding: 6px 0;
+}
+.pe-action-btn {
+    padding: 10px 4px;
+    font-size: 11px;
+    font-weight: 600;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    gap: 4px;
+    border-radius: 10px;
+    cursor: pointer;
+    text-align: center;
+}

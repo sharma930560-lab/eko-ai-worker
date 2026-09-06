@@ -326,6 +326,8 @@ function navigateTo(screen) {
     if (subEl) subEl.textContent = def.subtitle;
 
     content.innerHTML = def.render();
+    content.scrollTop = 0;
+    window.scrollTo(0, 0);
     def.load();
     if (window.lucide) lucide.createIcons();
 }
