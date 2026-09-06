@@ -40,7 +40,7 @@ DEMO_MODE = os.getenv("DEMO_MODE", "false").lower() == "true"
 
 app = FastAPI(
     title="Eko Partner Operations API",
-    version="1.3.0",
+    version="1.4.0",
     description="Intelligent fintech operations assistant for Eko partners.",
 )
 
@@ -1277,7 +1277,7 @@ def health():
     return {
         "status": "ok" if db_ok else "degraded",
         "service": "Eko Partner Operations API",
-        "version": "1.3.0",
+        "version": "1.4.0",
         "commit_sha": git_sha,
         "environment": ENVIRONMENT,
         "ai_configured": ai_ok,
@@ -1347,7 +1347,7 @@ def ready():
     db_ok = database.check_db_connection()
     if not db_ok:
         raise HTTPException(status_code=503, detail="Database not ready")
-    return {"status": "ready", "version": "1.3.0"}
+    return {"status": "ready", "version": "1.4.0"}
 
 @app.post("/api/demo/reset")
 def reset_demo(user_id: str = Depends(verify_user_id), db: Session = Depends(database.get_db)):
