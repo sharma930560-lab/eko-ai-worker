@@ -232,15 +232,85 @@ async function showComplaintDetail(id) {
                 </div>
             ` : ''}
 
+            <!-- Operational Controls (Assign, Status, Category) -->
+            <div class="card mb-4" style="padding:14px; background:var(--bg); border:1px solid var(--border);">
+                <div class="text-xs font-bold text-muted mb-2 uppercase tracking-wider">Operational Controls</div>
+                <div class="grid grid-cols-2 gap-3">
+                    <div>
+                        <label class="text-xs text-muted font-bold mb-1 block">ASSIGNED OWNER</label>
+                        <select class="form-input" style="font-size:12px; padding:6px 10px;" onchange="assignComplaintOwner('${c.id}', this.value)">
+                            <option value="Unassigned" ${!c.assigned_to || c.assigned_to === 'Unassigned' ? 'selected' : ''}>Unassigned</option>
+                            <option value="Rohan Sharma (Field Lead)" ${c.assigned_to === 'Rohan Sharma (Field Lead)' ? 'selected' : ''}>Rohan Sharma (Field Lead)</option>
+                            <option value="Deepak Verma (Switch Ops)" ${c.assigned_to === 'Deepak Verma (Switch Ops)' ? 'selected' : ''}>Deepak Verma (Switch Ops)</option>
+                            <option value="Priya Mehta (Reconciliation)" ${c.assigned_to === 'Priya Mehta (Reconciliation)' ? 'selected' : ''}>Priya Mehta (Reconciliation)</option>
+                            <option value="Amit Joshi (Customer Support)" ${c.assigned_to === 'Amit Joshi (Customer Support)' ? 'selected' : ''}>Amit Joshi (Customer Support)</option>
+                        </select>
+                    </div>
+                    <div>
+                        <label class="text-xs text-muted font-bold mb-1 block">UPDATE STATUS</label>
+                        <select class="form-input" style="font-size:12px; padding:6px 10px;" onchange="changeComplaintStatus('${c.id}', this.value)">
+                            <option value="open" ${c.status === 'open' ? 'selected' : ''}>Open</option>
+                            <option value="in_progress" ${c.status === 'in_progress' ? 'selected' : ''}>In Progress</option>
+                            <option value="waiting_for_customer" ${c.status === 'waiting_for_customer' ? 'selected' : ''}>Waiting for Customer</option>
+                            <option value="escalated" ${c.status === 'escalated' ? 'selected' : ''}>Escalated</option>
+                            <option value="resolved" ${c.status === 'resolved' ? 'selected' : ''}>Resolved</option>
+                            <option value="closed" ${c.status === 'closed' ? 'selected' : ''}>Closed</option>
+                        </select>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Resolution Note (if present) -->
+            ${c.resolution_note ? `
+                <div class="card mb-4" style="padding:14px; background:rgba(16,185,129,0.08); border-left:4px solid var(--success);">
+                    <div class="text-xs font-bold text-success mb-1">${renderIcon('check-circle', 12)} RESOLUTION NOTE</div>
+                    <div class="text-xs" style="color:var(--text-main); line-height:1.5;">${escapeHtml(c.resolution_note)}</div>
+                </div>
+            ` : ''}
+
+            <!-- Investigation Timeline & Operational Notes -->
+            <div class="card mb-4" style="padding:14px; border:1px solid var(--border);">
+                <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:10px;">
+                    <span class="text-xs font-bold text-muted uppercase tracking-wider">${renderIcon('clock', 12)} INVESTIGATION LOG &amp; NOTES</span>
+                    <span class="badge badge-neutral" style="font-size:10px;">${(c.timeline_json ? JSON.parse(c.timeline_json || '[]').length : 0)} Notes</span>
+                </div>
+                <div id="comp-notes-container" style="display:flex; flex-direction:column; gap:8px; max-height:180px; overflow-y:auto; margin-bottom:12px;">
+                    ${(() => {
+                        let parsedNotes = [];
+                        try { parsedNotes = c.timeline_json ? JSON.parse(c.timeline_json) : []; } catch(e) { parsedNotes = []; }
+                        if (parsedNotes.length === 0) {
+                            return `<div class="text-xs text-muted py-1">No operational notes yet. Add first investigation entry below.</div>`;
+                        }
+                        return parsedNotes.map(n => `
+                            <div style="background:var(--bg); padding:8px 10px; border-radius:6px; font-size:12px;">
+                                <div style="display:flex; justify-content:space-between; color:var(--text-muted); font-size:10px; margin-bottom:2px;">
+                                    <strong>${escapeHtml(n.author || 'Operator')}</strong>
+                                    <span>${formatDateTime(n.created_at)}</span>
+                                </div>
+                                <div>${escapeHtml(n.note || n.message || '')}</div>
+                            </div>
+                        `).join('');
+                    })()}
+                </div>
+                <div style="display:flex; gap:6px;">
+                    <input type="text" id="new-comp-note-input" class="form-input" placeholder="Add investigation or follow-up note..." style="font-size:12px;">
+                    <button class="btn-secondary" style="font-size:12px; white-space:nowrap;" onclick="submitComplaintNote('${c.id}')">
+                        ${renderIcon('plus', 12)} Add Note
+                    </button>
+                </div>
+            </div>
+
             <!-- Action Buttons -->
             <div style="display:flex; flex-direction:column; gap:10px; margin-top:20px;">
                 ${!isResolved ? `
-                    <button class="btn-primary" style="background:var(--success); border-color:var(--success);" onclick="resolveComplaint('${c.id}')">
-                        ${renderIcon('check-circle', 16)} Mark as Resolved
-                    </button>
-                    <button class="btn-secondary" onclick="escalateComplaint('${c.id}')">
-                        ${renderIcon('alert-triangle', 16)} Escalate to Operations Head
-                    </button>
+                    <div style="display:flex; gap:10px;">
+                        <button class="btn-primary" style="flex:1; background:var(--success); border-color:var(--success);" onclick="promptResolveComplaint('${c.id}')">
+                            ${renderIcon('check-circle', 16)} Mark as Resolved
+                        </button>
+                        <button class="btn-secondary" style="flex:1;" onclick="escalateComplaint('${c.id}')">
+                            ${renderIcon('alert-triangle', 16)} Escalate (Urgent)
+                        </button>
+                    </div>
                 ` : `
                     <button class="btn-secondary" onclick="reopenComplaint('${c.id}')">
                         ${renderIcon('rotate-ccw', 16)} Re-open Complaint
@@ -257,23 +327,63 @@ async function showComplaintDetail(id) {
     }
 }
 
-async function resolveComplaint(id) {
+async function assignComplaintOwner(id, owner) {
     try {
-        await api.updateComplaint(id, { status: 'resolved' });
-        showToast('Complaint resolved successfully!', 'success');
+        await api.updateComplaint(id, { assigned_to: owner });
+        showToast(`Assigned to ${owner}`, 'success');
+        loadGrievances();
+    } catch(err) {
+        showToast('Assignment failed: ' + (err.message || 'Error'), 'error');
+    }
+}
+
+async function changeComplaintStatus(id, newStatus) {
+    try {
+        await api.updateComplaint(id, { status: newStatus });
+        showToast(`Status updated to ${newStatus}`, 'success');
+        loadGrievances();
+    } catch(err) {
+        showToast('Status update failed: ' + (err.message || 'Error'), 'error');
+    }
+}
+
+async function submitComplaintNote(id) {
+    const input = document.getElementById('new-comp-note-input');
+    if (!input || !input.value.trim()) return;
+    const noteText = input.value.trim();
+    try {
+        await api.addComplaintNote(id, { note: noteText, author: currentUser?.name || 'Operator' });
+        input.value = '';
+        showToast('Operational note recorded.', 'success');
+        showComplaintDetail(id);
+    } catch(err) {
+        showToast('Failed to add note: ' + (err.message || 'Error'), 'error');
+    }
+}
+
+async function promptResolveComplaint(id) {
+    const note = prompt("Enter resolution notes for audit closure (e.g. Beneficiary account credited or refund initiated):", "Transaction reconciled with bank switch and credited to beneficiary account.");
+    if (note === null) return;
+    try {
+        await api.updateComplaint(id, { status: 'resolved', resolution_note: note });
+        showToast('Complaint marked as resolved!', 'success');
         closeModal('customer-detail-modal');
         loadGrievances();
         if (typeof loadHomeScreen === 'function') loadHomeScreen();
     } catch(err) {
-        showToast('Failed to resolve complaint: ' + (err.message || 'Error'), 'error');
+        showToast('Resolution failed: ' + (err.message || 'Error'), 'error');
     }
+}
+
+async function resolveComplaint(id) {
+    promptResolveComplaint(id);
 }
 
 async function escalateComplaint(id) {
     try {
-        await api.updateComplaint(id, { priority: 'urgent', status: 'in_progress' });
+        await api.updateComplaint(id, { priority: 'urgent', status: 'escalated' });
         showToast('Complaint escalated to Urgent status!', 'warning');
-        closeModal('customer-detail-modal');
+        showComplaintDetail(id);
         loadGrievances();
     } catch(err) {
         showToast('Escalation failed: ' + (err.message || 'Error'), 'error');
@@ -282,9 +392,9 @@ async function escalateComplaint(id) {
 
 async function reopenComplaint(id) {
     try {
-        await api.updateComplaint(id, { status: 'pending' });
+        await api.updateComplaint(id, { status: 'open' });
         showToast('Complaint re-opened.', 'info');
-        closeModal('customer-detail-modal');
+        showComplaintDetail(id);
         loadGrievances();
     } catch(err) {
         showToast('Action failed: ' + (err.message || 'Error'), 'error');
@@ -354,6 +464,10 @@ window.loadGrievances = loadGrievances;
 window.showComplaintDetail = showComplaintDetail;
 window.openCreateComplaintModal = openCreateComplaintModal;
 window.resolveComplaint = resolveComplaint;
+window.promptResolveComplaint = promptResolveComplaint;
 window.escalateComplaint = escalateComplaint;
 window.reopenComplaint = reopenComplaint;
+window.assignComplaintOwner = assignComplaintOwner;
+window.changeComplaintStatus = changeComplaintStatus;
+window.submitComplaintNote = submitComplaintNote;
 window.submitCreateComplaint = submitCreateComplaint;

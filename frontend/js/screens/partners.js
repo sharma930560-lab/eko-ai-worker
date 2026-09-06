@@ -195,7 +195,10 @@ function switchPartnerTab(tab) {
 
     if (tab === 'overview') {
         const stats = p.stats || {};
-        content.innerHTML = `
+        const cleanPhone = (p.phone || '').replace(/\D/g, '');
+        const hasValidPhone = cleanPhone.length >= 10;
+
+            content.innerHTML = `
             <div class="metrics-grid mb-4" style="margin-bottom:16px;">
                 <div class="card stat-card" style="padding:12px;">
                     <div class="text-xs text-muted font-bold">SUCCESS RATE</div>
@@ -229,12 +232,30 @@ function switchPartnerTab(tab) {
                 <button class="btn-primary" style="flex:1; min-height:40px; font-size:0.85rem;" onclick="closeModal('customer-detail-modal'); openServiceFlow('dmt');">
                     ${renderIcon('send', 16)} Send Money
                 </button>
+                ${hasValidPhone ? `
+                    <button class="btn-secondary" style="flex:1; min-height:40px; font-size:0.85rem; border-color:#25d366; color:#128c7e; font-weight:700;" onclick="closeModal('customer-detail-modal'); openWhatsAppModal('${p.id}', '${escapeHtml(p.name)}', '${escapeHtml(p.phone)}');">
+                        ${renderIcon('message-circle', 16)} WhatsApp Customer
+                    </button>
+                ` : `
+                    <button class="btn-secondary" disabled style="flex:1; min-height:40px; font-size:0.85rem; opacity:0.55; cursor:not-allowed; border-color:var(--border); color:var(--text-light); font-weight:600;" title="WhatsApp unavailable — customer phone number is missing.">
+                        ${renderIcon('message-circle', 16)} WhatsApp Customer
+                    </button>
+                `}
+                <button class="btn-secondary" style="flex:1; min-height:40px; font-size:0.85rem; border-color:var(--primary); color:var(--primary); font-weight:700;" onclick="closeModal('customer-detail-modal'); openCreditAnalysisModal('${p.id}');">
+                    ${renderIcon('sliders', 16)} Credit Analysis
+                </button>
                 <button class="btn-secondary" style="flex:1; min-height:40px; font-size:0.85rem;" onclick="closeModal('customer-detail-modal'); openCreateComplaintModal(null, '${p.id}', '${escapeHtml(p.name)}');">
                     ${renderIcon('message-square-warning', 16)} Raise Complaint
                 </button>
                 <button class="btn-ghost" style="width:100%; min-height:40px; font-size:0.85rem;" onclick="closeModal('customer-detail-modal'); if (typeof setAiContext === 'function') setAiContext({ customer_id: '${p.id}', label: 'Partner: ${escapeHtml(p.name)}' }); navigateTo('ask-eko'); sendToEko('${p.id}', 'How is ${escapeHtml(p.name)} performing?');">
                     ${renderIcon('sparkles', 16)} Ask Eko About This Partner
                 </button>
+                ${!hasValidPhone ? `
+                    <div style="width:100%; font-size:0.75rem; color:var(--danger, #dc2626); font-weight:600; display:flex; align-items:center; gap:6px; padding:6px 10px; background:var(--danger-bg, #fef2f2); border-radius:6px; margin-top:4px;">
+                        ${renderIcon('alert-circle', 14)}
+                        <span>WhatsApp unavailable — customer phone number is missing.</span>
+                    </div>
+                ` : ''}
             </div>
         `;
     } else if (tab === 'transactions') {
@@ -335,10 +356,13 @@ async function renderPartnerCreditTab(partnerId) {
             </div>
 
             <div style="display:flex; gap:8px; flex-wrap:wrap;">
+                <button class="btn-secondary" style="flex:1; min-height:40px; font-size:0.85rem;" onclick="closeModal('customer-detail-modal'); openCreditAnalysisModal('${partnerId}');">
+                    ${renderIcon('sliders', 16, 'text-primary')} Interactive Analysis
+                </button>
                 <button class="btn-primary" style="flex:1; min-height:40px; font-size:0.85rem;" onclick="refreshPartnerCredit('${partnerId}')">
                     ${renderIcon('rotate-cw', 16)} Recalculate
                 </button>
-                <button class="btn-ghost" style="flex:1; min-height:40px; font-size:0.85rem;" onclick="closeModal('customer-detail-modal'); if (typeof setAiContext === 'function') setAiContext({ customer_id: '${partnerId}', label: 'Credit Analysis: ${escapeHtml(result.customer_name || 'Partner')}' }); navigateTo('ask-eko'); sendToEko('${partnerId}', 'Explain the credit assessment for ${escapeHtml(result.customer_name || 'this partner')}');">
+                <button class="btn-ghost" style="width:100%; min-height:40px; font-size:0.85rem;" onclick="closeModal('customer-detail-modal'); if (typeof setAiContext === 'function') setAiContext({ customer_id: '${partnerId}', label: 'Credit Analysis: ${escapeHtml(result.customer_name || 'Partner')}' }); navigateTo('ask-eko'); sendToEko('${partnerId}', 'Explain the credit assessment for ${escapeHtml(result.customer_name || 'this partner')}');">
                     ${renderIcon('sparkles', 16)} Ask Eko
                 </button>
             </div>

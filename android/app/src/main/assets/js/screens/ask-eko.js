@@ -7,6 +7,7 @@ const QUICK_PROMPTS = [
     { icon: 'sun', label: 'Ops Brief', q: 'Summarize today\'s operations.' },
     { icon: 'alert-triangle', label: 'Failures', q: 'Show today\'s failed transactions.' },
     { icon: 'shield-check', label: 'Credit Analysis', q: 'Why is Rahul\'s assessment lower?' },
+    { icon: 'message-circle', label: 'WhatsApp Studio', q: 'Open WhatsApp Outreach Studio' },
     { icon: 'message-square', label: 'Support Draft', q: 'Draft a message for a pending DMT.' },
 ];
 
@@ -61,7 +62,7 @@ function renderAskEkoScreen() {
         <div style="background:var(--bg); padding-top:10px; border-top:1px solid var(--border);">
             <div class="prompt-chips-wrap" style="display:flex; gap:8px; overflow-x:auto; padding-bottom:8px; margin-bottom:8px; scrollbar-width:none;">
                 ${QUICK_PROMPTS.map(p => `
-                    <button class="chip" style="white-space:nowrap; display:flex; align-items:center; gap:6px;" onclick="sendQuickPrompt('${escapeHtml(p.q).replace(/'/g, "\\'")}')">
+                    <button class="chip" style="white-space:nowrap; display:flex; align-items:center; gap:6px;" onclick="${p.label === 'Credit Analysis' ? 'openCreditAnalysisModal()' : p.label === 'WhatsApp Studio' ? "navigateTo('whatsapp-studio')" : `sendQuickPrompt('${escapeHtml(p.q).replace(/'/g, "\\'")}')`}">
                         ${renderIcon(p.icon, 12, 'text-primary')}
                         <span>${escapeHtml(p.label)}</span>
                     </button>
@@ -309,6 +310,16 @@ function renderStructuredAiResponse(res) {
                     ${renderIcon('alert-triangle', 12)} INFORMATION GAP DETECTED
                 </div>
                 <div class="text-xs mt-0.5" style="color:#78350F;">${escapeHtml(res.missing_info)}</div>
+            </div>`;
+    }
+
+    if (rawAnswer.toLowerCase().includes('credit assessment') || rawAnswer.toLowerCase().includes('credit score') || res.facts?.some(f => (f.text || '').toLowerCase().includes('credit assessment'))) {
+        html += `
+            <div style="margin-top:12px;">
+                <button class="btn-secondary" style="width:100%; min-height:40px; font-size:0.85rem; display:flex; align-items:center; justify-content:center; gap:8px;" onclick="openCreditAnalysisModal()">
+                    ${renderIcon('sliders', 16, 'text-primary')}
+                    <span>Open Interactive Credit Analysis Tool</span>
+                </button>
             </div>`;
     }
 

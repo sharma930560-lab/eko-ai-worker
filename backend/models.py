@@ -85,10 +85,15 @@ class Complaint(Base):
     transaction_id = Column(String, index=True, nullable=True)
     subject = Column(String, nullable=False)
     description = Column(Text, nullable=False)
-    status = Column(String, default="open")  # open | acknowledged | in_progress | resolved | escalated | closed
+    status = Column(String, default="open")  # open | acknowledged | in_progress | resolved | escalated | closed | waiting_for_customer
     priority = Column(String, default="medium")
+    category = Column(String, nullable=True)  # txn_failure | switch_timeout | reconciliation | settlement | service
+    assigned_to = Column(String, nullable=True)
+    resolution_note = Column(Text, nullable=True)
+    timeline_json = Column(Text, nullable=True)
     sla_deadline = Column(DateTime(timezone=True), nullable=True)
     created_at = Column(DateTime(timezone=True), server_default=func.now())
+
 
 
 class CreditScore(Base):
@@ -213,3 +218,39 @@ class Offer(Base):
     valid_until = Column(String, nullable=True)
     active = Column(Boolean, default=True)
     created_at = Column(DateTime(timezone=True), server_default=func.now())
+
+
+class WhatsAppOutreach(Base):
+    __tablename__ = "whatsapp_outreach"
+
+    id = Column(String, primary_key=True, default=new_id)
+    user_id = Column(String, index=True, nullable=False)
+    customer_id = Column(String, index=True, nullable=True)
+    customer_name = Column(String, nullable=False)
+    customer_phone = Column(String, nullable=False)
+    template_type = Column(String, default="custom")  # kyc_reminder | payment_reminder | settlement_notice | dispute_update | offer | custom
+    message = Column(Text, nullable=False)
+    status = Column(String, default="pending")  # draft | pending | whatsapp_opened | sent | failed | cancelled
+    reminder_frequency = Column(String, default="none")  # none | once | 4hours | daily | paused | completed
+    reminder_active = Column(Boolean, default=False)
+    last_reminded_at = Column(DateTime(timezone=True), nullable=True)
+    sent_at = Column(DateTime(timezone=True), nullable=True)
+    notes = Column(Text, nullable=True)
+    created_at = Column(DateTime(timezone=True), server_default=func.now())
+    updated_at = Column(DateTime(timezone=True), onupdate=func.now())
+
+
+class PosterDesign(Base):
+    __tablename__ = "poster_designs"
+
+    id = Column(String, primary_key=True, default=new_id)
+    user_id = Column(String, index=True, nullable=False)
+    title = Column(String, nullable=False)
+    template_type = Column(String, default="custom")  # dmt | aeps | bbps | recharge | festival | announcement | custom
+    layers_json = Column(Text, nullable=False)  # JSON representation of all editable layers
+    width = Column(Integer, default=800)
+    height = Column(Integer, default=800)
+    preview_data = Column(Text, nullable=True)
+    created_at = Column(DateTime(timezone=True), server_default=func.now())
+    updated_at = Column(DateTime(timezone=True), onupdate=func.now())
+

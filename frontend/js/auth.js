@@ -21,9 +21,16 @@ function getEkoApiBase() {
   } catch (e) {}
 
   if (typeof AndroidBridge !== 'undefined') {
+    if (typeof AndroidBridge.isDebug === 'function' && AndroidBridge.isDebug()) {
+      return 'http://10.0.2.2:8000';
+    }
     if (typeof AndroidBridge.getProductionApiBase === 'function') {
       return AndroidBridge.getProductionApiBase();
     }
+  }
+
+  if (window.location.hostname === 'localhost' || window.location.hostname === '127.0.0.1') {
+    return 'http://127.0.0.1:8000';
   }
 
   if (window.location.hostname === 'appassets.androidplatform.net' ||

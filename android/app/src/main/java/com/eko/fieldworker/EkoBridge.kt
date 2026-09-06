@@ -96,4 +96,48 @@ class EkoBridge(private val context: Context, private val viewModel: EkoViewMode
             }
         }
     }
+
+    @JavascriptInterface
+    fun scheduleOutreachReminder(outreachId: String, title: String, message: String, delaySeconds: Long) {
+        if (context is MainActivity) {
+            context.runOnUiThread {
+                context.scheduleOutreachReminder(outreachId, title, message, delaySeconds)
+            }
+        }
+    }
+
+    @JavascriptInterface
+    fun cancelOutreachReminder(outreachId: String) {
+        if (context is MainActivity) {
+            context.runOnUiThread {
+                context.cancelOutreachReminder(outreachId)
+            }
+        }
+    }
+
+    @JavascriptInterface
+    fun shareImage(base64Data: String, title: String) {
+        if (context is MainActivity) {
+            context.runOnUiThread {
+                context.shareImage(base64Data, title)
+            }
+        }
+    }
+
+    @JavascriptInterface
+    fun requestNotificationPermission() {
+        if (context is MainActivity) {
+            context.runOnUiThread {
+                context.requestNotificationPermission()
+            }
+        }
+    }
+
+    @JavascriptInterface
+    fun openWhatsApp(url: String): Boolean {
+        if (context is MainActivity) {
+            return context.openWhatsAppUrl(url)
+        }
+        return false
+    }
 }

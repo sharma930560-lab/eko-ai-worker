@@ -68,7 +68,7 @@ function closeModal(id) {
 }
 
 function closeActiveModals() {
-    ['customer-detail-modal', 'create-complaint-modal', 'add-partner-modal', 'global-search-modal', 'service-flow-modal', 'app-guide-modal'].forEach(id => {
+    ['customer-detail-modal', 'create-complaint-modal', 'add-partner-modal', 'global-search-modal', 'service-flow-modal', 'app-guide-modal', 'whatsapp-outreach-modal', 'template-picker-modal', 'credit-analysis-modal'].forEach(id => {
         closeModal(id);
     });
     document.getElementById('notification-panel')?.classList.add('hidden');
@@ -292,15 +292,18 @@ function renderGlobalSearchResults(res, query) {
 
 // ── Screen Router ──────────────────────────────────────────────────────────────
 const SCREENS = {
-    home:       { title: 'Operations Dashboard', subtitle: 'Live service health and summary.', render: renderHomeScreen, load: loadHomeScreen },
-    partners:   { title: 'Partner Network', subtitle: 'Manage retailers & agents.', render: renderPartnersScreen, load: loadPartners },
-    customers:  { title: 'Partner Network', subtitle: 'Manage retailers & agents.', render: renderPartnersScreen, load: loadPartners },
-    activity:   { title: 'Transaction Center', subtitle: 'Real-time monitoring.', render: renderActivityScreen, load: loadActivity },
-    grievances: { title: 'Complaints', subtitle: 'Track SLA & resolutions.', render: renderGrievancesScreen, load: loadGrievances },
-    tasks:      { title: 'Operational Tasks', subtitle: 'Prioritize daily service delivery.', render: renderTasksScreen, load: loadTasks },
-    notes:      { title: 'Operational Journal', subtitle: 'Incident logs and service notes.', render: renderNotesScreen, load: loadNotes },
-    'ai-tools': { title: 'AI Operational Suite', subtitle: 'Productivity superpowers.', render: renderAiToolsScreen, load: () => { switchAiToolTab('scanner'); } },
-    'ask-eko':  { title: 'Ask Eko AI', subtitle: 'Grounded operational partner.', render: renderAskEkoScreen, load: loadAskEko },
+    home:              { title: 'Operations Dashboard', subtitle: 'Live service health and summary.', render: renderHomeScreen, load: loadHomeScreen },
+    services:          { title: 'Financial Services Hub', subtitle: 'Simulate DMT, AePS, BBPS, and Recharge.', render: renderServicesScreen, load: loadServices },
+    'whatsapp-studio': { title: 'WhatsApp Outreach Studio', subtitle: 'Automated follow-up campaigns & reminders.', render: renderWhatsAppStudioScreen, load: loadWhatsAppStudio },
+    'poster-studio':   { title: 'Banner & Poster Studio', subtitle: 'Editable marketing posters & banners.', render: renderPosterStudioScreen, load: loadPosterStudio },
+    partners:          { title: 'Partner Network', subtitle: 'Manage retailers & agents.', render: renderPartnersScreen, load: loadPartners },
+    customers:         { title: 'Partner Network', subtitle: 'Manage retailers & agents.', render: renderPartnersScreen, load: loadPartners },
+    activity:          { title: 'Transaction Center', subtitle: 'Real-time monitoring.', render: renderActivityScreen, load: loadActivity },
+    grievances:        { title: 'Complaints', subtitle: 'Track SLA & resolutions.', render: renderGrievancesScreen, load: loadGrievances },
+    tasks:             { title: 'Operational Tasks', subtitle: 'Prioritize daily service delivery.', render: renderTasksScreen, load: loadTasks },
+    notes:             { title: 'Operational Journal', subtitle: 'Incident logs and service notes.', render: renderNotesScreen, load: loadNotes },
+    'ai-tools':        { title: 'AI Operational Suite', subtitle: 'Productivity superpowers.', render: renderAiToolsScreen, load: () => { switchAiToolTab('scanner'); } },
+    'ask-eko':         { title: 'Ask Eko AI', subtitle: 'Grounded operational partner.', render: renderAskEkoScreen, load: loadAskEko },
 };
 
 function navigateTo(screen) {
@@ -633,6 +636,28 @@ function renderHomeScreen() {
             </div>
         </div>
 
+        <!-- Outreach & Marketing Hub -->
+        <div style="display:grid; grid-template-columns:1fr 1fr; gap:12px; margin-top:14px;">
+            <div class="card" style="padding:14px; display:flex; align-items:center; gap:12px; cursor:pointer; border-left:4px solid #25d366; background:var(--card-bg);" onclick="navigateTo('whatsapp-studio')">
+                <div style="background:rgba(37,211,102,0.12); color:#128c7e; width:42px; height:42px; border-radius:10px; display:flex; align-items:center; justify-content:center; flex-shrink:0;">
+                    ${renderIcon('message-circle', 22)}
+                </div>
+                <div style="min-width:0;">
+                    <div class="font-bold text-sm" style="color:var(--text-main);">WhatsApp Studio</div>
+                    <div class="text-xs text-muted" style="white-space:nowrap; overflow:hidden; text-overflow:ellipsis;">Follow-ups &amp; reminders</div>
+                </div>
+            </div>
+            <div class="card" style="padding:14px; display:flex; align-items:center; gap:12px; cursor:pointer; border-left:4px solid var(--accent); background:var(--card-bg);" onclick="navigateTo('poster-studio')">
+                <div style="background:rgba(234,88,12,0.12); color:var(--accent); width:42px; height:42px; border-radius:10px; display:flex; align-items:center; justify-content:center; flex-shrink:0;">
+                    ${renderIcon('image', 22)}
+                </div>
+                <div style="min-width:0;">
+                    <div class="font-bold text-sm" style="color:var(--text-main);">Poster Studio</div>
+                    <div class="text-xs text-muted" style="white-space:nowrap; overflow:hidden; text-overflow:ellipsis;">Marketing banners</div>
+                </div>
+            </div>
+        </div>
+
         <div id="home-eko-brief">
             <div class="loading-state"><div class="spinner"></div></div>
         </div>
@@ -736,7 +761,11 @@ async function loadHomeScreen() {
 
 function formatAiResponse(text) {
     if (!text) return '';
-    return escapeHtml(text)
+    let cleaned = text;
+    // Strip any raw internal JSON dumps if present
+    cleaned = cleaned.replace(/\{[^{}]*"success_rate"[^{}]*\}/g, 'verified operational factors');
+    cleaned = cleaned.replace(/\{[^{}]*"recent_performance"[^{}]*\}/g, 'operational performance metrics');
+    return escapeHtml(cleaned)
         .replace(/\n\n/g, '<br><br>')
         .replace(/\n/g, '<br>')
         .replace(/\*\*(.*?)\*\*/g, '<strong>$1</strong>');

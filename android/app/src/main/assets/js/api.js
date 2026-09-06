@@ -85,6 +85,20 @@ const api = {
     getComplaintDetail: (id) => apiRequest('GET', `/api/complaints/${id}`),
     createComplaint: (data) => apiRequest('POST', '/api/complaints', data),
     updateComplaint: (id, data) => apiRequest('PATCH', `/api/complaints/${id}`, data),
+    addComplaintNote: (id, data) => apiRequest('POST', `/api/complaints/${id}/notes`, data),
+
+    // WhatsApp Outreach & Studio
+    getWhatsAppOutreach: (status = null) => apiRequest('GET', `/api/whatsapp/outreach${status ? `?status=${status}` : ''}`),
+    createWhatsAppOutreach: (data) => apiRequest('POST', '/api/whatsapp/outreach', data),
+    updateWhatsAppOutreach: (id, data) => apiRequest('PATCH', `/api/whatsapp/outreach/${id}`, data),
+    generateWhatsAppMessage: (data) => apiRequest('POST', '/api/whatsapp/generate', data),
+
+    // Banner & Poster Studio
+    getPosters: () => apiRequest('GET', '/api/posters'),
+    getPosterDetail: (pid) => apiRequest('GET', `/api/posters/${pid}`),
+    createPoster: (data) => apiRequest('POST', '/api/posters', data),
+    updatePoster: (pid, data) => apiRequest('PUT', `/api/posters/${pid}`, data),
+    generatePosterCopy: (data) => apiRequest('POST', '/api/posters/generate-copy', data),
 
     // Notifications
     getNotifications: () => apiRequest('GET', '/api/notifications'),
@@ -97,6 +111,7 @@ const api = {
     recalculateScore: (cid) => apiRequest('POST', `/api/credit-score/recalculate/${cid}`),
     getCreditHistory: (cid) => apiRequest('GET', `/api/credit-score/history?customer_id=${cid}`),
     simulateScore: (data) => apiRequest('POST', '/api/credit-score/simulate', data),
+    analyzeCreditScore: (data) => apiRequest('POST', '/api/credit-score/analyze', data),
 
     // AI
     askEko: (question, history = [], customer_id = null, transaction_id = null, complaint_id = null, page_context = null) => {

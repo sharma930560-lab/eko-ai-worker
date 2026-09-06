@@ -6,6 +6,7 @@ import android.net.ConnectivityManager
 import android.net.Network
 import android.net.NetworkCapabilities
 import android.net.NetworkRequest
+import android.net.Uri
 import android.webkit.ConsoleMessage
 import android.webkit.WebChromeClient
 import android.webkit.WebSettings
@@ -67,6 +68,13 @@ class MainActivity : AppCompatActivity() {
                 val base64Image = encodeBitmapToBase64(imageBitmap)
                 webView.evaluateJavascript("window.handleNativeCameraImage('$base64Image')", null)
             }
+        }
+    }
+
+    private val notificationPermissionLauncher = registerForActivityResult(ActivityResultContracts.RequestPermission()) { isGranted ->
+        Log.i(TAG, "Notification permission result: $isGranted")
+        if (isGranted) {
+            Toast.makeText(this, "Notifications enabled", Toast.LENGTH_SHORT).show()
         }
     }
 
@@ -470,6 +478,84 @@ class MainActivity : AppCompatActivity() {
         bitmap.compress(Bitmap.CompressFormat.JPEG, 85, outputStream)
         val byteArray = outputStream.toByteArray()
         return Base64.encodeToString(byteArray, Base64.NO_WRAP)
+    }
+
+    fun requestNotificationPermission() {
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
+            notificationPermissionLauncher.launch(android.Manifest.permission.POST_NOTIFICATIONS)
+        }
+    }
+
+    fun scheduleOutreachReminder(outreachId: String, title: String, message: String, delaySeconds: Long) {
+        val inputData = androidx.work.workDataOf(
+            "outreach_id" to outreachId,
+            "title" to title,
+            "message" to message
+        )
+        val workRequest = androidx.work.OneTimeWorkRequestBuilder<OutreachReminderWorker>()
+            .setInitialDelay(delaySeconds, TimeUnit.SECONDS)
+            .setInputData(inputData)
+            .addTag("outreach_$outreachId")
+            .build()
+
+        WorkManager.getInstance(this).enqueueUniqueWork(
+            "outreach_$outreachId",
+            androidx.work.ExistingWorkPolicy.REPLACE,
+            workRequest
+        )
+        Log.i(TAG, "Scheduled outreach reminder $outreachId in $delaySeconds seconds")
+        Toast.makeText(this, "Follow-up reminder scheduled ($delaySeconds s)", Toast.LENGTH_SHORT).show()
+    }
+
+    fun cancelOutreachReminder(outreachId: String) {
+        WorkManager.getInstance(this).cancelUniqueWork("outreach_$outreachId")
+        Log.i(TAG, "Cancelled outreach reminder $outreachId")
+        Toast.makeText(this, "Reminder cancelled", Toast.LENGTH_SHORT).show()
+    }
+
+    fun shareImage(base64Data: String, title: String) {
+        try {
+            val cleanBase64 = if (base64Data.contains(",")) base64Data.substringAfter(",") else base64Data
+            val decodedBytes = Base64.decode(cleanBase64, Base64.DEFAULT)
+            val cachePath = java.io.File(cacheDir, "images")
+            cachePath.mkdirs()
+            val file = java.io.File(cachePath, "poster_${System.currentTimeMillis()}.png")
+            java.io.FileOutputStream(file).use { out ->
+                out.write(decodedBytes)
+            }
+            val contentUri = androidx.core.content.FileProvider.getUriForFile(
+                this,
+                "$packageName.fileprovider",
+                file
+            )
+            val shareIntent = Intent(Intent.ACTION_SEND).apply {
+                type = "image/png"
+                putExtra(Intent.EXTRA_STREAM, contentUri)
+                putExtra(Intent.EXTRA_SUBJECT, title)
+                putExtra(Intent.EXTRA_TEXT, title)
+                addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
+            }
+            startActivity(Intent.createChooser(shareIntent, "Share Poster via"))
+        } catch (e: Exception) {
+            Log.e(TAG, "Failed to share image: ${e.message}", e)
+            Toast.makeText(this, "Error sharing poster: ${e.message}", Toast.LENGTH_SHORT).show()
+        }
+    }
+
+    fun openWhatsAppUrl(url: String): Boolean {
+        return try {
+            val intent = Intent(Intent.ACTION_VIEW, Uri.parse(url)).apply {
+                flags = Intent.FLAG_ACTIVITY_NEW_TASK
+            }
+            startActivity(intent)
+            true
+        } catch (e: Exception) {
+            Log.e(TAG, "Failed to launch WhatsApp URL: $url", e)
+            runOnUiThread {
+                Toast.makeText(this, "WhatsApp not installed on this device", Toast.LENGTH_SHORT).show()
+            }
+            false
+        }
     }
 
     // NOTE: onActivityResult is intentionally removed — camera is now handled via

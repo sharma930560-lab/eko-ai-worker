@@ -132,6 +132,9 @@ async function openCustomerDetail(id) {
 
     title.textContent = 'Operational Customer 360';
 
+    const cleanPhone = (customer.phone || '').replace(/\D/g, '');
+    const hasValidPhone = cleanPhone.length >= 10;
+
     body.innerHTML = `
         <div style="display:flex; align-items:center; gap:16px; margin-bottom:24px; padding-bottom:16px; border-bottom:1px solid var(--border);">
             <div class="user-avatar" style="width:56px; height:56px; font-size:1.5rem; background:var(--primary-dark); color:#FFF;">${customer.name.charAt(0).toUpperCase()}</div>
@@ -140,6 +143,7 @@ async function openCustomerDetail(id) {
                 <div style="display:flex; align-items:center; gap:8px; margin-top:4px;">
                     <span class="badge ${customer.kyc_status === 'verified' ? 'badge-success' : 'badge-warning'}">${customer.kyc_status}</span>
                     <span class="text-xs text-muted">${customer.business_type || 'Category N/A'}</span>
+                    ${customer.phone ? `<span class="text-xs text-muted">· ${escapeHtml(customer.phone)}</span>` : ''}
                 </div>
             </div>
             <button class="icon-btn" onclick="recalculateCredit('${customer.id}')" title="Refresh Assessment">${renderIcon('rotate-cw', 18)}</button>
@@ -155,11 +159,34 @@ async function openCustomerDetail(id) {
             <div class="loading-state"><div class="spinner"></div></div>
         </div>
 
-        <div style="display:flex; gap:12px; margin-top:28px; padding-top:16px; border-top:1px solid var(--border);">
-            <button class="btn-primary" style="flex:1;" onclick="closeModal('customer-detail-modal'); navigateTo('ask-eko'); sendToEko('${customer.id}')">
-                ${renderIcon('sparkles', 18)}
-                <span>Ask Eko AI Assistant</span>
-            </button>
+        <div style="margin-top:24px; padding-top:16px; border-top:1px solid var(--border);">
+            <div style="display:flex; gap:10px; flex-wrap:wrap;">
+                ${hasValidPhone ? `
+                    <button class="btn-secondary" style="flex:1; min-height:42px; border-color:#25d366; color:#128c7e; font-weight:700;" onclick="closeModal('customer-detail-modal'); openWhatsAppModal('${customer.id}', '${escapeHtml(customer.name)}', '${escapeHtml(customer.phone)}');">
+                        ${renderIcon('message-circle', 18)}
+                        <span>WhatsApp Customer</span>
+                    </button>
+                ` : `
+                    <button class="btn-secondary" disabled style="flex:1; min-height:42px; opacity:0.55; cursor:not-allowed; border-color:var(--border); color:var(--text-light); font-weight:600;" title="WhatsApp unavailable — customer phone number is missing.">
+                        ${renderIcon('message-circle', 18)}
+                        <span>WhatsApp Customer</span>
+                    </button>
+                `}
+                <button class="btn-secondary" style="flex:1; min-height:42px; border-color:var(--primary); color:var(--primary); font-weight:700;" onclick="closeModal('customer-detail-modal'); openCreditAnalysisModal('${customer.id}');">
+                    ${renderIcon('sliders', 18)}
+                    <span>Credit Analysis</span>
+                </button>
+                <button class="btn-primary" style="flex:1; min-height:42px; font-weight:700;" onclick="closeModal('customer-detail-modal'); navigateTo('ask-eko'); sendToEko('${customer.id}')">
+                    ${renderIcon('sparkles', 18)}
+                    <span>Ask Eko AI</span>
+                </button>
+            </div>
+            ${!hasValidPhone ? `
+                <div style="font-size:0.75rem; color:var(--danger, #dc2626); font-weight:600; display:flex; align-items:center; gap:6px; margin-top:8px; padding:6px 10px; background:var(--danger-bg, #fef2f2); border-radius:6px;">
+                    ${renderIcon('alert-circle', 14)}
+                    <span>WhatsApp unavailable — customer phone number is missing.</span>
+                </div>
+            ` : ''}
         </div>
     `;
 
@@ -212,9 +239,11 @@ async function switchCustomerDetailTab(tab, cid) {
             </div>
 
             <div class="ai-rec-block" style="margin-top:20px; border-left:4px solid var(--primary);">
-                <div class="font-bold text-sm mb-1">${renderIcon('zap', 14)} Growth Simulation</div>
-                <div class="text-xs text-muted mb-4">Project impact of hypothetical future success.</div>
-                <button class="btn-primary" style="width:100%; font-size:0.8rem; min-height:38px;" onclick="runSimulation('${cid}')">Run AI Scenario Simulation</button>
+                <div class="font-bold text-sm mb-1">${renderIcon('sliders', 14)} Interactive Credit Analysis &amp; Simulator</div>
+                <div class="text-xs text-muted mb-3">Adjust KYC, performance, volume, and failures to recalculate score dynamically.</div>
+                <button class="btn-primary" style="width:100%; font-size:0.85rem; min-height:40px;" onclick="closeModal('customer-detail-modal'); openCreditAnalysisModal('${cid}')">
+                    ${renderIcon('sliders', 14)} Open Interactive Credit Analyzer
+                </button>
             </div>
         `;
         try {

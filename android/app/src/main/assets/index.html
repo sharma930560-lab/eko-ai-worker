@@ -246,6 +246,18 @@
                     <i data-lucide="layout-dashboard"></i>
                     <span class="nav-label">Dashboard</span>
                 </button>
+                <button class="nav-item" data-tab="services" onclick="navigateTo('services')">
+                    <i data-lucide="flask-conical"></i>
+                    <span class="nav-label">Services Hub</span>
+                </button>
+                <button class="nav-item" data-tab="whatsapp-studio" onclick="navigateTo('whatsapp-studio')">
+                    <i data-lucide="message-circle"></i>
+                    <span class="nav-label">WhatsApp Studio</span>
+                </button>
+                <button class="nav-item" data-tab="poster-studio" onclick="navigateTo('poster-studio')">
+                    <i data-lucide="palette"></i>
+                    <span class="nav-label">Poster Studio</span>
+                </button>
                 <button class="nav-item" data-tab="partners" onclick="navigateTo('partners')">
                     <i data-lucide="users"></i>
                     <span class="nav-label">Partners</span>
@@ -512,6 +524,148 @@
     </div>
 </div>
 
+<!-- ── Interactive Credit Analysis & Risk Simulator Modal ─────────────────── -->
+<div id="credit-analysis-modal" class="modal-overlay hidden">
+    <div class="modal-card" style="max-width:540px; max-height:92vh; display:flex; flex-direction:column;">
+        <div class="modal-header" style="padding-bottom:12px; border-bottom:1px solid var(--border);">
+            <div>
+                <h2 style="font-size:1.1rem; font-weight:800; display:flex; align-items:center; gap:8px;">
+                    <i data-lucide="shield-check" style="width:18px;height:18px;color:var(--primary);"></i>
+                    <span>Credit Analysis &amp; Risk Simulator</span>
+                </h2>
+                <div class="text-xs text-muted mt-0.5">Interactive operational credit scoring engine</div>
+            </div>
+            <button class="modal-close" onclick="closeCreditAnalysisModal()" aria-label="Close">
+                <i data-lucide="x" style="width:16px;height:16px;"></i>
+            </button>
+        </div>
+
+        <!-- Partner Selector Header -->
+        <div style="padding:10px 16px; background:var(--bg); border-bottom:1px solid var(--border); display:flex; align-items:center; gap:10px;">
+            <label for="ca-partner-select" class="text-xs font-bold text-muted" style="white-space:nowrap;">PARTNER:</label>
+            <select id="ca-partner-select" class="form-input" style="flex:1; padding:6px 10px; font-size:0.85rem; font-weight:600;" onchange="onCreditPartnerChange(this.value)">
+                <!-- populated dynamically -->
+            </select>
+        </div>
+
+        <!-- Scrollable Modal Body -->
+        <div class="modal-body" id="ca-modal-body" style="flex:1; overflow-y:auto; padding:14px 16px;">
+            <!-- Rendered by credit-analysis.js -->
+        </div>
+
+        <!-- Modal Footer Actions -->
+        <div class="modal-footer" style="padding:12px 16px; border-top:1px solid var(--border); display:flex; gap:8px; flex-wrap:wrap; background:var(--surface);">
+            <button type="button" class="btn-ghost" style="min-height:40px; font-size:0.8rem; padding:6px 12px;" onclick="resetCreditAnalysis()">
+                <i data-lucide="rotate-ccw" style="width:14px;height:14px;"></i> Reset
+            </button>
+            <button type="button" class="btn-secondary" style="min-height:40px; font-size:0.8rem; padding:6px 12px;" onclick="onCreditFactorChange()">
+                <i data-lucide="refresh-cw" style="width:14px;height:14px;"></i> Recalculate
+            </button>
+            <button type="button" class="btn-primary" style="flex:1; min-height:40px; font-size:0.8rem; padding:6px 12px;" onclick="askEkoFromCreditAnalysis()">
+                <i data-lucide="sparkles" style="width:14px;height:14px;"></i> Ask Eko AI
+            </button>
+            <button type="button" class="btn-ghost" style="min-height:40px; font-size:0.8rem; padding:6px 12px;" onclick="closeCreditAnalysisModal()">
+                Close
+            </button>
+        </div>
+    </div>
+</div>
+
+<!-- ── Modal for New / Edit WhatsApp Outreach ───────────────────────────────── -->
+<div id="whatsapp-outreach-modal" class="modal-overlay hidden">
+    <div class="modal-card" style="max-width:540px;">
+        <div class="modal-header">
+            <div style="display:flex; align-items:center; gap:8px;">
+                <div style="width:32px; height:32px; border-radius:8px; background:rgba(37,211,102,0.15); display:flex; align-items:center; justify-content:center; color:#128c7e;">
+                    <i data-lucide="message-circle" style="width:18px;height:18px;"></i>
+                </div>
+                <div>
+                    <h2 style="font-size:1.1rem; font-weight:800; margin:0;" id="wa-modal-title">Compose WhatsApp Outreach</h2>
+                    <span class="text-xs text-muted">AI-assisted operational template generator</span>
+                </div>
+            </div>
+            <button class="modal-close" onclick="closeModal('whatsapp-outreach-modal')" aria-label="Close"><i data-lucide="x" style="width:16px;height:16px;"></i></button>
+        </div>
+        <div class="modal-body" style="padding:16px 20px;">
+            <form id="wa-outreach-form" onsubmit="submitWhatsAppOutreach(event)">
+                <input type="hidden" id="wa-customer-id" name="customer_id">
+                
+                <div class="grid grid-cols-2 gap-3 mb-3">
+                    <div class="form-group mb-0">
+                        <label class="form-label text-xs">Customer / Partner Name *</label>
+                        <input class="form-input" id="wa-cust-name" name="customer_name" placeholder="Full name" required>
+                    </div>
+                    <div class="form-group mb-0">
+                        <label class="form-label text-xs">WhatsApp Number (10 digits) *</label>
+                        <input class="form-input" id="wa-cust-phone" name="customer_phone" type="tel" maxlength="10" placeholder="e.g. 9876543210" required>
+                    </div>
+                </div>
+
+                <div class="grid grid-cols-2 gap-3 mb-3">
+                    <div class="form-group mb-0">
+                        <label class="form-label text-xs">Message Template Type</label>
+                        <select class="form-input" id="wa-template-type" name="template_type" onchange="autoGenerateWAMessage()">
+                            <option value="kyc_reminder">KYC Verification Reminder</option>
+                            <option value="payment_reminder">Settlement / Due Payment</option>
+                            <option value="settlement_notice">Daily Settlement Statement</option>
+                            <option value="dispute_update">Dispute &amp; SLA Status</option>
+                            <option value="offer">Festive Banking Services</option>
+                            <option value="custom">Custom Message</option>
+                        </select>
+                    </div>
+                    <div class="form-group mb-0">
+                        <label class="form-label text-xs">Language</label>
+                        <select class="form-input" id="wa-language" onchange="autoGenerateWAMessage()">
+                            <option value="hinglish">Hinglish (India)</option>
+                            <option value="hindi">Hindi (हिंदी)</option>
+                            <option value="english">English (US)</option>
+                        </select>
+                    </div>
+                </div>
+
+                <div class="form-group mb-3">
+                    <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:4px;">
+                        <label class="form-label text-xs mb-0">Message Content (Editable)</label>
+                        <button type="button" class="btn-ghost" style="font-size:11px; padding:2px 6px; color:#128c7e;" onclick="autoGenerateWAMessage()">
+                            <i data-lucide="sparkles" style="width:12px;height:12px;"></i> Regenerate AI Draft
+                        </button>
+                    </div>
+                    <textarea class="form-input" id="wa-message-text" name="message" rows="4" style="font-size:13px; line-height:1.5;" required placeholder="Type or generate message..."></textarea>
+                </div>
+
+                <div class="card mb-3" style="padding:12px; background:var(--bg); border:1px solid var(--border);">
+                    <div class="text-xs font-bold text-muted mb-2 uppercase tracking-wider"><i data-lucide="bell" style="width:12px;height:12px;"></i> WorkManager Follow-up Reminder</div>
+                    <div class="grid grid-cols-2 gap-3">
+                        <div>
+                            <label class="text-xs text-muted">Reminder Frequency</label>
+                            <select class="form-input text-xs" id="wa-reminder-freq" name="reminder_frequency">
+                                <option value="none">No Automated Reminder</option>
+                                <option value="once">Once (in 1 hour)</option>
+                                <option value="4hours">Every 4 Hours</option>
+                                <option value="daily">Daily Notification</option>
+                            </select>
+                        </div>
+                        <div>
+                            <label class="text-xs text-muted">Reminder Status</label>
+                            <div style="display:flex; align-items:center; gap:8px; height:36px;">
+                                <input type="checkbox" id="wa-reminder-active" name="reminder_active" checked style="width:16px; height:16px;">
+                                <label for="wa-reminder-active" class="text-xs font-bold" style="cursor:pointer;">Active Alert</label>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+
+                <div style="display:flex; gap:10px; margin-top:16px;">
+                    <button type="button" class="btn-secondary" style="flex:1;" onclick="closeModal('whatsapp-outreach-modal')">Cancel</button>
+                    <button type="submit" class="btn-primary" style="flex:2; background:#25d366; border-color:#25d366; color:#fff;" id="btn-submit-wa">
+                        <i data-lucide="send" style="width:16px;height:16px;"></i> Save &amp; Launch WhatsApp
+                    </button>
+                </div>
+            </form>
+        </div>
+    </div>
+</div>
+
 <!-- ── Toast ─────────────────────────────────────────────────────────────────── -->
 <div id="global-toast" class="toast"></div>
 
@@ -523,6 +677,9 @@
 <script src="js/screens/partners.js?v=21"></script>
 <script src="js/screens/activity.js?v=21"></script>
 <script src="js/screens/services.js?v=21"></script>
+<script src="js/screens/whatsapp-studio.js?v=21"></script>
+<script src="js/screens/poster-studio.js?v=22"></script>
+<script src="js/screens/credit-analysis.js?v=21"></script>
 <script src="js/screens/tasks.js?v=21"></script>
 <script src="js/screens/notes.js?v=21"></script>
 <script src="js/screens/ask-eko.js?v=21"></script>
