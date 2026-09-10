@@ -340,28 +340,68 @@ class LocalDeterministicProvider(AIProvider):
         # 1. Active screen context — Selected Transaction
         if "selected transaction:" in context.lower() and any(k in lower_prompt for k in ["why", "fail", "reason", "this", "explain", "transaction"]):
             import re
-            ref_m = re.search(r"Reference=([^,]+)", context)
+            ref_m = re.search(r"Reference=([^|,\n]+)", context)
             ref_str = ref_m.group(1).strip() if ref_m else "the selected transaction"
-            reason_m = re.search(r"Failure Reason=([^\n]+)", context)
-            reason_str = reason_m.group(1).strip() if reason_m else "NPCI switch timeout at bank server"
-            amt_m = re.search(r"Amount=([^,]+)", context)
-            amt_str = amt_m.group(1).strip() if amt_m else "₹1,000"
-            return {
-                "answer": f"Transaction {ref_str} ({amt_str}) failed due to: {reason_str}. The customer's bank account was not debited. We recommend retrying after 15 minutes or raising an operational dispute ticket.",
-                "facts": [
-                    {"text": f"Failure reason: {reason_str}", "source_ids": [ref_str]},
-                    {"text": f"Amount: {amt_str}", "source_ids": [ref_str]}
-                ],
-                "inferences": [
-                    {"text": "Failure is at the bank authorization switch level, not partner device hardware.", "confidence": 0.95}
-                ],
-                "recommendations": [
-                    {"text": "Create operational complaint ticket for NPCI switch tracking.", "reason": "Protects customer SLA."},
-                    {"text": "Advise customer to re-authenticate biometric after switch stabilizes.", "reason": "Prevents repeated lockouts."}
-                ],
-                "grounded": True,
-                "insufficient_data": False
-            }
+            amt_m = re.search(r"Amount=(₹?[\d,]+)", context)
+            amt_str = amt_m.group(1).strip() if amt_m else "₹25,000"
+            status_m = re.search(r"Status=([^|,\n]+)", context)
+            status_str = (status_m.group(1).strip() if status_m else "UNKNOWN").upper()
+            reason_m = re.search(r"Failure Reason=([^|\n]+)", context)
+            reason_raw = reason_m.group(1).strip() if reason_m else "None"
+
+            if "SUCCESS" in status_str:
+                return {
+                    "answer": f"Transaction {ref_str} of {amt_str} was successful. The funds have been credited to the beneficiary account with zero settlement exceptions.",
+                    "facts": [
+                        {"text": "Status: Success", "source_ids": [ref_str]},
+                        {"text": f"Amount: {amt_str}", "source_ids": [ref_str]},
+                        {"text": f"Reference ID: {ref_str}", "source_ids": [ref_str]}
+                    ],
+                    "inferences": [
+                        {"text": "Transaction processed cleanly through the banking switch on primary route.", "confidence": 0.99}
+                    ],
+                    "recommendations": [
+                        {"text": "No corrective action required. Transaction completed.", "reason": "Success status confirmed in verified operational records."}
+                    ],
+                    "grounded": True,
+                    "insufficient_data": False
+                }
+            elif any(s in status_str for s in ["PENDING", "PROCESSING"]):
+                return {
+                    "answer": f"Transaction {ref_str} of {amt_str} is currently pending. It is awaiting final clearing acknowledgement from the banking switch.",
+                    "facts": [
+                        {"text": "Status: Pending", "source_ids": [ref_str]},
+                        {"text": f"Amount: {amt_str}", "source_ids": [ref_str]},
+                        {"text": f"Reference ID: {ref_str}", "source_ids": [ref_str]}
+                    ],
+                    "inferences": [
+                        {"text": "Banking switch response is in progress; webhook reconciliation scheduled.", "confidence": 0.95}
+                    ],
+                    "recommendations": [
+                        {"text": "Check status again in 15 minutes or review switch settlement queue.", "reason": "Banking switch response is in progress."}
+                    ],
+                    "grounded": True,
+                    "insufficient_data": False
+                }
+            else:  # FAILED
+                reason_display = reason_raw if reason_raw not in ("None", "None (Success)", "Not provided", "") else "Not provided"
+                return {
+                    "answer": f"Transaction {ref_str} of {amt_str} failed. Failure reason: {reason_display}. The customer's bank account was not debited.",
+                    "facts": [
+                        {"text": "Status: Failed", "source_ids": [ref_str]},
+                        {"text": f"Amount: {amt_str}", "source_ids": [ref_str]},
+                        {"text": f"Failure reason: {reason_display}", "source_ids": [ref_str]}
+                    ],
+                    "inferences": [
+                        {"text": "Failure is at the bank authorization switch level, not partner device hardware.", "confidence": 0.95}
+                    ],
+                    "recommendations": [
+                        {"text": "Create operational complaint ticket for NPCI switch tracking.", "reason": "Protects customer SLA."},
+                        {"text": "Advise customer to re-authenticate or retry after switch stabilizes.", "reason": "Prevents repeated lockouts."}
+                    ],
+                    "grounded": True,
+                    "insufficient_data": False
+                }
 
         # 2. Paras General Store performance
         if "paras" in lower_prompt:
@@ -467,39 +507,80 @@ class LocalDeterministicProvider(AIProvider):
             }
 
         # 6. What to do today / Prioritize / Operations summary
-        if any(k in lower_prompt for k in ["what do i need", "prioritize", "today", "summarize", "overview", "brief", "priority"]):
+        if any(k in lower_prompt for k in ["what do i need", "prioritize", "today", "summarize", "overview", "brief", "priority", "operations"]):
             return {
-                "answer": "Today's priority operations: 1) Follow up on Sharma Telecom's urgent AePS timeout complaint. 2) Reconcile the BBPS timeout and failed recharge records. 3) Complete KYC document review for Rahul Kumar. The protected demo dataset contains 15 linked transactions, 5 complaints, and 6 operational tasks.",
+                "answer": "Today's highest priority is Sharma Telecom's AePS timeout complaint because its SLA is approaching. The BBPS timeout and failed recharge records should be reconciled next, followed by Rahul Kumar's KYC review.\n\nWHY THIS PRIORITY:\n• Urgent SLA: Active countdown on AePS dispute (TXN-DEMO-1001)\n• Failed transaction: Settlement reconciliation pending\n• Active complaint: Customer escalation logged\n• Partner/customer impact: Preserves counter trust",
                 "facts": [
-                    {"text": "Verified demo totals: 15 transactions, 5 complaints, and 6 tasks.", "source_ids": ["ops_dashboard", "service_activity", "complaints_db", "tasks_db"]},
-                    {"text": "Sharma Telecom's failed AePS transaction has the urgent complaint and active SLA tracking.", "source_ids": ["complaints_db", "TXN-DEMO-1001"]}
+                    {"text": "Sharma Telecom's failed AePS transaction is linked to urgent TXN-DEMO-1001 complaint with approaching SLA.", "source_ids": ["complaints_db", "TXN-DEMO-1001"]},
+                    {"text": "BBPS timeout and failed recharge records require settlement reconciliation.", "source_ids": ["service_activity"]},
+                    {"text": "Rahul Kumar's KYC verification is pending review in customer records.", "source_ids": ["customers_db"]}
                 ],
                 "inferences": [
-                    {"text": "Prioritizing the 3h SLA complaint avoids platform penalty.", "confidence": 0.99}
+                    {"text": "Addressing the approaching SLA complaint eliminates platform penalty risk.", "confidence": 0.99}
                 ],
                 "recommendations": [
-                    {"text": "Address urgent complaint before 4 PM SLA breach.", "reason": "SLA countdown active."},
-                    {"text": "Send WhatsApp status update to Sharma Telecom.", "reason": "Improves partner trust."}
+                    {"text": "1. Address urgent complaint", "reason": "Approaching SLA deadline requires immediate switch inquiry."},
+                    {"text": "2. Reconcile failed/timeout records", "reason": "Ensures settlement ledger balance before 5 PM cutoff."},
+                    {"text": "3. Complete KYC review", "reason": "Unlocks customer transaction limit for regular remittances."}
                 ],
                 "grounded": True,
                 "insufficient_data": False
             }
 
-        # 7. Rahul Kumar
-        if "rahul" in lower_prompt:
+        # 7. Follow-up query: "Which customers need follow-up today?"
+        if any(k in lower_prompt for k in ["follow-up", "follow up", "which customers need"]):
             return {
-                "answer": "Rahul Kumar has an operational trust assessment of 58/100 (Moderate Risk). This is primarily due to pending Aadhaar/PAN KYC documentation and a new account profile (15 days active). His recent AePS mini statement operation was successful.",
+                "answer": "Customers requiring follow-up today based on synthetic records:\n1. Sunita Devi (+91 9876500002) — Pending KYC verification for DMT daily limit expansion.\n2. Rahul Kumar (+91 9305601503) — Document verification and onboarding follow-up.\n3. Priya Sharma (+91 9876500004) — Status update on AePS switch timeout dispute (TXN-DEMO-1001).\n4. Mohammad Imran (+91 9876500006) — DMT payout switch confirmation retry.",
                 "facts": [
-                    {"text": "Credit Assessment: 58/100 (Moderate Risk)", "source_ids": ["credit_scores"]},
-                    {"text": "KYC Status: Pending manual physical verification", "source_ids": ["customers_db"]},
-                    {"text": "Account Age: 15 days active | Reversal Rate: Low", "source_ids": ["timeline_events"]}
+                    {"text": "Sunita Devi: Pending KYC reminder outreach scheduled.", "source_ids": ["whatsapp_outreach"]},
+                    {"text": "Rahul Kumar: KYC unverified in customer ledger.", "source_ids": ["customers_db"]},
+                    {"text": "Priya Sharma: Linked to active complaint TXN-DEMO-1001.", "source_ids": ["complaints_db"]}
                 ],
                 "inferences": [
-                    {"text": "Once Aadhaar KYC is verified, trust score is projected to rise above 75.", "confidence": 0.92}
+                    {"text": "Automated WhatsApp outreach can resolve 75% of document follow-ups.", "confidence": 0.91}
                 ],
                 "recommendations": [
-                    {"text": "Request uploaded PAN card copy via WhatsApp.", "reason": "Unlocks ₹25,000 DMT daily ceiling."},
-                    {"text": "Cap single-transaction remittances at ₹5,000 until verified.", "reason": "Standard risk control."}
+                    {"text": "Trigger templated WhatsApp follow-ups from Outreach Studio.", "reason": "Pre-filled drafts available in English, Hindi, and Hinglish."}
+                ],
+                "grounded": True,
+                "insufficient_data": False
+            }
+
+        # 8. Failed transactions query: "Show today's failed transactions"
+        if any(k in lower_prompt for k in ["failed transaction", "today's failed", "show failed", "list failed"]):
+            return {
+                "answer": "Today's failed transactions from synthetic operational records:\n1. TXN-DEMO-1001: AePS Cash Withdrawal of ₹8,500 (Sharma Telecom) — NPCI switch timeout at bank server.\n2. AEPS984729104: AePS Cash Withdrawal of ₹2,500 (Sharma Telecom) — Issuer bank switch latency.\n3. BBPS849201010: BBPS Bill Payment of ₹850 (Sharma Telecom) — Biller response timeout.",
+                "facts": [
+                    {"text": "TXN-DEMO-1001: ₹8,500 AePS failed (Sharma Telecom).", "source_ids": ["service_activity"]},
+                    {"text": "AEPS984729104: ₹2,500 AePS failed (Sharma Telecom).", "source_ids": ["service_activity"]},
+                    {"text": "BBPS849201010: ₹850 BBPS failed (Sharma Telecom).", "source_ids": ["service_activity"]}
+                ],
+                "inferences": [
+                    {"text": "All failures trace to bank authorization switches rather than partner equipment.", "confidence": 0.95}
+                ],
+                "recommendations": [
+                    {"text": "Reconcile switch settlement status before 5:00 PM cutoff.", "reason": "Prevents partner dispute escalation."}
+                ],
+                "grounded": True,
+                "insufficient_data": False
+            }
+
+        # 9. Rahul Kumar credit assessment
+        if "rahul" in lower_prompt:
+            return {
+                "answer": "Rahul Kumar's assessment is 58/100 (Moderate Risk). It is lower primarily because his Aadhaar and PAN KYC documentation is still pending, and his account profile is new (15 days active). His transaction history shows zero chargebacks and good payment intent.",
+                "facts": [
+                    {"text": "Credit Assessment: 58/100 (Deterministic Calculation)", "source_ids": ["credit_scores"]},
+                    {"text": "Positive Factor: 100% recent transaction success rate on AePS mini-statement.", "source_ids": ["service_activity"]},
+                    {"text": "Negative Factor: KYC Status is PENDING (unverified documents).", "source_ids": ["customers_db"]},
+                    {"text": "Negative Factor: Operational tenure is only 15 days.", "source_ids": ["timeline_events"]}
+                ],
+                "inferences": [
+                    {"text": "Completing Aadhaar and PAN verification will project trust score to 78+.", "confidence": 0.92}
+                ],
+                "recommendations": [
+                    {"text": "Send WhatsApp KYC completion request to Rahul Kumar (+91 9305601503).", "reason": "Resolves document deficiency."},
+                    {"text": "Maintain single remittance cap at ₹5,000 until verified.", "reason": "Standard risk control."}
                 ],
                 "grounded": True,
                 "insufficient_data": False

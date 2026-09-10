@@ -11,20 +11,63 @@ function renderCustomersScreen() {
         <div class="screen-header-row">
             <div>
                 <h1 class="screen-title">Customer 360</h1>
-                <p class="text-sm text-muted">Manage longitudinal profiles and service health.</p>
+                <p class="text-sm text-muted">Field-agent customer database, transaction history, and credit analysis.</p>
             </div>
-            <button class="icon-btn primary" onclick="openAddCustomerModal()" aria-label="Add Profile">
-                ${renderIcon('user-plus', 20)}
-            </button>
+            <div style="display:flex; gap:8px;">
+                <button class="btn-primary" onclick="openCustomerSearchModal()" style="display:flex; align-items:center; gap:6px; font-size:0.85rem; padding:8px 14px; font-weight:700;">
+                    ${renderIcon('search', 16)}
+                    <span>Search Customer</span>
+                </button>
+                <button class="btn-secondary" onclick="openAddCustomerModal()" aria-label="Add Profile" style="display:flex; align-items:center; gap:6px; font-size:0.85rem; padding:8px 12px;">
+                    ${renderIcon('user-plus', 16)}
+                    <span>Register</span>
+                </button>
+            </div>
         </div>
 
-        <div class="search-bar mb-6">
+        <div class="search-bar mb-4">
             <i data-lucide="search" class="search-bar-icon"></i>
-            <input type="text" id="customer-search-input" class="form-input" placeholder="Search by name, phone or ID..." oninput="handleCustomerSearch(this.value)">
+            <input type="text" id="customer-search-input" class="form-input" placeholder="Search by name, mobile or customer ID..." oninput="handleCustomerSearch(this.value)">
         </div>
 
         <div id="customers-list" class="item-list">
             <div class="loading-state"><div class="spinner"></div></div>
+        </div>
+    </div>
+
+    <!-- Dedicated Customer Search Modal -->
+    <div id="customer-search-modal" class="modal-overlay hidden">
+        <div class="modal-card" style="max-width:560px;">
+            <div class="modal-header">
+                <div style="display:flex; align-items:center; gap:8px;">
+                    ${renderIcon('search', 18, 'text-primary')}
+                    <h2 style="font-size:1.1rem; margin:0;">Search Customer</h2>
+                </div>
+                <button class="modal-close" onclick="closeCustomerSearchModal()">${renderIcon('x', 16)}</button>
+            </div>
+            <div class="modal-body" style="padding:16px;">
+                <!-- Search Input with Clear Button -->
+                <div style="position:relative; margin-bottom:16px;">
+                    <i data-lucide="search" style="position:absolute; left:12px; top:50%; transform:translateY(-50%); width:18px; height:18px; color:var(--text-light);"></i>
+                    <input type="text" id="modal-customer-search-input" class="form-input"
+                           placeholder="Search by name, mobile or customer ID"
+                           style="padding-left:38px; padding-right:38px; font-size:0.95rem; height:44px;"
+                           oninput="handleModalCustomerSearch(this.value)">
+                    <button type="button" onclick="clearCustomerSearchModal()"
+                            style="position:absolute; right:10px; top:50%; transform:translateY(-50%); background:none; border:none; cursor:pointer; color:var(--text-light); padding:4px;"
+                            title="Clear search">
+                        ${renderIcon('x-circle', 18)}
+                    </button>
+                </div>
+
+                <!-- Modal Results Container -->
+                <div id="modal-customer-search-results" class="item-list" style="max-height:400px; overflow-y:auto;">
+                    <div class="text-sm text-muted text-center py-4">Start typing to search customers...</div>
+                </div>
+            </div>
+            <div class="modal-footer">
+                <button class="btn-ghost" onclick="closeCustomerSearchModal()">Close</button>
+            </div>
         </div>
     </div>
 
@@ -87,38 +130,177 @@ function renderFilteredCustomers() {
     const list = document.getElementById('customers-list');
     if (!list || !window._allCustomers) return;
 
-    let filtered = window._allCustomers.filter(c =>
-        !customerSearchTerm ||
-        c.name.toLowerCase().includes(customerSearchTerm) ||
-        (c.phone && c.phone.includes(customerSearchTerm))
-    );
+    let filtered = window._allCustomers.filter(c => {
+        if (!customerSearchTerm) return true;
+        const q = customerSearchTerm;
+        const nameMatch = c.name && c.name.toLowerCase().includes(q);
+        const phoneMatch = c.phone && c.phone.replace(/\D/g, '').includes(q.replace(/\D/g, ''));
+        const idMatch = c.id && c.id.toLowerCase().includes(q);
+        const partnerMatch = c.partner_name && c.partner_name.toLowerCase().includes(q);
+        return nameMatch || phoneMatch || idMatch || partnerMatch;
+    });
 
     if (filtered.length === 0) {
         list.innerHTML = `
             <div class="empty-state">
-                <div class="empty-state-icon">${renderIcon('users', 24)}</div>
+                <div class="empty-state-icon">${renderIcon('users', 28)}</div>
                 <h3>No profiles found</h3>
-                <p>Register your first partner or customer using the button above.</p>
+                <p>Try searching by name, mobile number or customer ID.</p>
             </div>`;
         return;
     }
 
-    list.innerHTML = filtered.map(c => `
-        <div class="card-item" onclick="openCustomerDetail('${c.id}')" style="cursor:pointer; padding:16px;">
-            <div style="display:flex; align-items:center; gap:14px; min-width:0;">
-                <div class="user-avatar" style="background:var(--primary-light); color:var(--primary);">${c.name.charAt(0).toUpperCase()}</div>
-                <div class="min-w-0">
-                    <div class="font-bold text-main" style="overflow:hidden; text-overflow:ellipsis; white-space:nowrap;">${escapeHtml(c.name)}</div>
-                    <div style="display:flex; align-items:center; gap:6px; margin-top:4px;">
-                        <span class="badge ${c.kyc_status === 'verified' ? 'badge-success' : 'badge-warning'}" style="font-size:0.6rem;">${c.kyc_status}</span>
-                        ${c.phone ? `<span class="text-xs text-muted">· ${escapeHtml(c.phone)}</span>` : ''}
+    list.innerHTML = filtered.map(c => {
+        const maskedPhone = c.masked_phone || (c.phone ? `••••${c.phone.slice(-4)}` : 'No phone');
+        const shortId = c.id ? (c.id.length > 8 ? c.id.slice(0, 8) : c.id) : 'C000';
+        const riskLevel = c.risk_level || 'LOW RISK';
+        const riskClass = riskLevel.includes('HIGH') ? 'badge-danger' : riskLevel.includes('MOD') ? 'badge-warning' : 'badge-success';
+
+        return `
+        <div class="card-item" style="padding:14px; flex-direction:column; align-items:stretch; gap:10px;">
+            <div style="display:flex; align-items:center; justify-content:space-between; cursor:pointer;" onclick="openCustomerDetail('${c.id}')">
+                <div style="display:flex; align-items:center; gap:12px; min-width:0;">
+                    <div class="user-avatar" style="background:var(--primary-subtle); color:var(--primary); font-weight:700;">
+                        ${(c.name || 'C').charAt(0).toUpperCase()}
+                    </div>
+                    <div class="min-w-0">
+                        <div style="display:flex; align-items:center; gap:6px;">
+                            <span class="font-bold text-main" style="overflow:hidden; text-overflow:ellipsis; white-space:nowrap; font-size:0.95rem;">
+                                ${escapeHtml(c.name)}
+                            </span>
+                            <span class="text-xs text-muted font-mono">(${escapeHtml(shortId)})</span>
+                        </div>
+                        <div style="display:flex; align-items:center; gap:6px; margin-top:2px;">
+                            <span class="badge ${c.kyc_status === 'verified' ? 'badge-success' : 'badge-warning'}" style="font-size:0.6rem;">${c.kyc_status || 'pending'}</span>
+                            <span class="text-xs text-muted">· ${escapeHtml(maskedPhone)}</span>
+                            ${c.partner_name ? `<span class="text-xs text-muted">· ${escapeHtml(c.partner_name)}</span>` : ''}
+                        </div>
                     </div>
                 </div>
+                ${renderIcon('chevron-right', 18, 'text-light')}
             </div>
-            ${renderIcon('chevron-right', 18, 'text-light')}
+
+            <div style="display:flex; justify-content:space-between; align-items:center; background:var(--bg); border-radius:8px; padding:8px 12px; font-size:0.8rem;">
+                <div>
+                    <span class="text-muted text-xs">Activity:</span>
+                    <b>${c.total_transactions || 0} txns</b> · ₹${Number(c.total_volume || 0).toLocaleString('en-IN')}
+                    <span class="badge ${riskClass}" style="font-size:0.6rem; margin-left:6px;">${riskLevel}</span>
+                </div>
+                <div>
+                    <button class="btn-ghost" style="padding:4px 10px; font-size:0.75rem; color:var(--primary); font-weight:700; border:1px solid var(--primary-subtle); border-radius:6px;" onclick="event.stopPropagation(); openCreditAnalysisModal('${c.id}')">
+                        ${renderIcon('sliders', 13)}
+                        <span>Credit Analysis</span>
+                    </button>
+                </div>
+            </div>
         </div>
-    `).join('');
-    lucide.createIcons();
+        `;
+    }).join('');
+    if (window.lucide) lucide.createIcons();
+}
+
+// ── Search Customer Dedicated Modal Handlers ────────────────────────────────
+function openCustomerSearchModal() {
+    const modal = document.getElementById('customer-search-modal');
+    if (!modal) return;
+    modal.classList.remove('hidden');
+    const input = document.getElementById('modal-customer-search-input');
+    if (input) {
+        input.value = '';
+        setTimeout(() => input.focus(), 50);
+    }
+    renderModalSearchResults('');
+}
+
+function closeCustomerSearchModal() {
+    const modal = document.getElementById('customer-search-modal');
+    if (modal) modal.classList.add('hidden');
+}
+
+function clearCustomerSearchModal() {
+    const input = document.getElementById('modal-customer-search-input');
+    if (input) {
+        input.value = '';
+        input.focus();
+    }
+    renderModalSearchResults('');
+}
+
+function handleModalCustomerSearch(val) {
+    renderModalSearchResults(val);
+}
+
+function renderModalSearchResults(query) {
+    const resultsContainer = document.getElementById('modal-customer-search-results');
+    if (!resultsContainer) return;
+
+    const customers = window._allCustomers || [];
+    const q = (query || '').toLowerCase().trim();
+
+    let matches = customers;
+    if (q) {
+        matches = customers.filter(c => {
+            const nameMatch = c.name && c.name.toLowerCase().includes(q);
+            const digits = q.replace(/\D/g, '');
+            const phoneMatch = digits && c.phone && c.phone.replace(/\D/g, '').includes(digits);
+            const idMatch = c.id && c.id.toLowerCase().includes(q);
+            const partnerMatch = c.partner_name && c.partner_name.toLowerCase().includes(q);
+            return nameMatch || phoneMatch || idMatch || partnerMatch;
+        });
+    }
+
+    if (matches.length === 0) {
+        resultsContainer.innerHTML = `
+            <div class="empty-state" style="padding:32px 16px;">
+                <div class="empty-state-icon">${renderIcon('search-x', 28)}</div>
+                <h3>No customer found</h3>
+                <p>Try searching by name, mobile number or customer ID.</p>
+            </div>`;
+        if (window.lucide) lucide.createIcons();
+        return;
+    }
+
+    resultsContainer.innerHTML = matches.map(c => {
+        const maskedPhone = c.masked_phone || (c.phone ? `••••${c.phone.slice(-4)}` : 'No phone');
+        const shortId = c.id ? (c.id.length > 8 ? c.id.slice(0, 8) : c.id) : 'C000';
+        const riskLevel = c.risk_level || 'LOW RISK';
+        const riskClass = riskLevel.includes('HIGH') ? 'badge-danger' : riskLevel.includes('MOD') ? 'badge-warning' : 'badge-success';
+        const txnCount = c.total_transactions || 0;
+        const volumeStr = '₹' + Number(c.total_volume || 0).toLocaleString('en-IN');
+
+        return `
+        <div class="card mb-3" style="padding:12px 14px; border:1px solid var(--border);">
+            <div style="display:flex; justify-content:space-between; align-items:flex-start;">
+                <div>
+                    <div style="display:flex; align-items:center; gap:6px;">
+                        <span class="font-bold text-main" style="font-size:0.95rem;">${escapeHtml(c.name)}</span>
+                        <span class="text-xs text-muted font-mono">(${escapeHtml(shortId)})</span>
+                    </div>
+                    <div class="text-xs text-muted mt-1">
+                        <span>${escapeHtml(maskedPhone)}</span>
+                        ${c.partner_name ? `<span> · ${escapeHtml(c.partner_name)}</span>` : ''}
+                    </div>
+                    <div class="text-xs text-muted mt-1">
+                        <b>${txnCount} Transactions</b> · ${volumeStr} · <span class="badge ${riskClass}" style="font-size:0.6rem;">${riskLevel}</span>
+                    </div>
+                </div>
+                <div style="display:flex; flex-direction:column; gap:6px; align-items:flex-end;">
+                    <button class="btn-primary" style="padding:4px 10px; font-size:0.75rem; font-weight:700;"
+                            onclick="closeCustomerSearchModal(); openCreditAnalysisModal('${c.id}')">
+                        ${renderIcon('sliders', 13)}
+                        <span>Credit Analysis</span>
+                    </button>
+                    <button class="btn-ghost" style="padding:4px 10px; font-size:0.75rem;"
+                            onclick="closeCustomerSearchModal(); openCustomerDetail('${c.id}')">
+                        <span>Open Customer</span>
+                    </button>
+                </div>
+            </div>
+        </div>
+        `;
+    }).join('');
+
+    if (window.lucide) lucide.createIcons();
 }
 
 async function openCustomerDetail(id) {

@@ -47,8 +47,13 @@ function getGreeting() {
 }
 
 function showToast(message, type = 'success') {
+    if (typeof formatErrorMessage === 'function') {
+        message = formatErrorMessage(message, 'Action completed');
+    } else if (typeof message === 'object' && message !== null) {
+        message = message.message || JSON.stringify(message);
+    }
     if (typeof AndroidBridge !== 'undefined') {
-        try { AndroidBridge.showToast(message); } catch(e) {}
+        try { AndroidBridge.showToast(String(message)); } catch(e) {}
         return;
     }
     let toast = document.getElementById('global-toast');
@@ -57,7 +62,7 @@ function showToast(message, type = 'success') {
         toast.id = 'global-toast';
         document.body.appendChild(toast);
     }
-    toast.textContent = message;
+    toast.textContent = String(message);
     toast.className = `toast toast-${type} show`;
     setTimeout(() => toast.classList.remove('show'), 3000);
 }
@@ -68,7 +73,7 @@ function closeModal(id) {
 }
 
 function closeActiveModals() {
-    ['customer-detail-modal', 'create-complaint-modal', 'add-partner-modal', 'global-search-modal', 'service-flow-modal', 'app-guide-modal', 'whatsapp-outreach-modal', 'template-picker-modal', 'credit-analysis-modal'].forEach(id => {
+    ['customer-detail-modal', 'create-complaint-modal', 'add-partner-modal', 'global-search-modal', 'service-flow-modal', 'app-guide-modal', 'whatsapp-outreach-modal', 'template-picker-modal', 'credit-analysis-modal', 'commission-detail-modal', 'settlement-history-modal', 'more-nav-modal', 'data-upload-modal'].forEach(id => {
         closeModal(id);
     });
     document.getElementById('notification-panel')?.classList.add('hidden');
@@ -297,8 +302,9 @@ const SCREENS = {
     'whatsapp-studio': { title: 'WhatsApp Outreach Studio', subtitle: 'Automated follow-up campaigns & reminders.', render: renderWhatsAppStudioScreen, load: loadWhatsAppStudio },
     'poster-studio':   { title: 'Banner & Poster Studio', subtitle: 'Editable marketing posters & banners.', render: renderPosterStudioScreen, load: loadPosterStudio },
     partners:          { title: 'Partner Network', subtitle: 'Manage retailers & agents.', render: renderPartnersScreen, load: loadPartners },
-    customers:         { title: 'Partner Network', subtitle: 'Manage retailers & agents.', render: renderPartnersScreen, load: loadPartners },
+    customers:         { title: 'Customer 360', subtitle: 'Longitudinal customer profiles and credit history.', render: renderCustomersScreen, load: loadCustomers },
     activity:          { title: 'Transaction Center', subtitle: 'Real-time monitoring.', render: renderActivityScreen, load: loadActivity },
+    earnings:          { title: 'Earnings & Commission', subtitle: 'Deterministic commissions, payouts, and settlements.', render: renderEarningsScreen, load: loadEarningsScreen },
     grievances:        { title: 'Complaints', subtitle: 'Track SLA & resolutions.', render: renderGrievancesScreen, load: loadGrievances },
     tasks:             { title: 'Operational Tasks', subtitle: 'Prioritize daily service delivery.', render: renderTasksScreen, load: loadTasks },
     notes:             { title: 'Operational Journal', subtitle: 'Incident logs and service notes.', render: renderNotesScreen, load: loadNotes },
@@ -802,6 +808,224 @@ function openAppGuide() {
         </div>`;
     modal.classList.remove('hidden');
     if (window.lucide) lucide.createIcons();
+}
+
+// ── More Navigation Sheet ─────────────────────────────────────────────────────
+function openMoreNavModal() {
+    const modal = document.getElementById('more-nav-modal');
+    if (modal) {
+        modal.classList.remove('hidden');
+        if (window.lucide) lucide.createIcons();
+    }
+}
+
+function closeMoreNavModal() {
+    const modal = document.getElementById('more-nav-modal');
+    if (modal) modal.classList.add('hidden');
+}
+
+// ── Batch Data Upload Module ──────────────────────────────────────────────────
+let _pendingUploadRecords = [];
+
+function openDataUploadModal() {
+    const modal = document.getElementById('data-upload-modal');
+    if (!modal) return;
+    _pendingUploadRecords = [];
+    const previewContainer = document.getElementById('upload-preview-container');
+    if (previewContainer) previewContainer.classList.add('hidden');
+    const tbody = document.getElementById('upload-preview-tbody');
+    if (tbody) tbody.innerHTML = '';
+    const fileInp = document.getElementById('upload-file-input');
+    if (fileInp) fileInp.value = '';
+    const confirmBtn = document.getElementById('btn-confirm-import');
+    if (confirmBtn) {
+        confirmBtn.disabled = true;
+        confirmBtn.innerHTML = `${renderIcon('check', 14)} Import Valid Records`;
+    }
+    modal.classList.remove('hidden');
+    if (window.lucide) lucide.createIcons();
+}
+
+function closeDataUploadModal() {
+    const modal = document.getElementById('data-upload-modal');
+    if (modal) modal.classList.add('hidden');
+    _pendingUploadRecords = [];
+}
+
+function downloadUploadSampleTemplate() {
+    const csvContent = "data:text/csv;charset=utf-8," +
+        "partner_name,customer_name,customer_phone,service,amount,status,reference_id,failure_reason\n" +
+        "Sharma Telecom,Ramesh Kumar,9876543210,DMT,2500,success,TXN-UPL-001,\n" +
+        "Pooja Banking Point,Sunita Devi,9876543211,AePS,1000,success,TXN-UPL-002,\n" +
+        "Verma Communication,Amit Patel,9876543212,BBPS,650,success,TXN-UPL-003,\n" +
+        "Metro Digital Seva,Deepak Verma,9876543213,Recharge,299,failed,TXN-UPL-004,Operator switch timeout\n" +
+        "Anand Enterprises,Priya Singh,9876543214,DMT,5000,pending,TXN-UPL-005,";
+    const encodedUri = encodeURI(csvContent);
+    const link = document.createElement("a");
+    link.setAttribute("href", encodedUri);
+    link.setAttribute("download", "eko_partner_operations_template.csv");
+    document.body.appendChild(link);
+    link.click();
+    document.body.removeChild(link);
+    showToast("Sample CSV template downloaded");
+}
+
+function parseCSVLine(line) {
+    const values = [];
+    let current = '';
+    let inQuotes = false;
+    for (let i = 0; i < line.length; i++) {
+        const c = line[i];
+        if (c === '"') {
+            inQuotes = !inQuotes;
+        } else if (c === ',' && !inQuotes) {
+            values.push(current.trim().replace(/^"|"$/g, ''));
+            current = '';
+        } else {
+            current += c;
+        }
+    }
+    values.push(current.trim().replace(/^"|"$/g, ''));
+    return values;
+}
+
+async function handleFileUpload(event) {
+    const file = event.target.files && event.target.files[0];
+    if (!file) return;
+
+    const reader = new FileReader();
+    reader.onload = async (e) => {
+        const text = e.target.result;
+        let records = [];
+
+        try {
+            if (file.name.endsWith('.json')) {
+                const parsed = JSON.parse(text);
+                records = Array.isArray(parsed) ? parsed : (parsed.records || [parsed]);
+            } else {
+                // CSV or TSV parsing
+                const lines = text.split(/\r?\n/).filter(l => l.trim().length > 0);
+                if (lines.length < 2) {
+                    showToast('CSV file must have a header row and at least one data row.', 'warning');
+                    return;
+                }
+                const delimiter = lines[0].includes('\t') ? '\t' : ',';
+                const headers = lines[0].split(delimiter).map(h => h.trim().toLowerCase().replace(/[^a-z0-9_]/g, '_'));
+
+                for (let i = 1; i < lines.length; i++) {
+                    const rowVals = delimiter === '\t' ? lines[i].split('\t') : parseCSVLine(lines[i]);
+                    if (rowVals.length === 0 || rowVals.every(v => !v)) continue;
+                    const rec = {};
+                    headers.forEach((h, idx) => {
+                        rec[h] = rowVals[idx] !== undefined ? rowVals[idx] : '';
+                    });
+                    records.push(rec);
+                }
+            }
+
+            if (records.length === 0) {
+                showToast('No records detected in file.', 'warning');
+                return;
+            }
+
+            // Submit validation to backend
+            showToast(`Validating ${records.length} records...`, 'info');
+            const res = await api.validateUpload({ records });
+            displayUploadValidationResult(res);
+
+        } catch (err) {
+            showToast(`File parsing error: ${err.message || 'Invalid format'}`, 'warning');
+        }
+    };
+    reader.readAsText(file);
+}
+
+function displayUploadValidationResult(res) {
+    const previewContainer = document.getElementById('upload-preview-container');
+    const summaryBadge = document.getElementById('upload-summary-badge');
+    const tbody = document.getElementById('upload-preview-tbody');
+    const confirmBtn = document.getElementById('btn-confirm-import');
+    if (!previewContainer || !summaryBadge || !tbody) return;
+
+    previewContainer.classList.remove('hidden');
+    _pendingUploadRecords = res.preview || [];
+
+    const isAllValid = res.error_count === 0 && res.valid_count > 0;
+    summaryBadge.innerHTML = `
+        <div style="display:flex; justify-content:space-between; align-items:center; flex-wrap:wrap; gap:8px;">
+            <div>
+                <span class="badge ${isAllValid ? 'badge-success' : (res.valid_count > 0 ? 'badge-warning' : 'badge-danger')} font-bold text-xs">
+                    ${res.valid_count} / ${res.total_records} Valid
+                </span>
+                <span class="text-xs text-muted ml-2">${res.warning_count} warnings, ${res.error_count} errors</span>
+            </div>
+            <div class="text-xs text-muted">
+                ${res.valid_count > 0 ? 'Ready to synchronize canonical database' : 'Correct errors before importing'}
+            </div>
+        </div>
+        ${res.errors && res.errors.length > 0 ? `
+            <div class="mt-2 text-xs text-danger" style="background:rgba(239,68,68,0.08); padding:6px 10px; border-radius:6px;">
+                <b>Errors:</b> ${escapeHtml(res.errors.slice(0, 3).join('; '))}
+            </div>
+        ` : ''}
+        ${res.warnings && res.warnings.length > 0 ? `
+            <div class="mt-2 text-xs text-warning" style="background:rgba(234,179,8,0.08); padding:6px 10px; border-radius:6px;">
+                <b>Warnings:</b> ${escapeHtml(res.warnings.slice(0, 2).join('; '))}
+            </div>
+        ` : ''}
+    `;
+
+    if (_pendingUploadRecords.length === 0) {
+        tbody.innerHTML = `<tr><td colspan="6" class="text-center text-muted p-3">No valid records found in upload file.</td></tr>`;
+    } else {
+        tbody.innerHTML = _pendingUploadRecords.map(r => `
+            <tr style="border-bottom:1px solid var(--border);">
+                <td style="padding:6px 10px;">
+                    <span class="badge ${r.status === 'success' ? 'badge-success' : (r.status === 'failed' ? 'badge-danger' : 'badge-warning')}" style="font-size:10px;">
+                        ${(r.status || 'SUCCESS').toUpperCase()}
+                    </span>
+                </td>
+                <td style="padding:6px 10px; font-weight:600;">${escapeHtml(r.customer_name)}</td>
+                <td style="padding:6px 10px;">${escapeHtml(r.customer_phone || '')}</td>
+                <td style="padding:6px 10px;">${escapeHtml(r.service)}</td>
+                <td style="padding:6px 10px; font-weight:700;">₹${Number(r.amount || 0).toLocaleString('en-IN')}</td>
+                <td style="padding:6px 10px; color:var(--text-muted); font-size:11px;">${escapeHtml(r.partner_name || '')}</td>
+            </tr>
+        `).join('');
+    }
+
+    if (confirmBtn) {
+        confirmBtn.disabled = res.valid_count === 0;
+        confirmBtn.innerHTML = `${renderIcon('check', 14)} Import ${res.valid_count} Valid Records`;
+    }
+    if (window.lucide) lucide.createIcons();
+}
+
+async function confirmDataImport() {
+    if (!_pendingUploadRecords || _pendingUploadRecords.length === 0) {
+        showToast('No validated records available to import.', 'warning');
+        return;
+    }
+    const confirmBtn = document.getElementById('btn-confirm-import');
+    if (confirmBtn) {
+        confirmBtn.disabled = true;
+        confirmBtn.innerHTML = `${renderIcon('loader', 14)} Importing...`;
+    }
+
+    try {
+        const res = await api.importUpload({ records: _pendingUploadRecords });
+        showToast(res.message || `Successfully imported ${res.imported} records!`, 'success');
+        closeDataUploadModal();
+
+        // Refresh all dynamic views
+        if (typeof loadHomeScreen === 'function' && currentScreen === 'home') loadHomeScreen();
+        if (typeof loadPartners === 'function' && currentScreen === 'partners') loadPartners();
+        if (typeof loadActivity === 'function' && currentScreen === 'activity') loadActivity();
+        if (typeof loadEarningsScreen === 'function' && currentScreen === 'earnings') loadEarningsScreen();
+    } catch (err) {
+        showToast(`Import failed: ${err.message || 'Unknown error'}`, 'warning');
+        if (confirmBtn) confirmBtn.disabled = false;
+    }
 }
 
 // ── Bootstrap ─────────────────────────────────────────────────────────────────

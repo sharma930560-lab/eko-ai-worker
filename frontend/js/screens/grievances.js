@@ -426,8 +426,80 @@ function openCreateComplaintModal(txnId = null, customerId = null, customerName 
         if (banner) banner.classList.add('hidden');
     }
 
+    dismissComplaintTriage();
     modal.classList.remove('hidden');
     if (window.lucide) lucide.createIcons();
+}
+
+let _currentComplaintTriage = null;
+
+async function runComplaintTriage() {
+    const subj = document.getElementById('comp-subject')?.value || '';
+    const desc = document.getElementById('comp-description')?.value || '';
+    const txnId = document.getElementById('comp-txn-id')?.value || null;
+    const custId = document.getElementById('comp-cust-id')?.value || null;
+
+    if (!subj && !desc) {
+        showToast('Please enter a subject or description to run AI triage.', 'info');
+        return;
+    }
+
+    const card = document.getElementById('comp-ai-triage-card');
+    const content = document.getElementById('comp-ai-triage-content');
+    if (card && content) {
+        card.classList.remove('hidden');
+        content.innerHTML = '<div class="text-xs text-muted">Running AI operational triage...</div>';
+    }
+
+    try {
+        const triage = await api.triageComplaint({
+            subject: subj,
+            description: desc,
+            transaction_id: txnId,
+            customer_id: custId
+        });
+        _currentComplaintTriage = triage;
+        if (content) {
+            content.innerHTML = `
+                <div style="margin-bottom:4px;"><strong>Category:</strong> ${escapeHtml(triage.category || 'General')}</div>
+                <div style="margin-bottom:4px;"><strong>Severity:</strong> <span class="badge badge-${(triage.severity || 'Medium').toLowerCase() === 'urgent' ? 'danger' : (triage.severity || 'Medium').toLowerCase() === 'high' ? 'warning' : 'neutral'}" style="font-size:10px;">${escapeHtml(triage.severity || 'Medium')}</span></div>
+                <div style="margin-bottom:4px;"><strong>Summary:</strong> ${escapeHtml(triage.summary || '')}</div>
+                <div style="margin-bottom:4px;"><strong>Recommended Action:</strong> ${escapeHtml(triage.recommended_action || '')}</div>
+                <div><strong>Escalation Suggestion:</strong> ${escapeHtml(triage.escalation_suggestion || '')}</div>
+            `;
+        }
+    } catch (err) {
+        if (content) {
+            const errStr = (typeof formatErrorMessage === 'function') ? formatErrorMessage(err, 'Unable to get recommendation') : (err.message || 'Error');
+            content.innerHTML = `<div class="text-xs text-danger">AI triage unavailable: ${escapeHtml(errStr)}</div>`;
+        }
+    }
+}
+
+function applyComplaintTriage() {
+    if (!_currentComplaintTriage) return;
+    const prio = document.getElementById('comp-priority');
+    const desc = document.getElementById('comp-description');
+
+    if (prio && _currentComplaintTriage.severity) {
+        const sev = _currentComplaintTriage.severity.toLowerCase();
+        if (sev === 'urgent') prio.value = 'urgent';
+        else if (sev === 'high') prio.value = 'high';
+        else prio.value = 'medium';
+    }
+
+    if (desc && _currentComplaintTriage.recommended_action) {
+        const existing = desc.value ? desc.value + '\n\n' : '';
+        desc.value = existing + `[AI Recommendation]: ${_currentComplaintTriage.recommended_action}`;
+    }
+
+    showToast('AI triage recommendations applied to form.', 'success');
+}
+
+function dismissComplaintTriage() {
+    const card = document.getElementById('comp-ai-triage-card');
+    if (card) card.classList.add('hidden');
+    _currentComplaintTriage = null;
 }
 
 async function submitCreateComplaint(e) {
@@ -449,11 +521,13 @@ async function submitCreateComplaint(e) {
 
         closeModal('create-complaint-modal');
         form.reset();
+        dismissComplaintTriage();
         showToast('Complaint filed and SLA countdown started!', 'success');
         loadGrievances();
         if (typeof loadHomeScreen === 'function') loadHomeScreen();
     } catch(err) {
-        showToast('Failed to file complaint: ' + (err.message || 'Unknown error'), 'error');
+        const errMsg = (typeof formatErrorMessage === 'function') ? formatErrorMessage(err, 'Unable to file complaint. Please try again.') : (err.message || 'Unknown error');
+        showToast('Failed to file complaint: ' + errMsg, 'error');
     } finally {
         if (btn) { btn.disabled = false; btn.textContent = 'Submit Complaint'; }
     }
@@ -471,3 +545,6 @@ window.assignComplaintOwner = assignComplaintOwner;
 window.changeComplaintStatus = changeComplaintStatus;
 window.submitComplaintNote = submitComplaintNote;
 window.submitCreateComplaint = submitCreateComplaint;
+window.runComplaintTriage = runComplaintTriage;
+window.applyComplaintTriage = applyComplaintTriage;
+window.dismissComplaintTriage = dismissComplaintTriage;

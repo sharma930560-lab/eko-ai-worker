@@ -59,6 +59,31 @@ function renderWhatsAppStudioScreen() {
     `;
 }
 
+function normalizePhoneNumber(phone) {
+    if (!phone) return '';
+    const digits = String(phone).replace(/\D/g, '');
+    if (digits.length === 10) {
+        return '91' + digits;
+    }
+    if (digits.length === 11 && digits.startsWith('0')) {
+        return '91' + digits.slice(1);
+    }
+    if (digits.length === 12 && digits.startsWith('91')) {
+        return digits;
+    }
+    if (digits.length > 10) {
+        return '91' + digits.slice(-10);
+    }
+    return digits;
+}
+window.normalizePhoneNumber = normalizePhoneNumber;
+
+function buildWhatsAppUrl(phone, message) {
+    const norm = normalizePhoneNumber(phone);
+    return `https://wa.me/${norm}?text=${encodeURIComponent(message || '')}`;
+}
+window.buildWhatsAppUrl = buildWhatsAppUrl;
+
 async function loadWhatsAppStudio() {
     const listEl = document.getElementById('wa-outreach-list');
     if (!listEl) return;
@@ -68,10 +93,11 @@ async function loadWhatsAppStudio() {
         updateWATabCounts();
         renderFilteredWARecords();
     } catch(err) {
+        const errorMsg = (typeof formatErrorMessage === 'function') ? formatErrorMessage(err, 'Unable to load outreach records. Please try again.') : (err.message || 'Error communicating with backend');
         listEl.innerHTML = `
             <div class="error-state">
                 <div class="error-state-title">Failed to load WhatsApp records</div>
-                <div class="error-state-desc">${escapeHtml(err.message || 'Error communicating with backend')}</div>
+                <div class="error-state-desc">${escapeHtml(errorMsg)}</div>
             </div>`;
     }
 }
@@ -159,16 +185,17 @@ function renderFilteredWARecords() {
         const isFailed = o.status === 'failed' || o.status === 'cancelled';
 
         const statusBadge = isSent ? 'badge-success' : isFailed ? 'badge-danger' : 'badge-warning';
-        const phoneFormatted = o.customer_phone.replace(/\D/g, '');
-        const waLink = `https://wa.me/91${phoneFormatted.slice(-10)}?text=${encodeURIComponent(o.message)}`;
+        const waLink = buildWhatsAppUrl(o.customer_phone, o.message);
+        const normPhone = normalizePhoneNumber(o.customer_phone);
+        const langDisplay = (o.language || 'hinglish').toUpperCase();
 
         return `
-        <div class="card mb-3" style="padding:16px; border-left:4px solid ${isSent ? 'var(--success)' : isFailed ? 'var(--danger)' : '#25d366'}; cursor:pointer;" onclick="openWhatsAppModal('${o.customer_id || ''}', '${escapeHtml(o.customer_name).replace(/'/g, "\\'")}', '${escapeHtml(o.customer_phone)}')">
+        <div class="card mb-3" style="padding:16px; border-left:4px solid ${isSent ? 'var(--success)' : isFailed ? 'var(--danger)' : '#25d366'}; cursor:pointer;" onclick="openWhatsAppModal('${o.customer_id || ''}', '${escapeHtml(o.customer_name).replace(/'/g, "\\'")}', '${escapeHtml(o.customer_phone)}', '${escapeHtml(o.language || 'hinglish')}', '${escapeHtml(o.template_type || 'custom')}')">
             <div style="display:flex; justify-content:space-between; align-items:flex-start; flex-wrap:wrap; gap:8px; margin-bottom:8px;">
                 <div style="flex:1; min-width:180px;">
                     <h3 style="font-size:1.05rem; font-weight:700; color:var(--navy);">${escapeHtml(o.customer_name)}</h3>
                     <div class="text-xs text-muted" style="display:flex; align-items:center; flex-wrap:wrap; gap:6px; margin-top:2px;">
-                        <span style="white-space:nowrap;">${renderIcon('phone', 12)} +91 ${escapeHtml(o.customer_phone)}</span>
+                        <span style="white-space:nowrap;">${renderIcon('phone', 12)} +${escapeHtml(normPhone)}</span>
                         <span>•</span>
                         <span style="white-space:nowrap;">Created: ${formatDate(o.created_at)}</span>
                         ${o.sent_at ? `<span>•</span><span class="text-success" style="white-space:nowrap;">Sent: ${formatDateTime(o.sent_at)}</span>` : ''}
@@ -177,6 +204,7 @@ function renderFilteredWARecords() {
                 <div style="display:flex; align-items:center; gap:6px; flex-shrink:0;">
                     <span class="badge ${statusBadge}">${o.status.toUpperCase()}</span>
                     <span class="badge badge-neutral" style="font-size:10px;">${(o.template_type || 'custom').toUpperCase()}</span>
+                    <span class="badge" style="background:rgba(124,58,237,0.1); color:#7c3aed; font-size:10px;">${langDisplay}</span>
                 </div>
             </div>
 
@@ -233,49 +261,71 @@ function launchWhatsAppLink(url, id = null) {
     if (id) {
         markWAOpened(id);
     }
-    if (typeof AndroidBridge !== 'undefined' && AndroidBridge.openWhatsApp) {
+    showToast('Opening WhatsApp...', 'info');
+
+    let nativeLaunched = false;
+    if (typeof AndroidBridge !== 'undefined' && typeof AndroidBridge.openWhatsApp === 'function') {
         try {
-            AndroidBridge.openWhatsApp(url);
-            return;
-        } catch(e) {}
+            nativeLaunched = AndroidBridge.openWhatsApp(url);
+        } catch(e) {
+            nativeLaunched = false;
+        }
     }
-    window.open(url, '_blank');
+
+    if (!nativeLaunched) {
+        if (typeof AndroidBridge !== 'undefined') {
+            showToast('WhatsApp app is not available. Opening WhatsApp Web...', 'info');
+        }
+        try {
+            window.open(url, '_blank');
+        } catch(e) {
+            showToast('Unable to open WhatsApp. Please check popup settings.', 'error');
+            return;
+        }
+    }
+
+    const match = url.match(/wa\.me\/(\d+)/);
+    const dest = match && match[1] ? `+${match[1]}` : 'customer';
+    setTimeout(() => {
+        showToast(`WhatsApp opened for ${dest}`, 'success');
+    }, 400);
 }
 
 async function markWAOpened(id) {
     try {
         await api.updateWhatsAppOutreach(id, { status: 'whatsapp_opened' });
-        // Schedule Android WorkManager notification if bridge is present
         if (typeof AndroidBridge !== 'undefined' && AndroidBridge.scheduleOutreachReminder) {
             AndroidBridge.scheduleOutreachReminder(id, "Customer Follow-up", "Follow up on customer WhatsApp response", 3600);
         }
-        setTimeout(() => loadWhatsAppStudio(), 800);
+        setTimeout(() => loadWhatsAppStudio(), 600);
     } catch(e) {}
 }
 
 async function markWASent(id) {
     try {
-        await api.updateWhatsAppOutreach(id, { status: 'sent' });
+        await api.updateWhatsAppOutreach(id, { status: 'sent', reminder_active: false });
         if (typeof AndroidBridge !== 'undefined' && AndroidBridge.cancelOutreachReminder) {
             AndroidBridge.cancelOutreachReminder(id);
         }
         showToast('Outreach marked as SENT!', 'success');
         loadWhatsAppStudio();
     } catch(err) {
-        showToast('Update failed: ' + (err.message || 'Error'), 'error');
+        const msg = (typeof formatErrorMessage === 'function') ? formatErrorMessage(err, 'Update failed') : (err.message || 'Error');
+        showToast('Update failed: ' + msg, 'error');
     }
 }
 
 async function markWAFailed(id) {
     try {
-        await api.updateWhatsAppOutreach(id, { status: 'failed' });
+        await api.updateWhatsAppOutreach(id, { status: 'failed', reminder_active: false });
         if (typeof AndroidBridge !== 'undefined' && AndroidBridge.cancelOutreachReminder) {
             AndroidBridge.cancelOutreachReminder(id);
         }
         showToast('Outreach marked as expired.', 'info');
         loadWhatsAppStudio();
     } catch(err) {
-        showToast('Update failed: ' + (err.message || 'Error'), 'error');
+        const msg = (typeof formatErrorMessage === 'function') ? formatErrorMessage(err, 'Update failed') : (err.message || 'Error');
+        showToast('Update failed: ' + msg, 'error');
     }
 }
 
@@ -286,7 +336,8 @@ async function retryOutreach(id) {
         _waFilterTab = 'pending';
         loadWhatsAppStudio();
     } catch(err) {
-        showToast('Failed to retry: ' + (err.message || 'Error'), 'error');
+        const msg = (typeof formatErrorMessage === 'function') ? formatErrorMessage(err, 'Failed to retry') : (err.message || 'Error');
+        showToast('Failed to retry: ' + msg, 'error');
     }
 }
 
@@ -309,17 +360,24 @@ async function toggleWAReminder(id, active) {
 
 // ── Compose & AI Generator ───────────────────────────────────────────────────
 
-function openWhatsAppModal(customerId = null, customerName = null, customerPhone = null) {
+function openWhatsAppModal(customerId = null, customerName = null, customerPhone = null, language = null, templateType = null) {
     const modal = document.getElementById('whatsapp-outreach-modal');
     if (!modal) return;
 
     const cidEl = document.getElementById('wa-customer-id');
     const nameEl = document.getElementById('wa-cust-name');
     const phoneEl = document.getElementById('wa-cust-phone');
+    const langEl = document.getElementById('wa-language');
+    const ttypeEl = document.getElementById('wa-template-type');
 
     if (cidEl) cidEl.value = customerId || '';
     if (nameEl) nameEl.value = customerName || '';
-    if (phoneEl) phoneEl.value = customerPhone ? customerPhone.replace(/\D/g, '').slice(-10) : '';
+    if (phoneEl) {
+        const raw = customerPhone || '';
+        phoneEl.value = raw.replace(/\D/g, '').slice(-10);
+    }
+    if (langEl && language) langEl.value = language.toLowerCase();
+    if (ttypeEl && templateType) ttypeEl.value = templateType;
 
     modal.classList.remove('hidden');
     autoGenerateWAMessage();
@@ -327,13 +385,14 @@ function openWhatsAppModal(customerId = null, customerName = null, customerPhone
 }
 
 async function autoGenerateWAMessage() {
-    const name = document.getElementById('wa-cust-name')?.value || 'Partner';
+    const name = document.getElementById('wa-cust-name')?.value || 'Customer';
     const phone = document.getElementById('wa-cust-phone')?.value || '';
     const ttype = document.getElementById('wa-template-type')?.value || 'kyc_reminder';
-    const lang = document.getElementById('wa-language')?.value || 'hinglish';
+    const lang = (document.getElementById('wa-language')?.value || 'hinglish').toLowerCase();
     const msgBox = document.getElementById('wa-message-text');
 
     if (!msgBox) return;
+
     try {
         const res = await api.generateWhatsAppMessage({
             customer_name: name,
@@ -343,42 +402,112 @@ async function autoGenerateWAMessage() {
         });
         if (res && res.message) {
             msgBox.value = res.message;
+            return;
         }
     } catch(e) {
-        // Fallback deterministic copy
-        if (ttype === 'kyc_reminder') {
-            msgBox.value = `Namaste ${name} ji, Eko operations team ki taraf se pranam. Aapka KYC verification process abhi pending hai. Kripya apna Aadhaar aur PAN verify karwayein taaki transaction limit active ho sakein.`;
-        } else if (ttype === 'payment_reminder') {
-            msgBox.value = `Namaste ${name} ji, Aapke Eko partner account ka pending settlement due hai. Kripya samay par settlement clear karein taaki services chalti rahein.`;
-        } else {
-            msgBox.value = `Namaste ${name} ji, Eko operations center se update. Kisi bhi digital banking sahayata ke liye sampark karein.`;
-        }
+        // Fall back to robust client-side templates
     }
+
+    const fallbackTemplates = {
+        kyc_reminder: {
+            english: `Hi ${name}, your KYC verification is still pending. Please complete it to keep your services active.`,
+            hindi: `नमस्ते ${name} जी, आपका KYC verification अभी pending है। कृपया इसे पूरा कर लें ताकि आपकी services active रहें।`,
+            hinglish: `Namaste ${name} ji, aapka KYC verification abhi pending hai. Please ise complete kar lijiye taaki aapki services active rahen.`
+        },
+        payment_reminder: {
+            english: `Hello ${name}, your Eko partner account has a pending settlement balance due. Please complete the payment today to ensure uninterrupted operations.`,
+            hindi: `नमस्ते ${name} जी, आपके ईको अकाउंट का बकाया सेटलमेंट भुगतान लंबित है। निर्बाध सेवाओं के लिए कृपया आज ही भुगतान करें।`,
+            hinglish: `Namaste ${name} ji, aapke Eko account ka settlement balance pending hai. Kripya samay par settlement clear karein taaki services chalti rahein.`
+        },
+        settlement_notice: {
+            english: `Hello ${name}, today's operational settlement for your Eko service point has been successfully processed and reconciled.`,
+            hindi: `नमस्ते ${name} जी, आपके ईको केंद्र का आज का सेटलमेंट सफलतापूर्वक प्रोसेस हो गया है। सभी लेन-देन का मिलान पूरा हुआ।`,
+            hinglish: `Namaste ${name} ji, aapke Eko center ka daily settlement report process ho chuka hai. Statement portal par check karein.`
+        },
+        dispute_update: {
+            english: `Hello ${name}, your transaction dispute is actively being coordinated with the banking switch. Resolution will be provided within SLA.`,
+            hindi: `नमस्ते ${name} जी, आपके लेन-देन विवाद पर हमारी टीम बैंक स्विच से समन्वय कर रही है। SLA के तहत जल्द समाधान किया जाएगा।`,
+            hinglish: `Namaste ${name} ji, aapki transaction dispute request Eko operations desk par actively monitor ho rahi hai. 24 hours ke bheetar resolution mil jayega.`
+        },
+        dmt: {
+            english: `Hi ${name}, instant domestic money transfer (DMT) service is active at our counter. Send money to any bank account in India instantly with 100% security.`,
+            hindi: `नमस्ते ${name} जी, हमारे केंद्र पर मनी ट्रांसफर (DMT) सेवा उपलब्ध है। किसी भी बैंक खाते में तुरंत पैसे भेजें।`,
+            hinglish: `Namaste ${name} ji, instant money transfer counter par chalu hai. Desh ke kisi bhi bank me turant paisa bhejein.`
+        },
+        aeps: {
+            english: `Hi ${name}, cash withdrawal and mini statement via Aadhaar (AePS) is available at our Eko banking point.`,
+            hindi: `नमस्ते ${name} जी, हमारे केंद्र पर आधार से नकद निकासी (AePS) एवं बैलेंस जांच की सुविधा उपलब्ध है।`,
+            hinglish: `Namaste ${name} ji, AePS cash withdrawal aur mini statement facility counter par available hai. Instant cash aur receipt payein.`
+        },
+        bbps: {
+            english: `Hi ${name}, pay all your electricity, water, and broadband bills instantly with instant BBPS confirmation at our counter.`,
+            hindi: `नमस्ते ${name} जी, बिजली, पानी एवं सभी उपयोगी बिलों का भुगतान हमारे ईको केंद्र पर तुरंत करें एवं पक्की रसीद पाएं।`,
+            hinglish: `Namaste ${name} ji, electricity, water aur broadband bills ka instant payment hamare counter par karein. Official BBPS receipt instantly mil jayegi.`
+        },
+        recharge: {
+            english: `Hi ${name}, recharge your mobile or DTH connection instantly with exciting cashback offers at our Eko service point.`,
+            hindi: `नमस्ते ${name} जी, अपने मोबाइल एवं डीटीएच का रिचार्ज हमारे ईको केंद्र पर तुरंत करवाएं और पाएं बेहतरीन ऑफर्स।`,
+            hinglish: `Namaste ${name} ji, mobile aur DTH recharge counter par available hai. Instant activation aur offers payein.`
+        },
+        offer: {
+            english: `Hello ${name}! Special festive offer: Enjoy fast money transfers, cash withdrawals, and bill payments with highest commission and zero downtime!`,
+            hindi: `नमस्ते ${name} जी, इस त्योहारी सीजन में अपने ग्राहकों को ईको की मनी ट्रांसफर, AePS एवं बिल सेवाएं दें और पाएं उच्चतम कमीशन!`,
+            hinglish: `Namaste ${name} ji! Is festive season apne customers ko dein Eko ki fast DMT aur AePS services. Highest commission aur instant settlement ka labh uthayein!`
+        },
+        custom: {
+            english: `Hello ${name}, operational update from Eko Operations. Please visit your dashboard or counter for details.`,
+            hindi: `नमस्ते ${name} जी, ईको डिजिटल ऑपरेशंस से संदेश। किसी भी सहायता के लिए हमें तुरंत सूचित करें।`,
+            hinglish: `Namaste ${name} ji, Eko operations center se update. Kisi bhi banking sahayata ke liye sampark karein.`
+        }
+    };
+
+    const group = fallbackTemplates[ttype] || fallbackTemplates['custom'];
+    const text = group[lang] || group['hinglish'] || group['english'];
+    msgBox.value = text;
 }
+
+function copyWAMessage() {
+    const msgBox = document.getElementById('wa-message-text');
+    if (!msgBox || !msgBox.value) return;
+    navigator.clipboard.writeText(msgBox.value).then(() => {
+        showToast('Message copied to clipboard!', 'success');
+    }).catch(() => {
+        showToast('Unable to copy message.', 'error');
+    });
+}
+window.copyWAMessage = copyWAMessage;
 
 async function submitWhatsAppOutreach(e) {
     e.preventDefault();
     const btn = document.getElementById('btn-submit-wa');
-    if (btn) { btn.disabled = true; btn.textContent = 'Launching…'; }
+    if (btn) { btn.disabled = true; btn.textContent = 'Saving…'; }
 
     const f = new FormData(e.target);
     const cName = f.get('customer_name');
     const cPhone = f.get('customer_phone');
     const tType = f.get('template_type');
+    const lang = f.get('language') || document.getElementById('wa-language')?.value || 'hinglish';
     const msg = f.get('message');
     const freq = f.get('reminder_frequency');
     const active = document.getElementById('wa-reminder-active')?.checked || false;
+
+    const normalizedPhone = normalizePhoneNumber(cPhone);
+    if (!normalizedPhone || normalizedPhone.length !== 12) {
+        showToast('Please enter a valid 10-digit Indian phone number.', 'error');
+        if (btn) { btn.disabled = false; btn.textContent = 'Save Outreach'; }
+        return;
+    }
 
     try {
         const record = await api.createWhatsAppOutreach({
             customer_id: f.get('customer_id') || null,
             customer_name: cName,
-            customer_phone: cPhone,
+            customer_phone: normalizedPhone.slice(-10),
             template_type: tType,
+            language: lang,
             message: msg
         });
 
-        // Set reminder preferences
         if (freq !== 'none') {
             await api.updateWhatsAppOutreach(record.id, {
                 reminder_frequency: freq,
@@ -392,18 +521,15 @@ async function submitWhatsAppOutreach(e) {
 
         closeModal('whatsapp-outreach-modal');
         e.target.reset();
-        showToast('Outreach saved! Opening WhatsApp…', 'success');
+        showToast('Outreach created in Pending list!', 'success');
 
-        // Launch WhatsApp link
-        const cleanPhone = cPhone.replace(/\D/g, '').slice(-10);
-        const waUrl = `https://wa.me/91${cleanPhone}?text=${encodeURIComponent(msg)}`;
-        window.open(waUrl, '_blank');
-
+        _waFilterTab = 'pending';
         if (typeof loadWhatsAppStudio === 'function') loadWhatsAppStudio();
     } catch(err) {
-        showToast('Failed to create outreach: ' + (err.message || 'Error'), 'error');
+        const msgStr = (typeof formatErrorMessage === 'function') ? formatErrorMessage(err, 'Unable to create outreach. Please check details.') : (err.message || 'Error');
+        showToast('Failed to create outreach: ' + msgStr, 'error');
     } finally {
-        if (btn) { btn.disabled = false; btn.textContent = 'Save & Launch WhatsApp'; }
+        if (btn) { btn.disabled = false; btn.textContent = 'Save Outreach'; }
     }
 }
 
@@ -419,3 +545,4 @@ window.markWASent = markWASent;
 window.markWAFailed = markWAFailed;
 window.retryOutreach = retryOutreach;
 window.toggleWAReminder = toggleWAReminder;
+

@@ -24,6 +24,7 @@ from google.auth.transport import requests as google_requests
 import database
 import models
 from ai_provider import get_ai_provider, LocalDeterministicProvider
+import canonical_seed
 
 # ─── Setup ────────────────────────────────────────────────────────────────────
 load_dotenv()
@@ -71,6 +72,26 @@ def run_migrations():
                     logger.info("Migrating DB: Adding kyc_status column to customers table")
                     conn.execute(text("ALTER TABLE customers ADD COLUMN kyc_status VARCHAR DEFAULT 'pending'"))
                     conn.commit()
+                if "is_partner" not in cust_cols:
+                    logger.info("Migrating DB: Adding is_partner column to customers table")
+                    conn.execute(text("ALTER TABLE customers ADD COLUMN is_partner BOOLEAN DEFAULT 0"))
+                    conn.commit()
+                if "partner_id" not in cust_cols:
+                    logger.info("Migrating DB: Adding partner_id column to customers table")
+                    conn.execute(text("ALTER TABLE customers ADD COLUMN partner_id VARCHAR"))
+                    conn.commit()
+                if "category" not in cust_cols:
+                    logger.info("Migrating DB: Adding category column to customers table")
+                    conn.execute(text("ALTER TABLE customers ADD COLUMN category VARCHAR"))
+                    conn.commit()
+
+            # Check service_activity table
+            if "service_activity" in table_names:
+                sa_cols = {col["name"] for col in inspector.get_columns("service_activity")}
+                if "partner_id" not in sa_cols:
+                    logger.info("Migrating DB: Adding partner_id column to service_activity table")
+                    conn.execute(text("ALTER TABLE service_activity ADD COLUMN partner_id VARCHAR"))
+                    conn.commit()
 
             # Check tasks table
             if "tasks" in table_names:
@@ -101,6 +122,27 @@ def run_migrations():
                         logger.info(f"Migrating DB: Adding {col_name} column to complaints table")
                         conn.execute(text(f"ALTER TABLE complaints ADD COLUMN {col_name} {col_type}"))
                         conn.commit()
+
+            # Check whatsapp_outreach table
+            if "whatsapp_outreach" in table_names:
+                wa_cols = {col["name"] for col in inspector.get_columns("whatsapp_outreach")}
+                if "language" not in wa_cols:
+                    logger.info("Migrating DB: Adding language column to whatsapp_outreach table")
+                    conn.execute(text("ALTER TABLE whatsapp_outreach ADD COLUMN language VARCHAR DEFAULT 'hinglish'"))
+                    conn.commit()
+                if "partner_id" not in wa_cols:
+                    logger.info("Migrating DB: Adding partner_id column to whatsapp_outreach table")
+                    conn.execute(text("ALTER TABLE whatsapp_outreach ADD COLUMN partner_id VARCHAR"))
+                    conn.commit()
+                for dt_col in ("delivered_at", "read_at", "failed_at"):
+                    if dt_col not in wa_cols:
+                        logger.info(f"Migrating DB: Adding {dt_col} column to whatsapp_outreach table")
+                        conn.execute(text(f"ALTER TABLE whatsapp_outreach ADD COLUMN {dt_col} TIMESTAMP"))
+                        conn.commit()
+                if "failure_reason" not in wa_cols:
+                    logger.info("Migrating DB: Adding failure_reason column to whatsapp_outreach table")
+                    conn.execute(text("ALTER TABLE whatsapp_outreach ADD COLUMN failure_reason VARCHAR"))
+                    conn.commit()
     except Exception as e:
         logger.warning(f"Database migration check failed: {e}")
 
@@ -166,11 +208,15 @@ class CustomerCreate(BaseModel):
     notes: Optional[str] = None
     amount_due: Optional[float] = 0.0
     follow_up_date: Optional[str] = None
+    is_partner: Optional[bool] = False
+    partner_id: Optional[str] = None
+    category: Optional[str] = None
 
 class CustomerResponse(BaseModel):
     id: str
     name: str
     phone: Optional[str]
+    masked_phone: Optional[str] = None
     email: Optional[str]
     kyc_status: str
     business_type: Optional[str]
@@ -178,12 +224,21 @@ class CustomerResponse(BaseModel):
     amount_due: float
     last_contact: Optional[str]
     follow_up_date: Optional[str]
+    is_partner: Optional[bool] = False
+    partner_id: Optional[str] = None
+    partner_name: Optional[str] = None
+    category: Optional[str] = None
+    total_transactions: Optional[int] = 0
+    total_volume: Optional[float] = 0.0
+    latest_status: Optional[str] = None
+    risk_level: Optional[str] = None
     created_at: datetime
     model_config = {"from_attributes": True}
 
 class ActivityCreate(BaseModel):
     customer_id: Optional[str] = None
     customer_name: Optional[str] = None
+    partner_id: Optional[str] = None
     service_name: str
     status: str = "initiated"
     amount: float = 0.0
@@ -199,6 +254,7 @@ class ActivityResponse(BaseModel):
     commission: float
     customer_id: Optional[str]
     customer_name: Optional[str]
+    partner_id: Optional[str] = None
     reference_id: Optional[str]
     failure_reason: Optional[str]
     created_at: datetime
@@ -213,7 +269,7 @@ class TimelineEventResponse(BaseModel):
     model_config = {"from_attributes": True}
 
 class ComplaintCreate(BaseModel):
-    customer_id: str
+    customer_id: Optional[str] = None
     transaction_id: Optional[str] = None
     subject: str
     description: str
@@ -236,11 +292,13 @@ class WhatsAppOutreachCreate(BaseModel):
     customer_name: str
     customer_phone: str
     template_type: Optional[str] = "custom"
+    language: Optional[str] = "hinglish"
     message: str
     notes: Optional[str] = None
 
 class WhatsAppOutreachUpdate(BaseModel):
     status: Optional[str] = None
+    language: Optional[str] = None
     reminder_frequency: Optional[str] = None
     reminder_active: Optional[bool] = None
     notes: Optional[str] = None
@@ -252,6 +310,20 @@ class WhatsAppGenerateRequest(BaseModel):
     template_type: Optional[str] = "custom"
     context: Optional[str] = None
     language: Optional[str] = "hinglish"
+
+class ComplaintTriageRequest(BaseModel):
+    subject: str
+    description: Optional[str] = None
+    transaction_id: Optional[str] = None
+    customer_id: Optional[str] = None
+
+class ComplaintTriageResponse(BaseModel):
+    category: str
+    severity: str
+    summary: str
+    recommended_action: str
+    escalation_suggestion: str
+    is_ai_suggestion: bool = True
 
 class PosterDesignCreate(BaseModel):
     title: str
@@ -499,36 +571,153 @@ def find_customer_for_question(db: Session, user_id: str, question: str) -> Opti
 
     return best_match if best_score > 0 else None
 
+def _seed_poster_templates(user_id: str, db: Session):
+    """Seed 6 default editable posters into PosterDesign table if not already present."""
+    if db.query(models.PosterDesign).filter(models.PosterDesign.user_id == user_id).count() > 0:
+        return
+    def seed_id(label: str) -> str:
+        return str(uuid.uuid5(uuid.NAMESPACE_URL, f"eko-demo:{user_id}:{label}"))
+
+    poster_templates = [
+        models.PosterDesign(
+            id=seed_id("poster-dmt"), user_id=user_id,
+            title="Fast Money Transfer up to ₹50,000", template_type="dmt",
+            width=800, height=800,
+            layers_json=json.dumps([
+                {"id": "bg", "type": "background", "color": "#1e3a8a", "gradient": "linear-gradient(135deg, #0f172a 0%, #1e3a8a 100%)"},
+                {"id": "badge", "type": "shape", "shape": "badge", "color": "#fbbf24", "x": 50, "y": 40, "width": 260, "height": 44, "text": "⚡ 100% Instant IMPS Credit"},
+                {"id": "logo", "type": "logo", "text": "Eko Partner CSP", "color": "#ffffff", "size": 24, "bold": True, "x": 540, "y": 48},
+                {"id": "h1", "type": "text", "text": "पूरे भारत में कहीं भी तुरंत पैसे भेजें", "color": "#ffffff", "size": 42, "bold": True, "align": "left", "x": 50, "y": 140, "width": 700},
+                {"id": "sub", "type": "text", "text": "Direct Bank Account Deposit via IMPS • Safe & Fast", "color": "#93c5fd", "size": 22, "bold": False, "align": "left", "x": 50, "y": 210, "width": 700},
+                {"id": "box", "type": "shape", "shape": "card", "color": "rgba(255,255,255,0.08)", "x": 50, "y": 280, "width": 700, "height": 340},
+                {"id": "f1", "type": "text", "text": "✔ मनी ट्रांसफर सीमा: ₹100 से ₹50,000 तक", "color": "#ffffff", "size": 22, "bold": True, "align": "left", "x": 80, "y": 320},
+                {"id": "f2", "type": "text", "text": "✔ रविवार और बैंक छुट्टियों के दिन भी सेवा चालू", "color": "#ffffff", "size": 22, "bold": True, "align": "left", "x": 80, "y": 380},
+                {"id": "f3", "type": "text", "text": "✔ सटीक प्रिंटेड रसीद एवं तुरंत एसएमएस सूचना", "color": "#ffffff", "size": 22, "bold": True, "align": "left", "x": 80, "y": 440},
+                {"id": "f4", "type": "text", "text": "✔ सभी राष्ट्रीय एवं क्षेत्रीय ग्रामीण बैंक मान्य", "color": "#ffffff", "size": 22, "bold": True, "align": "left", "x": 80, "y": 500},
+                {"id": "cta", "type": "shape", "shape": "pill", "color": "#22c55e", "x": 50, "y": 660, "width": 700, "height": 68, "text": "आज ही अपने नजदीकी काउंटर पर संपर्क करें", "textColor": "#ffffff", "textSize": 24, "bold": True}
+            ])
+        ),
+        models.PosterDesign(
+            id=seed_id("poster-aeps"), user_id=user_id,
+            title="Aadhaar Banking & Mini ATM", template_type="aeps",
+            width=800, height=800,
+            layers_json=json.dumps([
+                {"id": "bg", "type": "background", "color": "#064e3b", "gradient": "linear-gradient(135deg, #022c22 0%, #064e3b 100%)"},
+                {"id": "badge", "type": "shape", "shape": "badge", "color": "#a7f3d0", "x": 50, "y": 40, "width": 280, "height": 44, "text": "🔒 NPCI / AePS सुरक्षित सेवा", "textColor": "#064e3b"},
+                {"id": "h1", "type": "text", "text": "आधार से तुरंत पैसा निकालें", "color": "#ffffff", "size": 44, "bold": True, "align": "left", "x": 50, "y": 140, "width": 700},
+                {"id": "sub", "type": "text", "text": "Mini ATM Banking: Cash Out & Balance Check in 10 Seconds", "color": "#6ee7b7", "size": 20, "bold": False, "align": "left", "x": 50, "y": 210, "width": 700},
+                {"id": "f1", "type": "text", "text": "• फिंगरप्रिंट लगाकर तुरंत नकद निकासी", "color": "#ffffff", "size": 24, "bold": True, "align": "left", "x": 80, "y": 320},
+                {"id": "f2", "type": "text", "text": "• फ्री बैलेंस चेक एवं मिनी स्टेटमेंट", "color": "#ffffff", "size": 24, "bold": True, "align": "left", "x": 80, "y": 390},
+                {"id": "f3", "type": "text", "text": "• बिना बैंक या एटीएम की लाइन में लगे सेवा", "color": "#ffffff", "size": 24, "bold": True, "align": "left", "x": 80, "y": 460},
+                {"id": "cta", "type": "shape", "shape": "pill", "color": "#10b981", "x": 50, "y": 660, "width": 700, "height": 68, "text": "अपना आधार नंबर और बैंक पासबुक लाएं", "textColor": "#ffffff", "textSize": 24, "bold": True}
+            ])
+        ),
+        models.PosterDesign(
+            id=seed_id("poster-bbps"), user_id=user_id,
+            title="Bharat BillPay Utility Hub", template_type="bbps",
+            width=800, height=800,
+            layers_json=json.dumps([
+                {"id": "bg", "type": "background", "color": "#7c2d12", "gradient": "linear-gradient(135deg, #431407 0%, #7c2d12 100%)"},
+                {"id": "badge", "type": "shape", "shape": "badge", "color": "#fed7aa", "x": 50, "y": 40, "width": 300, "height": 44, "text": "🧾 भारत बिलपे अधिकृत केंद्र", "textColor": "#7c2d12"},
+                {"id": "h1", "type": "text", "text": "सभी बिलों का भुगतान एक ही जगह", "color": "#ffffff", "size": 42, "bold": True, "align": "left", "x": 50, "y": 140, "width": 700},
+                {"id": "sub", "type": "text", "text": "Electricity, Water, Gas, Fastag, Loan EMI & Broadband", "color": "#fdba74", "size": 20, "bold": False, "align": "left", "x": 50, "y": 210, "width": 700},
+                {"id": "f1", "type": "text", "text": "• तुरंत रसीद और शून्य लेट फीस का भरोसा", "color": "#ffffff", "size": 24, "bold": True, "align": "left", "x": 80, "y": 320},
+                {"id": "f2", "type": "text", "text": "• सभी राज्यों के बिजली बोर्ड उपलब्ध", "color": "#ffffff", "size": 24, "bold": True, "align": "left", "x": 80, "y": 400},
+                {"id": "cta", "type": "shape", "shape": "pill", "color": "#ea580c", "x": 50, "y": 660, "width": 700, "height": 68, "text": "अपना बिल और उपभोक्ता संख्या लाएं", "textColor": "#ffffff", "textSize": 24, "bold": True}
+            ])
+        ),
+        models.PosterDesign(
+            id=seed_id("poster-recharge"), user_id=user_id,
+            title="All Mobile & DTH Recharge", template_type="recharge",
+            width=800, height=800,
+            layers_json=json.dumps([
+                {"id": "bg", "type": "background", "color": "#581c87", "gradient": "linear-gradient(135deg, #3b0764 0%, #581c87 100%)"},
+                {"id": "badge", "type": "shape", "shape": "badge", "color": "#e9d5ff", "x": 50, "y": 40, "width": 260, "height": 44, "text": "📱 फास्ट डिजिटल रिचार्ज", "textColor": "#581c87"},
+                {"id": "h1", "type": "text", "text": "मोबाइल एवं DTH तुरंत रिचार्ज", "color": "#ffffff", "size": 44, "bold": True, "align": "left", "x": 50, "y": 140, "width": 700},
+                {"id": "sub", "type": "text", "text": "Jio, Airtel, Vi, BSNL, Tata Play, Airtel DTH, DishTV", "color": "#d8b4fe", "size": 20, "bold": False, "align": "left", "x": 50, "y": 210, "width": 700},
+                {"id": "f1", "type": "text", "text": "• अनलिमिटेड कॉलिंग और डेटा पैक तुरंत चालू", "color": "#ffffff", "size": 24, "bold": True, "align": "left", "x": 80, "y": 320},
+                {"id": "f2", "type": "text", "text": "• बेस्ट ऑफर्स और कैशबैक की जानकारी", "color": "#ffffff", "size": 24, "bold": True, "align": "left", "x": 80, "y": 400},
+                {"id": "cta", "type": "shape", "shape": "pill", "color": "#a855f7", "x": 50, "y": 660, "width": 700, "height": 68, "text": "नंबर बताएं और तुरंत रीचार्ज करवाएं", "textColor": "#ffffff", "textSize": 24, "bold": True}
+            ])
+        ),
+        models.PosterDesign(
+            id=seed_id("poster-festival"), user_id=user_id,
+            title="Diwali Financial Services Dhamaka", template_type="festival",
+            width=800, height=800,
+            layers_json=json.dumps([
+                {"id": "bg", "type": "background", "color": "#78350f", "gradient": "linear-gradient(135deg, #451a03 0%, #78350f 100%)"},
+                {"id": "badge", "type": "shape", "shape": "badge", "color": "#fde68a", "x": 50, "y": 40, "width": 300, "height": 44, "text": "🪔 शुभ दीपावली महोत्सव ऑफर", "textColor": "#78350f"},
+                {"id": "h1", "type": "text", "text": "त्योहारी सीजन में घर भेजें खुशियां", "color": "#ffffff", "size": 42, "bold": True, "align": "left", "x": 50, "y": 140, "width": 700},
+                {"id": "sub", "type": "text", "text": "Zero Wait Time • Instant Family Remittance across India", "color": "#fcd34d", "size": 20, "bold": False, "align": "left", "x": 50, "y": 210, "width": 700},
+                {"id": "f1", "type": "text", "text": "• गांव या शहर, किसी भी बैंक में तुरंत ट्रांसफर", "color": "#ffffff", "size": 24, "bold": True, "align": "left", "x": 80, "y": 320},
+                {"id": "f2", "type": "text", "text": "• आधार कार्ड से नकद निकासी सुविधा", "color": "#ffffff", "size": 24, "bold": True, "align": "left", "x": 80, "y": 400},
+                {"id": "cta", "type": "shape", "shape": "pill", "color": "#f59e0b", "x": 50, "y": 660, "width": 700, "height": 68, "text": "खुशियों का त्योहार, ईको के साथ!", "textColor": "#000000", "textSize": 24, "bold": True}
+            ])
+        ),
+        models.PosterDesign(
+            id=seed_id("poster-announcement"), user_id=user_id,
+            title="Authorized Eko Digital CSP Outlet", template_type="announcement",
+            width=800, height=800,
+            layers_json=json.dumps([
+                {"id": "bg", "type": "background", "color": "#0f172a", "gradient": "linear-gradient(135deg, #020617 0%, #1e293b 100%)"},
+                {"id": "badge", "type": "shape", "shape": "badge", "color": "#38bdf8", "x": 50, "y": 40, "width": 300, "height": 44, "text": "⭐ अधिकृत ईको बिजनेस पार्टनर", "textColor": "#0f172a"},
+                {"id": "h1", "type": "text", "text": "आपका नजदीकी डिजिटल बैंकिंग केंद्र", "color": "#ffffff", "size": 40, "bold": True, "align": "left", "x": 50, "y": 140, "width": 700},
+                {"id": "f1", "type": "text", "text": "✔ मनी ट्रांसफर (DMT) • आधार बैंकिंग (AePS)", "color": "#38bdf8", "size": 24, "bold": True, "align": "left", "x": 80, "y": 280},
+                {"id": "f2", "type": "text", "text": "✔ बिजली, पानी, गैस बिल पेमेंट (BBPS)", "color": "#38bdf8", "size": 24, "bold": True, "align": "left", "x": 80, "y": 360},
+                {"id": "f3", "type": "text", "text": "✔ सभी मोबाइल एवं डीटीएच रिचार्ज", "color": "#38bdf8", "size": 24, "bold": True, "align": "left", "x": 80, "y": 440},
+                {"id": "cta", "type": "shape", "shape": "pill", "color": "#0284c7", "x": 50, "y": 660, "width": 700, "height": 68, "text": "विश्वसनीय • सुरक्षित • तुरंत समाधान", "textColor": "#ffffff", "textSize": 24, "bold": True}
+            ])
+        ),
+    ]
+    for p in poster_templates:
+        db.add(p)
+    db.commit()
+
+
 def ensure_user_seeded(user_id: str, db: Session):
-    """Seed comprehensive connected demo operations data for any fresh/demo user."""
+    """Seed comprehensive connected canonical demo operations data for any fresh/demo user."""
     if not user_id:
         return
 
-    # Check if user already has full v1.4.0 data
-    existing_partners = db.query(models.Customer).filter(models.Customer.user_id == user_id, models.Customer.business_type.isnot(None)).count()
+    # Check if user already has full canonical dataset (22 partners, >= 120 txns, >= 20 wa, commissions)
+    existing_partners = db.query(models.Customer).filter(
+        models.Customer.user_id == user_id, 
+        models.Customer.is_partner == True
+    ).count()
+    existing_txns = db.query(models.ServiceActivity).filter(models.ServiceActivity.user_id == user_id).count()
+    existing_commissions = db.query(models.Commission).filter(models.Commission.user_id == user_id).count()
     existing_wa = db.query(models.WhatsAppOutreach).filter(models.WhatsAppOutreach.user_id == user_id).count()
-    if existing_partners >= 8 and existing_wa >= 6:
+
+    if existing_partners >= 20 and existing_txns >= 120 and existing_commissions >= 100 and existing_wa >= 20:
         return
 
-    # Clear incomplete prior seed if upgrading to v1.4.0 dataset
-    if 0 < existing_partners < 8 or (existing_partners >= 8 and existing_wa == 0):
-        for model in (
-            models.TimelineEvent,
-            models.CreditScoreHistory,
-            models.CreditScore,
-            models.OperationalNotification,
-            models.Complaint,
-            models.Task,
-            models.Note,
-            models.ServiceActivity,
-            models.Customer,
-            models.WhatsAppOutreach,
-            models.PosterDesign,
-        ):
+    # Clear prior seed if upgrading to canonical dataset
+    for model in (
+        models.TimelineEvent,
+        models.CreditScoreHistory,
+        models.CreditScore,
+        models.OperationalNotification,
+        models.Complaint,
+        models.Task,
+        models.Note,
+        models.Commission,
+        models.Settlement,
+        models.ServiceActivity,
+        models.Customer,
+        models.WhatsAppOutreach,
+        models.PosterDesign,
+    ):
+        try:
             db.query(model).filter(model.user_id == user_id).delete(synchronize_session=False)
-        db.commit()
+        except Exception:
+            pass
+    db.commit()
 
-    logger.info(f"Seeding comprehensive connected recruiter environment for user: {user_id}")
+    logger.info(f"Seeding canonical connected operations environment for user: {user_id}")
+    canonical_seed.seed_canonical_environment(user_id, db)
+    _seed_poster_templates(user_id, db)
+    logger.info(f"Successfully initialized canonical demo environment for user: {user_id}")
+    return
     now = datetime.now()
     seed_suffix = "" if user_id == "demo-operator-01" else f"-{hashlib.sha1(user_id.encode()).hexdigest()[:8]}"
     def seed_ref(reference: str) -> str:
@@ -537,7 +726,7 @@ def ensure_user_seeded(user_id: str, db: Session):
     def seed_id(label: str) -> str:
         return str(uuid.uuid5(uuid.NAMESPACE_URL, f"eko-demo:{user_id}:{label}"))
 
-    # 1. 8 Legitimate Connected Partners + 1 KYC-Pending Partner
+    # 1. 10 Legitimate Connected Partners
     p_paras = models.Customer(
         id=seed_id("partner-paras"), user_id=user_id,
         name="Paras General Store & Banking Point",
@@ -610,16 +799,26 @@ def ensure_user_seeded(user_id: str, db: Session):
         amount_due=0.0, notes="Newly onboarded partner pending physical KYC document verification.",
         created_at=now - timedelta(days=2)
     )
+    p_singh = models.Customer(
+        id=seed_id("partner-singh"), user_id=user_id,
+        name="Singh Mobile & Digital Services",
+        phone="9812345678", email="singh.digital@ekopartner.in",
+        business_type="Telecom & CSP", kyc_status="verified",
+        amount_due=6500.0, notes="Multi-utility center managing BBPS bill payments, DTH recharge and AePS mini-ATM.",
+        created_at=now - timedelta(days=25)
+    )
 
-    all_partners = [p_paras, p_sharma, p_gupta, p_verma, p_anand, p_pooja, p_metro, p_city, p_rahul]
+    all_partners = [p_paras, p_sharma, p_gupta, p_verma, p_anand, p_pooja, p_metro, p_city, p_rahul, p_singh]
     for p in all_partners:
         db.add(p)
     db.commit()
     for p in all_partners:
         db.refresh(p)
 
-    # 2. 25 Synthetic Retail Customers Mapped to Partners
+    # 2. 27 Synthetic Retail Customers Mapped to Partners
     customer_seeds = [
+        ("Paras Demo", "9305601503", "Express Banking & DMT Customer", "verified", p_paras.id),
+        ("Rahul Kumar", "9305601503", "Retail & Remittance Customer", "pending", p_rahul.id),
         ("Ramesh Chandra", "9876500001", "Verified Consumer", "verified", p_paras.id),
         ("Sunita Devi", "9876500002", "DMT Regular Customer", "pending", p_paras.id),
         ("Anil Joshi", "9876500003", "AePS Micro-ATM Customer", "verified", p_sharma.id),
@@ -671,8 +870,18 @@ def ensure_user_seeded(user_id: str, db: Session):
         created_at=now - timedelta(hours=2)
     )
 
+    t_paras_25k = models.ServiceActivity(
+        id=seed_id("txn-paras-dmt-25k"), user_id=user_id,
+        customer_id=p_paras.id, customer_name=p_paras.name,
+        service_name="Send Money", status="success", amount=25000.0, commission=112.5,
+        reference_id=seed_ref("DMTBEF965B72E"),
+        failure_reason=None,
+        created_at=now - timedelta(minutes=30)
+    )
+
     txns = [
         t_failed,
+        t_paras_25k,
         models.ServiceActivity(
             id=seed_id("txn-paras-dmt-01"), user_id=user_id,
             customer_id=p_paras.id, customer_name=p_paras.name,
@@ -823,13 +1032,173 @@ def ensure_user_seeded(user_id: str, db: Session):
             service_name="DMT", status="success", amount=9500.0, commission=42.0,
             reference_id=seed_ref("DMT849201235"), created_at=now - timedelta(days=3)
         ),
+        models.ServiceActivity(
+            id=seed_id("txn-singh-bbps-01"), user_id=user_id,
+            customer_id=p_singh.id, customer_name=p_singh.name,
+            service_name="BBPS", status="success", amount=1850.0, commission=6.5,
+            reference_id=seed_ref("BBPS849201236"), created_at=now - timedelta(hours=2)
+        ),
+        models.ServiceActivity(
+            id=seed_id("txn-singh-recharge-01"), user_id=user_id,
+            customer_id=p_singh.id, customer_name=p_singh.name,
+            service_name="Recharge", status="success", amount=479.0, commission=7.0,
+            reference_id=seed_ref("RCH849201237"), created_at=now - timedelta(hours=5)
+        ),
+        models.ServiceActivity(
+            id=seed_id("txn-singh-aeps-01"), user_id=user_id,
+            customer_id=p_singh.id, customer_name=p_singh.name,
+            service_name="AePS", status="success", amount=3500.0, commission=14.0,
+            reference_id=seed_ref("AEPS849201238"), created_at=now - timedelta(hours=8)
+        ),
+        models.ServiceActivity(
+            id=seed_id("txn-paras-dmt-03"), user_id=user_id,
+            customer_id=p_paras.id, customer_name=p_paras.name,
+            service_name="DMT", status="success", amount=18000.0, commission=81.0,
+            reference_id=seed_ref("DMT849201239"), created_at=now - timedelta(days=3)
+        ),
+        models.ServiceActivity(
+            id=seed_id("txn-sharma-aeps-02"), user_id=user_id,
+            customer_id=p_sharma.id, customer_name=p_sharma.name,
+            service_name="AePS", status="success", amount=4000.0, commission=16.0,
+            reference_id=seed_ref("AEPS849201240"), created_at=now - timedelta(days=4)
+        ),
+        models.ServiceActivity(
+            id=seed_id("txn-anand-dmt-03"), user_id=user_id,
+            customer_id=p_anand.id, customer_name=p_anand.name,
+            service_name="DMT", status="success", amount=22000.0, commission=99.0,
+            reference_id=seed_ref("DMT849201241"), created_at=now - timedelta(days=4)
+        ),
+        models.ServiceActivity(
+            id=seed_id("txn-pooja-aeps-03"), user_id=user_id,
+            customer_id=p_pooja.id, customer_name=p_pooja.name,
+            service_name="AePS", status="failed", amount=5000.0, commission=0.0,
+            reference_id=seed_ref("AEPS849201242"),
+            failure_reason="Biometric fingerprint capture mismatch threshold exceeded.",
+            created_at=now - timedelta(hours=14)
+        ),
+        models.ServiceActivity(
+            id=seed_id("txn-metro-dmt-01"), user_id=user_id,
+            customer_id=p_metro.id, customer_name=p_metro.name,
+            service_name="DMT", status="success", amount=6200.0, commission=28.0,
+            reference_id=seed_ref("DMT849201243"), created_at=now - timedelta(days=4)
+        ),
+        models.ServiceActivity(
+            id=seed_id("txn-city-bbps-01"), user_id=user_id,
+            customer_id=p_city.id, customer_name=p_city.name,
+            service_name="BBPS", status="success", amount=3100.0, commission=10.0,
+            reference_id=seed_ref("BBPS849201244"), created_at=now - timedelta(days=5)
+        ),
+        models.ServiceActivity(
+            id=seed_id("txn-verma-aeps-01"), user_id=user_id,
+            customer_id=p_verma.id, customer_name=p_verma.name,
+            service_name="AePS", status="success", amount=1500.0, commission=6.0,
+            reference_id=seed_ref("AEPS849201245"), created_at=now - timedelta(days=5)
+        ),
+        models.ServiceActivity(
+            id=seed_id("txn-gupta-dmt-01"), user_id=user_id,
+            customer_id=p_gupta.id, customer_name=p_gupta.name,
+            service_name="DMT", status="success", amount=8900.0, commission=40.0,
+            reference_id=seed_ref("DMT849201246"), created_at=now - timedelta(days=5)
+        ),
+        models.ServiceActivity(
+            id=seed_id("txn-rahul-recharge-01"), user_id=user_id,
+            customer_id=p_rahul.id, customer_name=p_rahul.name,
+            service_name="Recharge", status="success", amount=239.0, commission=3.5,
+            reference_id=seed_ref("RCH849201247"), created_at=now - timedelta(hours=18)
+        ),
+        models.ServiceActivity(
+            id=seed_id("txn-singh-dmt-01"), user_id=user_id,
+            customer_id=p_singh.id, customer_name=p_singh.name,
+            service_name="DMT", status="success", amount=7200.0, commission=32.0,
+            reference_id=seed_ref("DMT849201248"), created_at=now - timedelta(days=5)
+        ),
+        models.ServiceActivity(
+            id=seed_id("txn-paras-bbps-01"), user_id=user_id,
+            customer_id=p_paras.id, customer_name=p_paras.name,
+            service_name="BBPS", status="success", amount=4500.0, commission=15.0,
+            reference_id=seed_ref("BBPS849201249"), created_at=now - timedelta(days=6)
+        ),
+        models.ServiceActivity(
+            id=seed_id("txn-sharma-recharge-01"), user_id=user_id,
+            customer_id=p_sharma.id, customer_name=p_sharma.name,
+            service_name="Recharge", status="success", amount=719.0, commission=10.5,
+            reference_id=seed_ref("RCH849201250"), created_at=now - timedelta(days=6)
+        ),
+        models.ServiceActivity(
+            id=seed_id("txn-anand-aeps-01"), user_id=user_id,
+            customer_id=p_anand.id, customer_name=p_anand.name,
+            service_name="AePS", status="success", amount=8000.0, commission=32.0,
+            reference_id=seed_ref("AEPS849201251"), created_at=now - timedelta(days=6)
+        ),
+        models.ServiceActivity(
+            id=seed_id("txn-pooja-bbps-01"), user_id=user_id,
+            customer_id=p_pooja.id, customer_name=p_pooja.name,
+            service_name="BBPS", status="success", amount=980.0, commission=3.5,
+            reference_id=seed_ref("BBPS849201252"), created_at=now - timedelta(days=7)
+        ),
+        models.ServiceActivity(
+            id=seed_id("txn-metro-recharge-01"), user_id=user_id,
+            customer_id=p_metro.id, customer_name=p_metro.name,
+            service_name="Recharge", status="success", amount=199.0, commission=3.0,
+            reference_id=seed_ref("RCH849201253"), created_at=now - timedelta(days=7)
+        ),
+        models.ServiceActivity(
+            id=seed_id("txn-city-aeps-01"), user_id=user_id,
+            customer_id=p_city.id, customer_name=p_city.name,
+            service_name="AePS", status="success", amount=2000.0, commission=8.0,
+            reference_id=seed_ref("AEPS849201254"), created_at=now - timedelta(days=7)
+        ),
+        models.ServiceActivity(
+            id=seed_id("txn-verma-bbps-02"), user_id=user_id,
+            customer_id=p_verma.id, customer_name=p_verma.name,
+            service_name="BBPS", status="refunded", amount=1250.0, commission=0.0,
+            reference_id=seed_ref("BBPS849201255"),
+            failure_reason="Duplicate biller payment refunded to wallet.",
+            created_at=now - timedelta(days=8)
+        ),
+        models.ServiceActivity(
+            id=seed_id("txn-gupta-aeps-02"), user_id=user_id,
+            customer_id=p_gupta.id, customer_name=p_gupta.name,
+            service_name="AePS", status="success", amount=1800.0, commission=7.2,
+            reference_id=seed_ref("AEPS849201256"), created_at=now - timedelta(days=8)
+        ),
+        models.ServiceActivity(
+            id=seed_id("txn-singh-recharge-02"), user_id=user_id,
+            customer_id=p_singh.id, customer_name=p_singh.name,
+            service_name="Recharge", status="success", amount=299.0, commission=4.5,
+            reference_id=seed_ref("RCH849201257"), created_at=now - timedelta(days=8)
+        ),
+        models.ServiceActivity(
+            id=seed_id("txn-paras-dmt-04"), user_id=user_id,
+            customer_id=p_paras.id, customer_name=p_paras.name,
+            service_name="DMT", status="success", amount=14000.0, commission=63.0,
+            reference_id=seed_ref("DMT849201258"), created_at=now - timedelta(days=9)
+        ),
+        models.ServiceActivity(
+            id=seed_id("txn-sharma-bbps-02"), user_id=user_id,
+            customer_id=p_sharma.id, customer_name=p_sharma.name,
+            service_name="BBPS", status="success", amount=1950.0, commission=6.8,
+            reference_id=seed_ref("BBPS849201259"), created_at=now - timedelta(days=9)
+        ),
+        models.ServiceActivity(
+            id=seed_id("txn-anand-dmt-04"), user_id=user_id,
+            customer_id=p_anand.id, customer_name=p_anand.name,
+            service_name="DMT", status="success", amount=16500.0, commission=74.2,
+            reference_id=seed_ref("DMT849201260"), created_at=now - timedelta(days=10)
+        ),
+        models.ServiceActivity(
+            id=seed_id("txn-city-dmt-03"), user_id=user_id,
+            customer_id=p_city.id, customer_name=p_city.name,
+            service_name="DMT", status="success", amount=9000.0, commission=40.5,
+            reference_id=seed_ref("DMT849201261"), created_at=now - timedelta(days=10)
+        ),
     ]
 
     for t in txns:
         db.add(t)
     db.commit()
 
-    # 4. 8 Realistic Complaints with Categories, Owners, SLA & Timelines
+    # 4. 11 Realistic Complaints with Categories, Owners, SLA & Timelines
     c1 = models.Complaint(
         id=seed_id("complaint-sharma-dmt"), user_id=user_id,
         customer_id=p_sharma.id, transaction_id=t_failed.id,
@@ -858,7 +1227,7 @@ def ensure_user_seeded(user_id: str, db: Session):
     )
     c3 = models.Complaint(
         id=seed_id("complaint-verma-bbps"), user_id=user_id,
-        customer_id=p_verma.id, transaction_id=txns[3].id,
+        customer_id=p_verma.id, transaction_id=txns[4].id,
         subject="BBPS Biller Reversal Verification",
         description="Electricity bill payment of ₹1,450 processed. Consumer requested physical stamped receipt.",
         status="resolved", priority="medium", category="txn_failure",
@@ -872,7 +1241,7 @@ def ensure_user_seeded(user_id: str, db: Session):
     )
     c4 = models.Complaint(
         id=seed_id("complaint-gupta-recharge"), user_id=user_id,
-        customer_id=p_gupta.id, transaction_id=txns[10].id,
+        customer_id=p_gupta.id, transaction_id=txns[11].id,
         subject="Recharge Gateway Rejection — Gupta Daily Mart",
         description="The mobile recharge was rejected by operator gateway and required refund verification.",
         status="resolved", priority="low", category="service",
@@ -899,7 +1268,7 @@ def ensure_user_seeded(user_id: str, db: Session):
     )
     c6 = models.Complaint(
         id=seed_id("complaint-metro-bbps"), user_id=user_id,
-        customer_id=p_metro.id, transaction_id=txns[11].id,
+        customer_id=p_metro.id, transaction_id=txns[12].id,
         subject="Water Bill Receipt Delay — Metro Digital Seva",
         description="Customer paid ₹2,150 Delhi Jal Board bill; awaiting consumer CA acknowledgment token.",
         status="waiting_for_customer", priority="medium", category="reconciliation",
@@ -912,7 +1281,7 @@ def ensure_user_seeded(user_id: str, db: Session):
     )
     c7 = models.Complaint(
         id=seed_id("complaint-city-dmt"), user_id=user_id,
-        customer_id=p_city.id, transaction_id=txns[12].id,
+        customer_id=p_city.id, transaction_id=txns[13].id,
         subject="DMT Beneficiary Verification Required — City Pay Point",
         description="Large ticket DMT transfer (₹4,500) triggered secondary AML verification check.",
         status="in_progress", priority="high", category="txn_failure",
@@ -934,8 +1303,45 @@ def ensure_user_seeded(user_id: str, db: Session):
         ]),
         created_at=now - timedelta(days=2)
     )
+    c9 = models.Complaint(
+        id=seed_id("complaint-singh-bbps"), user_id=user_id,
+        customer_id=p_singh.id, transaction_id=None,
+        subject="Electricity Biller Gateway Timeout — Singh Mobile",
+        description="Electricity biller switch timed out during peak evening collection cycle.",
+        status="open", priority="urgent", category="switch_timeout",
+        assigned_to="Naman Sharma", sla_deadline=now + timedelta(hours=3),
+        timeline_json=json.dumps([
+            {"action": "Incident Triggered", "note": "Switch timeout from NPCI BBPS", "timestamp": (now - timedelta(hours=1)).isoformat(), "author": "System"}
+        ]),
+        created_at=now - timedelta(hours=1)
+    )
+    c10 = models.Complaint(
+        id=seed_id("complaint-anand-dmt-reversal"), user_id=user_id,
+        customer_id=p_anand.id, transaction_id=None,
+        subject="IMPS Beneficiary Bank Reversal Pending",
+        description="Beneficiary account IFSC mismatch caused delay in auto-reversal of remittance.",
+        status="in_progress", priority="high", category="txn_failure",
+        assigned_to="Banking Desk", sla_deadline=now + timedelta(hours=12),
+        timeline_json=json.dumps([
+            {"action": "Dispute Filed", "note": "Beneficiary bank UTR inquiry", "timestamp": (now - timedelta(hours=5)).isoformat(), "author": "Operations Desk"}
+        ]),
+        created_at=now - timedelta(hours=5)
+    )
+    c11 = models.Complaint(
+        id=seed_id("complaint-gupta-settlement"), user_id=user_id,
+        customer_id=p_gupta.id, transaction_id=None,
+        subject="Daily Counter Settlement Discrepancy",
+        description="Evening wallet balance reconciliation matched with bank nodal statement.",
+        status="resolved", priority="medium", category="settlement",
+        assigned_to="Support Desk", resolution_note="Reconciled successfully against nodal ledger batch.",
+        sla_deadline=now - timedelta(hours=4),
+        timeline_json=json.dumps([
+            {"action": "Resolved", "note": "Reconciled with nodal batch", "timestamp": (now - timedelta(hours=4)).isoformat(), "author": "Support Desk"}
+        ]),
+        created_at=now - timedelta(hours=10)
+    )
 
-    complaints = [c1, c2, c3, c4, c5, c6, c7, c8]
+    complaints = [c1, c2, c3, c4, c5, c6, c7, c8, c9, c10, c11]
     for c in complaints:
         db.add(c)
     db.commit()
@@ -1101,63 +1507,112 @@ def ensure_user_seeded(user_id: str, db: Session):
             confidence=conf, factors=json.dumps(factors), recommendations=recs
         ))
 
-    # 9. 8 WhatsApp Outreach Records
+    # 9. 15 WhatsApp Outreach Records with Multi-Language Support
     wa_records = [
         models.WhatsAppOutreach(
-            id=seed_id("wa-1"), user_id=user_id, customer_id=seeded_customers[1].id,
-            customer_name="Sunita Devi", customer_phone="9876500002", template_type="kyc_reminder",
+            id=seed_id("wa-paras-1"), user_id=user_id, customer_id=seeded_customers[0].id,
+            customer_name="Paras Demo", customer_phone="9305601503", template_type="dmt", language="hinglish",
+            message="Namaste Paras ji, Eko operations desk ki taraf se update. Aapka ₹25,000 Send Money transfer successfully complete ho gaya hai. Any sahayata ke liye sampark karein.",
+            status="pending", reminder_frequency="daily", reminder_active=True,
+            created_at=now - timedelta(minutes=20)
+        ),
+        models.WhatsAppOutreach(
+            id=seed_id("wa-rahul-1"), user_id=user_id, customer_id=seeded_customers[1].id,
+            customer_name="Rahul Kumar", customer_phone="9305601503", template_type="kyc_reminder", language="hindi",
+            message="नमस्ते राहुल जी, आपका KYC verification अभी pending है। कृपया इसे पूरा कर लें ताकि आपकी services active रहें।",
+            status="pending", reminder_frequency="daily", reminder_active=True,
+            created_at=now - timedelta(hours=1)
+        ),
+        models.WhatsAppOutreach(
+            id=seed_id("wa-sunita-1"), user_id=user_id, customer_id=seeded_customers[3].id,
+            customer_name="Sunita Devi", customer_phone="9876500002", template_type="kyc_reminder", language="hinglish",
             message="Namaste Sunita ji, aapke Eko Banking point par KYC verification document upload pending hai. Kripya counter par aakar Aadhaar/PAN submit karein taaki daily transaction limit active rahe.",
             status="pending", reminder_frequency="daily", reminder_active=True,
             created_at=now - timedelta(hours=4)
         ),
         models.WhatsAppOutreach(
-            id=seed_id("wa-2"), user_id=user_id, customer_id=seeded_customers[0].id,
-            customer_name="Ramesh Chandra", customer_phone="9876500001", template_type="settlement_notice",
+            id=seed_id("wa-anil-1"), user_id=user_id, customer_id=seeded_customers[4].id,
+            customer_name="Anil Joshi", customer_phone="9876500003", template_type="aeps", language="english",
+            message="Hello Anil, your AePS cash withdrawal and mini-statement receipt is ready for download at your counter.",
+            status="pending", reminder_frequency="4hours", reminder_active=True,
+            created_at=now - timedelta(hours=5)
+        ),
+        models.WhatsAppOutreach(
+            id=seed_id("wa-ramesh-1"), user_id=user_id, customer_id=seeded_customers[2].id,
+            customer_name="Ramesh Chandra", customer_phone="9876500001", template_type="settlement_notice", language="hinglish",
             message="Namaste Ramesh ji, aapke store par T+1 settlement balance ₹11,200 successfully credit kar diya gaya hai. Details ke liye Eko app check karein.",
             status="sent", reminder_frequency="none", reminder_active=False, sent_at=now - timedelta(hours=2),
             created_at=now - timedelta(hours=3)
         ),
         models.WhatsAppOutreach(
-            id=seed_id("wa-3"), user_id=user_id, customer_id=seeded_customers[2].id,
-            customer_name="Anil Joshi", customer_phone="9876500003", template_type="payment_reminder",
-            message="Namaste Anil ji, aapke AePS cash withdrawal confirmation receipt aur mini statement details counter par ready hain.",
-            status="pending", reminder_frequency="4hours", reminder_active=True,
-            created_at=now - timedelta(hours=5)
-        ),
-        models.WhatsAppOutreach(
-            id=seed_id("wa-4"), user_id=user_id, customer_id=seeded_customers[3].id,
-            customer_name="Priya Sharma", customer_phone="9876500004", template_type="dispute_update",
-            message="Namaste Priya ji, aapki transaction complaint TXN-DEMO-1001 bank desk par escalate kar di gayi hai. Resolve hote hi aapko turant update diya jayega.",
-            status="whatsapp_opened", reminder_frequency="once", reminder_active=True,
-            created_at=now - timedelta(hours=1)
-        ),
-        models.WhatsAppOutreach(
-            id=seed_id("wa-5"), user_id=user_id, customer_id=seeded_customers[4].id,
-            customer_name="Vikram Patel", customer_phone="9876500005", template_type="offer",
-            message="Special Offer: Vikram ji, hamare CSP center par money transfer aur cash withdrawal par shandaar cashback aur instant service payein. Aaj hi visit karein!",
+            id=seed_id("wa-vikram-1"), user_id=user_id, customer_id=seeded_customers[6].id,
+            customer_name="Vikram Patel", customer_phone="9876500005", template_type="offer", language="hindi",
+            message="नमस्ते विक्रम जी, इस त्योहारी सीजन में अपने ग्राहकों को ईको की मनी ट्रांसफर एवं बिल सेवाएं दें और पाएं उच्चतम कमीशन!",
             status="sent", reminder_frequency="none", reminder_active=False, sent_at=now - timedelta(hours=6),
             created_at=now - timedelta(hours=8)
         ),
         models.WhatsAppOutreach(
-            id=seed_id("wa-6"), user_id=user_id, customer_id=seeded_customers[5].id,
-            customer_name="Mohammad Imran", customer_phone="9876500006", template_type="custom",
+            id=seed_id("wa-deepak-1"), user_id=user_id, customer_id=seeded_customers[10].id,
+            customer_name="Deepak Gupta", customer_phone="9876500009", template_type="offer", language="english",
+            message="Hello Deepak! Special festive offer: Enjoy fast money transfers, cash withdrawals, and bill payments with highest commission and zero downtime!",
+            status="sent", reminder_frequency="none", reminder_active=False, sent_at=now - timedelta(days=1),
+            created_at=now - timedelta(days=1)
+        ),
+        models.WhatsAppOutreach(
+            id=seed_id("wa-rajesh-1"), user_id=user_id, customer_id=seeded_customers[9].id,
+            customer_name="Rajesh Verma", customer_phone="9876500008", template_type="bbps", language="hinglish",
+            message="Namaste Rajesh ji, electricity aur broadband bills ka instant payment counter par karein. Official BBPS receipt instantly mil jayegi.",
+            status="sent", reminder_frequency="none", reminder_active=False, sent_at=now - timedelta(hours=3),
+            created_at=now - timedelta(hours=5)
+        ),
+        models.WhatsAppOutreach(
+            id=seed_id("wa-priya-1"), user_id=user_id, customer_id=seeded_customers[5].id,
+            customer_name="Priya Sharma", customer_phone="9876500004", template_type="dispute_update", language="hinglish",
+            message="Namaste Priya ji, aapki transaction complaint TXN-DEMO-1001 bank desk par escalate kar di gayi hai. Resolve hote hi aapko turant update diya jayega.",
+            status="delivered", reminder_frequency="none", reminder_active=False, sent_at=now - timedelta(hours=1),
+            created_at=now - timedelta(hours=2)
+        ),
+        models.WhatsAppOutreach(
+            id=seed_id("wa-meena-1"), user_id=user_id, customer_id=seeded_customers[11].id,
+            customer_name="Meena Kumari", customer_phone="9876500010", template_type="aeps", language="hindi",
+            message="नमस्ते मीना जी, आपकी सामाजिक सुरक्षा पेंशन का आधार बायोमेट्रिक नकद भुगतान केंद्र पर उपलब्ध है।",
+            status="delivered", reminder_frequency="none", reminder_active=False, sent_at=now - timedelta(hours=4),
+            created_at=now - timedelta(hours=6)
+        ),
+        models.WhatsAppOutreach(
+            id=seed_id("wa-sanjay-1"), user_id=user_id, customer_id=seeded_customers[12].id,
+            customer_name="Sanjay Yadav", customer_phone="9876500011", template_type="payment_reminder", language="english",
+            message="Hello Sanjay, your Eko partner account has a pending settlement balance due. Please complete payment today.",
+            status="delivered", reminder_frequency="none", reminder_active=False, sent_at=now - timedelta(hours=5),
+            created_at=now - timedelta(hours=7)
+        ),
+        models.WhatsAppOutreach(
+            id=seed_id("wa-pooja-1"), user_id=user_id, customer_id=seeded_customers[13].id,
+            customer_name="Pooja Mishra", customer_phone="9876500012", template_type="bbps", language="hindi",
+            message="नमस्ते पूजा जी, बिजली एवं पानी बिलों का भुगतान केंद्र पर सफलतापूर्वक हो गया है। डिजिटल रसीद सुरक्षित रखें।",
+            status="read", reminder_frequency="none", reminder_active=False, sent_at=now - timedelta(hours=8),
+            created_at=now - timedelta(hours=10)
+        ),
+        models.WhatsAppOutreach(
+            id=seed_id("wa-manoj-1"), user_id=user_id, customer_id=seeded_customers[14].id,
+            customer_name="Manoj Tiwari", customer_phone="9876500013", template_type="recharge", language="hinglish",
+            message="Namaste Manoj ji, aapka mobile data recharge successfully activate ho gaya hai. Eko services use karne ke liye dhanyawad.",
+            status="read", reminder_frequency="none", reminder_active=False, sent_at=now - timedelta(hours=9),
+            created_at=now - timedelta(hours=12)
+        ),
+        models.WhatsAppOutreach(
+            id=seed_id("wa-imran-1"), user_id=user_id, customer_id=seeded_customers[7].id,
+            customer_name="Mohammad Imran", customer_phone="9876500006", template_type="custom", language="hinglish",
             message="Aapka ₹10,000 DMT payout bank switch confirmation pending hai. Hamare agent se turant sampark karein.",
             status="failed", reminder_frequency="none", reminder_active=False, notes="Delivery failed: Number unreachable",
             created_at=now - timedelta(hours=6)
         ),
         models.WhatsAppOutreach(
-            id=seed_id("wa-7"), user_id=user_id, customer_id=seeded_customers[6].id,
-            customer_name="Kavita Singh", customer_phone="9876500007", template_type="kyc_reminder",
-            message="Namaste Kavita ji, physical verification agent kal aapke counter par visit karenge. Kripya apna Aadhaar card taiyar rakhein.",
-            status="pending", reminder_frequency="daily", reminder_active=True,
+            id=seed_id("wa-kavita-1"), user_id=user_id, customer_id=seeded_customers[8].id,
+            customer_name="Kavita Singh", customer_phone="9876500007", template_type="kyc_reminder", language="english",
+            message="Hi Kavita, your KYC verification is still pending. Please complete it to keep your services active.",
+            status="failed", reminder_frequency="none", reminder_active=False, notes="Delivery timed out",
             created_at=now - timedelta(hours=7)
-        ),
-        models.WhatsAppOutreach(
-            id=seed_id("wa-8"), user_id=user_id, customer_id=seeded_customers[8].id,
-            customer_name="Deepak Gupta", customer_phone="9876500009", template_type="offer",
-            message="Zero onboarding fee on BBPS utility counter activation for your shop. Start earning commission today!",
-            status="sent", reminder_frequency="none", reminder_active=False, sent_at=now - timedelta(days=1),
-            created_at=now - timedelta(days=1)
         ),
     ]
     for w in wa_records:
@@ -1443,9 +1898,93 @@ def google_login(payload: GoogleTokenRequest, db: Session = Depends(database.get
 
 # ─── Customer 360 ─────────────────────────────────────────────────────────────
 @app.get("/api/customers", response_model=List[CustomerResponse])
-def list_customers(user_id: str = Depends(verify_user_id), db: Session = Depends(database.get_db)):
+def list_customers(
+    search: Optional[str] = None,
+    partner_id: Optional[str] = None,
+    only_retail: bool = False,
+    user_id: str = Depends(verify_user_id),
+    db: Session = Depends(database.get_db)
+):
     ensure_user_seeded(user_id, db)
-    return db.query(models.Customer).filter(models.Customer.user_id == user_id).all()
+    query = db.query(models.Customer).filter(models.Customer.user_id == user_id)
+
+    if only_retail:
+        query = query.filter(models.Customer.is_partner == False)
+
+    if partner_id and partner_id.strip():
+        query = query.filter(models.Customer.partner_id == partner_id.strip())
+
+    if search and search.strip():
+        term = f"%{search.strip()}%"
+        query = query.filter(
+            or_(
+                models.Customer.name.ilike(term),
+                models.Customer.phone.ilike(term),
+                models.Customer.id.ilike(term),
+                models.Customer.email.ilike(term),
+                models.Customer.notes.ilike(term)
+            )
+        )
+
+    customers = query.order_by(desc(models.Customer.created_at)).all()
+
+    # Partner lookup
+    partners = {
+        p.id: p.name for p in db.query(models.Customer).filter(
+            models.Customer.user_id == user_id,
+            models.Customer.is_partner == True
+        ).all()
+    }
+
+    # Credit risk bracket lookup
+    credit_scores = {
+        cs.customer_id: cs.risk_bracket for cs in db.query(models.CreditScore).filter(
+            models.CreditScore.user_id == user_id
+        ).all()
+    }
+
+    results = []
+    for c in customers:
+        txns = db.query(models.ServiceActivity).filter(
+            models.ServiceActivity.user_id == user_id,
+            or_(
+                models.ServiceActivity.customer_id == c.id,
+                models.ServiceActivity.partner_id == c.id
+            )
+        ).order_by(desc(models.ServiceActivity.created_at)).all()
+
+        total_txns = len(txns)
+        total_vol = sum(t.amount for t in txns if t.status == "success")
+        latest_status = txns[0].status if txns else None
+
+        raw_phone = c.phone or ""
+        masked_phone = f"••••{raw_phone[-4:]}" if len(raw_phone) >= 4 else raw_phone
+        risk_level = credit_scores.get(c.id, "LOW")
+
+        c_dict = {
+            "id": c.id,
+            "name": c.name,
+            "phone": c.phone,
+            "masked_phone": masked_phone,
+            "email": c.email,
+            "kyc_status": c.kyc_status,
+            "business_type": c.business_type,
+            "notes": c.notes,
+            "amount_due": c.amount_due,
+            "last_contact": c.last_contact,
+            "follow_up_date": c.follow_up_date,
+            "is_partner": bool(c.is_partner),
+            "partner_id": c.partner_id,
+            "partner_name": partners.get(c.partner_id, "Direct CSP Outlet"),
+            "category": c.category,
+            "total_transactions": total_txns,
+            "total_volume": total_vol,
+            "latest_status": latest_status,
+            "risk_level": risk_level,
+            "created_at": c.created_at
+        }
+        results.append(CustomerResponse(**c_dict))
+    return results
 
 @app.get("/api/customers/{cid}/timeline", response_model=List[TimelineEventResponse])
 def get_customer_timeline(cid: str, user_id: str = Depends(verify_user_id), db: Session = Depends(database.get_db)):
@@ -1475,6 +2014,24 @@ def create_activity(data: ActivityCreate, user_id: str = Depends(verify_user_id)
     aid = str(uuid.uuid4())
     act = models.ServiceActivity(id=aid, user_id=user_id, **data.model_dump())
     db.add(act)
+
+    # Automatically generate deterministic commission record
+    rate, comm_amount, comm_status = canonical_seed.calculate_commission(data.service_name, data.amount, data.status)
+    comm = models.Commission(
+        id=str(uuid.uuid4()),
+        user_id=user_id,
+        transaction_id=aid,
+        partner_id=data.partner_id or data.customer_id or "partner-paras",
+        customer_id=data.customer_id,
+        service=data.service_name,
+        transaction_amount=data.amount,
+        commission_rate=rate,
+        commission_amount=comm_amount,
+        status=comm_status,
+        earned_at=datetime.now() if comm_status in ("EARNED", "PAID") else None
+    )
+    db.add(comm)
+
     db.commit()
     db.refresh(act)
     if data.customer_id:
@@ -2176,17 +2733,34 @@ async def ask_eko(body: AskEkoRequest, user_id: str = Depends(verify_user_id), d
 
     # Active Transaction Context (Page Context)
     target_txn_id = body.transaction_id or (body.page_context.get("transaction_id") if body.page_context else None)
+    if not target_txn_id and body.question:
+        import re
+        txn_match = re.search(r'\b(DMT[A-Za-z0-9]+|t_[a-z0-9_]+|[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12})\b', body.question)
+        if txn_match:
+            target_txn_id = txn_match.group(1)
+        elif "25,000" in body.question or "25000" in body.question:
+            t_25k = db.query(models.ServiceActivity).filter(
+                models.ServiceActivity.user_id == user_id,
+                models.ServiceActivity.amount == 25000.0
+            ).first()
+            if t_25k:
+                target_txn_id = t_25k.id
+
     if target_txn_id:
         t = db.query(models.ServiceActivity).filter(
-            or_(models.ServiceActivity.id == target_txn_id, models.ServiceActivity.reference_id == target_txn_id),
+            or_(
+                models.ServiceActivity.id == target_txn_id,
+                models.ServiceActivity.reference_id == target_txn_id,
+                models.ServiceActivity.reference_id.like(f"%{target_txn_id}%")
+            ),
             models.ServiceActivity.user_id == user_id
         ).first()
         if t:
             context_lines.append(
-                f"ACTIVE SCREEN CONTEXT — SELECTED TRANSACTION: ID={t.id}, Reference={t.reference_id or 'N/A'}, "
-                f"Service={t.service_name}, Amount={fmt_inr(t.amount)}, Status={t.status.upper()}, "
-                f"Customer={t.customer_name or 'N/A'}, Date={t.created_at.date() if t.created_at else 'N/A'}, "
-                f"Failure Reason={t.failure_reason or 'None (Success)'}"
+                f"ACTIVE SCREEN CONTEXT — SELECTED TRANSACTION: ID={t.id} | Reference={t.reference_id or 'N/A'} | "
+                f"Service={t.service_name} | Amount={fmt_inr(t.amount)} | Status={t.status.upper()} | "
+                f"Customer={t.customer_name or 'N/A'} | Date={t.created_at.date() if t.created_at else 'N/A'} | "
+                f"Failure Reason={t.failure_reason or 'Not provided'}"
             )
 
     # Active Complaint Context (Page Context)
@@ -2406,28 +2980,83 @@ def add_complaint_note(cid: str, data: ComplaintNoteCreate, user_id: str = Depen
 @app.post("/api/partners", response_model=CustomerResponse)
 def create_partner(data: CustomerCreate, user_id: str = Depends(verify_user_id), db: Session = Depends(database.get_db)):
     """Create a new partner profile."""
+    data.is_partner = True
+    if not data.business_type:
+        data.business_type = data.category or "Partner CSP"
     return create_customer(data, user_id, db)
 
 @app.get("/api/partners")
-def list_partners(user_id: str = Depends(verify_user_id), db: Session = Depends(database.get_db)):
-    """Partners list with aggregated transaction stats."""
+def list_partners(
+    category: Optional[str] = None,
+    search: Optional[str] = None,
+    user_id: str = Depends(verify_user_id),
+    db: Session = Depends(database.get_db)
+):
+    """Partners list with aggregated transaction stats, dynamic calculation, and category/search filtering."""
     ensure_user_seeded(user_id, db)
-    customers = db.query(models.Customer).filter(models.Customer.user_id == user_id).all()
+    query = db.query(models.Customer).filter(
+        models.Customer.user_id == user_id,
+        or_(
+            models.Customer.is_partner == True,
+            models.Customer.business_type.isnot(None),
+            models.Customer.category.isnot(None)
+        )
+    )
+
+    # Category filter
+    if category and category.lower() not in ("all", ""):
+        c_clean = category.strip().capitalize()
+        if c_clean.startswith("Retail"):
+            query = query.filter(models.Customer.category == "Retailer")
+        elif c_clean.startswith("Merchant"):
+            query = query.filter(models.Customer.category == "Merchant")
+        elif c_clean.startswith("Enterprise"):
+            query = query.filter(models.Customer.category == "Enterprise")
+        elif c_clean.startswith("Other"):
+            query = query.filter(models.Customer.category == "Others")
+        else:
+            query = query.filter(models.Customer.category == category)
+
+    # Search filter
+    if search and search.strip():
+        term = f"%{search.strip()}%"
+        query = query.filter(
+            or_(
+                models.Customer.name.ilike(term),
+                models.Customer.phone.ilike(term),
+                models.Customer.id.ilike(term),
+                models.Customer.business_type.ilike(term),
+                models.Customer.category.ilike(term),
+            )
+        )
+
+    partners = query.order_by(desc(models.Customer.created_at)).all()
     results = []
-    for cust in customers:
+    for cust in partners:
         txns = db.query(models.ServiceActivity).filter(
             models.ServiceActivity.user_id == user_id,
-            models.ServiceActivity.customer_id == cust.id
+            or_(
+                models.ServiceActivity.partner_id == cust.id,
+                models.ServiceActivity.customer_id == cust.id
+            )
         ).all()
         total = len(txns)
         success = len([t for t in txns if t.status == "success"])
         failed = len([t for t in txns if t.status == "failed"])
         pending = len([t for t in txns if t.status == "pending"])
         volume = sum(t.amount for t in txns if t.status == "success")
+        commission = round(sum(t.commission for t in txns if t.status == "success"), 2)
 
         open_complaints = db.query(models.Complaint).filter(
+            models.Complaint.user_id == user_id,
             models.Complaint.customer_id == cust.id,
             models.Complaint.status.notin_(["closed", "resolved"])
+        ).count()
+
+        pending_tasks = db.query(models.Task).filter(
+            models.Task.user_id == user_id,
+            models.Task.customer_id == cust.id,
+            models.Task.completed == False
         ).count()
 
         results.append({
@@ -2435,6 +3064,7 @@ def list_partners(user_id: str = Depends(verify_user_id), db: Session = Depends(
             "name": cust.name,
             "phone": cust.phone,
             "business_type": cust.business_type,
+            "category": cust.category or "Others",
             "kyc_status": cust.kyc_status,
             "amount_due": cust.amount_due,
             "total_transactions": total,
@@ -2442,8 +3072,10 @@ def list_partners(user_id: str = Depends(verify_user_id), db: Session = Depends(
             "failed_transactions": failed,
             "pending_transactions": pending,
             "total_volume": volume,
+            "commission": commission,
             "success_rate": f"{(success/total*100 if total else 0):.0f}%",
             "open_complaints": open_complaints,
+            "pending_tasks": pending_tasks,
             "created_at": cust.created_at.isoformat() if cust.created_at else None,
         })
     return results
@@ -2462,7 +3094,10 @@ def get_partner_detail(pid: str, user_id: str = Depends(verify_user_id), db: Ses
 
     txns = db.query(models.ServiceActivity).filter(
         models.ServiceActivity.user_id == user_id,
-        models.ServiceActivity.customer_id == pid
+        or_(
+            models.ServiceActivity.partner_id == pid,
+            models.ServiceActivity.customer_id == pid
+        )
     ).order_by(desc(models.ServiceActivity.created_at)).limit(50).all()
 
     complaints = db.query(models.Complaint).filter(
@@ -2470,11 +3105,17 @@ def get_partner_detail(pid: str, user_id: str = Depends(verify_user_id), db: Ses
         models.Complaint.customer_id == pid
     ).order_by(desc(models.Complaint.created_at)).all()
 
+    tasks = db.query(models.Task).filter(
+        models.Task.user_id == user_id,
+        models.Task.customer_id == pid
+    ).order_by(desc(models.Task.created_at)).all()
+
     total = len(txns)
     success = len([t for t in txns if t.status == "success"])
     failed = [t for t in txns if t.status == "failed"]
     pending = [t for t in txns if t.status == "pending"]
     volume = sum(t.amount for t in txns if t.status == "success")
+    commission = round(sum(t.commission for t in txns if t.status == "success"), 2)
 
     def txn_dict(t):
         return {
@@ -2497,17 +3138,391 @@ def get_partner_detail(pid: str, user_id: str = Depends(verify_user_id), db: Ses
     return {
         "id": cust.id, "name": cust.name, "phone": cust.phone,
         "email": cust.email, "business_type": cust.business_type,
+        "category": cust.category or "Others",
         "kyc_status": cust.kyc_status, "amount_due": cust.amount_due,
         "notes": cust.notes, "created_at": cust.created_at.isoformat() if cust.created_at else None,
         "stats": {
             "total_transactions": total, "success_transactions": success,
             "failed_transactions": len(failed), "pending_transactions": len(pending),
             "total_volume": volume,
+            "commission": commission,
             "success_rate": f"{(success/total*100 if total else 0):.0f}%",
             "open_complaints": len([c for c in complaints if c.status not in ("closed","resolved")]),
+            "pending_tasks": len([t for t in tasks if not t.completed]),
         },
         "transactions": [txn_dict(t) for t in txns],
         "complaints": [comp_dict(c) for c in complaints],
+    }
+
+
+# ─── Commissions & Earnings Operations ─────────────────────────────────────────
+@app.get("/api/commissions")
+def list_commissions(
+    status: Optional[str] = None,
+    service: Optional[str] = None,
+    date_range: Optional[str] = None,
+    user_id: str = Depends(verify_user_id),
+    db: Session = Depends(database.get_db)
+):
+    """List commissions with status, service, and date filters."""
+    ensure_user_seeded(user_id, db)
+    query = db.query(models.Commission).filter(models.Commission.user_id == user_id)
+
+    if status and status.lower() not in ("all", ""):
+        query = query.filter(models.Commission.status == status.upper())
+
+    if service and service.lower() not in ("all", "all services", ""):
+        query = query.filter(models.Commission.service.ilike(f"%{service.strip()}%"))
+
+    now = datetime.now()
+    if date_range:
+        dr = date_range.lower().strip()
+        if dr == "today":
+            start = now.replace(hour=0, minute=0, second=0, microsecond=0)
+            query = query.filter(models.Commission.created_at >= start)
+        elif dr in ("this week", "week"):
+            start = now - timedelta(days=7)
+            query = query.filter(models.Commission.created_at >= start)
+        elif dr in ("this month", "month"):
+            start = now - timedelta(days=30)
+            query = query.filter(models.Commission.created_at >= start)
+
+    commissions = query.order_by(desc(models.Commission.created_at)).all()
+
+    # Partner & customer names lookup
+    all_names = {
+        c.id: c.name for c in db.query(models.Customer).filter(models.Customer.user_id == user_id).all()
+    }
+
+    results = []
+    for c in commissions:
+        results.append({
+            "id": c.id,
+            "transaction_id": c.transaction_id,
+            "partner_id": c.partner_id,
+            "partner_name": all_names.get(c.partner_id, "Eko Partner Outlet"),
+            "customer_id": c.customer_id,
+            "customer_name": all_names.get(c.customer_id, "Retail Customer"),
+            "service": c.service,
+            "transaction_amount": c.transaction_amount,
+            "commission_rate": c.commission_rate,
+            "commission_amount": c.commission_amount,
+            "status": c.status,
+            "settlement_id": c.settlement_id,
+            "settlement_date": c.settlement_date.isoformat() if c.settlement_date else None,
+            "earned_at": c.earned_at.isoformat() if c.earned_at else None,
+            "created_at": c.created_at.isoformat() if c.created_at else None
+        })
+    return results
+
+
+@app.get("/api/commissions/{cid}")
+def get_commission_detail(cid: str, user_id: str = Depends(verify_user_id), db: Session = Depends(database.get_db)):
+    """Commission detail with linked transaction and partner context."""
+    ensure_user_seeded(user_id, db)
+    c = db.query(models.Commission).filter(
+        models.Commission.id == cid,
+        models.Commission.user_id == user_id
+    ).first()
+    if not c:
+        raise HTTPException(status_code=404, detail="Commission record not found.")
+
+    txn = db.query(models.ServiceActivity).filter(models.ServiceActivity.id == c.transaction_id).first()
+    partner = db.query(models.Customer).filter(models.Customer.id == c.partner_id).first()
+
+    return {
+        "commission": {
+            "id": c.id,
+            "transaction_id": c.transaction_id,
+            "partner_id": c.partner_id,
+            "partner_name": partner.name if partner else "Eko Partner Outlet",
+            "service": c.service,
+            "transaction_amount": c.transaction_amount,
+            "commission_rate": c.commission_rate,
+            "commission_amount": c.commission_amount,
+            "status": c.status,
+            "settlement_id": c.settlement_id,
+            "settlement_date": c.settlement_date.isoformat() if c.settlement_date else None,
+            "earned_at": c.earned_at.isoformat() if c.earned_at else None,
+            "created_at": c.created_at.isoformat() if c.created_at else None,
+        },
+        "transaction": {
+            "id": txn.id if txn else None,
+            "reference_id": txn.reference_id if txn else None,
+            "status": txn.status if txn else None,
+            "service_name": txn.service_name if txn else None,
+            "amount": txn.amount if txn else None,
+            "failure_reason": txn.failure_reason if txn else None,
+            "created_at": txn.created_at.isoformat() if txn and txn.created_at else None,
+        } if txn else None
+    }
+
+
+@app.get("/api/earnings/summary")
+def get_earnings_summary(user_id: str = Depends(verify_user_id), db: Session = Depends(database.get_db)):
+    """Aggregated earnings summary from canonical commission & settlement models."""
+    ensure_user_seeded(user_id, db)
+    now = datetime.now()
+    today_start = now.replace(hour=0, minute=0, second=0, microsecond=0)
+    month_start = now - timedelta(days=30)
+
+    commissions = db.query(models.Commission).filter(models.Commission.user_id == user_id).all()
+
+    total_earnings = round(sum(c.commission_amount for c in commissions if c.status in ("EARNED", "PAID")), 2)
+    today_earnings = round(sum(c.commission_amount for c in commissions if c.status in ("EARNED", "PAID") and c.created_at >= today_start), 2)
+    month_earnings = round(sum(c.commission_amount for c in commissions if c.status in ("EARNED", "PAID") and c.created_at >= month_start), 2)
+    pending_earnings = round(sum(c.commission_amount for c in commissions if c.status == "PENDING"), 2)
+    paid_earnings = round(sum(c.commission_amount for c in commissions if c.status == "PAID"), 2)
+    reversed_earnings = round(sum(c.commission_amount for c in commissions if c.status == "REVERSED"), 2)
+
+    available_for_settlement = round(sum(c.commission_amount for c in commissions if c.status == "EARNED" and not c.settlement_id), 2)
+
+    # Last paid settlement
+    last_settlement = db.query(models.Settlement).filter(
+        models.Settlement.user_id == user_id,
+        models.Settlement.status == "PAID"
+    ).order_by(desc(models.Settlement.settled_at)).first()
+
+    # Service breakdown
+    services = ["DMT", "AePS", "BBPS", "Recharge", "Insurance", "Micro ATM", "Indo-Nepal"]
+    service_breakdown = {}
+    for svc in services:
+        service_breakdown[svc] = round(sum(
+            c.commission_amount for c in commissions 
+            if svc.lower() in (c.service or "").lower() and c.status in ("EARNED", "PAID")
+        ), 2)
+
+    return {
+        "total_earnings": total_earnings,
+        "today_earnings": today_earnings,
+        "this_month_earnings": month_earnings,
+        "pending_earnings": pending_earnings,
+        "paid_earnings": paid_earnings,
+        "reversed_earnings": reversed_earnings,
+        "available_for_settlement": available_for_settlement,
+        "next_settlement_date": (now + timedelta(days=2)).strftime("%d %b %Y"),
+        "last_settlement": {
+            "id": last_settlement.id if last_settlement else None,
+            "amount": last_settlement.amount if last_settlement else 0.0,
+            "settled_at": last_settlement.settled_at.strftime("%d %b %Y") if last_settlement and last_settlement.settled_at else None,
+            "bank_reference": last_settlement.bank_reference if last_settlement else None,
+            "status": last_settlement.status if last_settlement else None
+        } if last_settlement else None,
+        "service_breakdown": service_breakdown
+    }
+
+
+@app.get("/api/settlements")
+def list_settlements(user_id: str = Depends(verify_user_id), db: Session = Depends(database.get_db)):
+    """List settlement batches and history."""
+    ensure_user_seeded(user_id, db)
+    settlements = db.query(models.Settlement).filter(
+        models.Settlement.user_id == user_id
+    ).order_by(desc(models.Settlement.created_at)).all()
+
+    return [
+        {
+            "id": s.id,
+            "amount": s.amount,
+            "status": s.status,
+            "bank_reference": s.bank_reference,
+            "payout_account": s.payout_account,
+            "settled_at": s.settled_at.strftime("%d %b %Y, %I:%M %p") if s.settled_at else None,
+            "period_start": s.period_start.strftime("%d %b %Y") if s.period_start else None,
+            "period_end": s.period_end.strftime("%d %b %Y") if s.period_end else None,
+            "created_at": s.created_at.isoformat() if s.created_at else None
+        }
+        for s in settlements
+    ]
+
+
+# ─── Data Upload & Canonical Ingestion ─────────────────────────────────────────
+class UploadValidateRequest(BaseModel):
+    records: List[Dict[str, Any]]
+
+class UploadImportRequest(BaseModel):
+    records: List[Dict[str, Any]]
+
+@app.post("/api/upload/validate")
+def validate_upload(data: UploadValidateRequest, user_id: str = Depends(verify_user_id), db: Session = Depends(database.get_db)):
+    """Validate uploaded operations data before committing to canonical database."""
+    ensure_user_seeded(user_id, db)
+    raw_records = data.records or []
+    if not raw_records:
+        return {
+            "total_records": 0, "valid_count": 0, "warning_count": 0, "error_count": 0,
+            "errors": ["Uploaded file contains 0 records."], "warnings": [], "preview": []
+        }
+
+    # Fetch existing partner IDs and names for cross-validation
+    existing_partners = {
+        p.id: p.name for p in db.query(models.Customer).filter(
+            models.Customer.user_id == user_id,
+            models.Customer.is_partner == True
+        ).all()
+    }
+    existing_ref_ids = {
+        t.reference_id for t in db.query(models.ServiceActivity.reference_id).filter(
+            models.ServiceActivity.user_id == user_id
+        ).all() if t.reference_id
+    }
+
+    seen_in_batch = set()
+    valid_records = []
+    warnings = []
+    errors = []
+
+    valid_statuses = {"success", "failed", "pending", "refunded"}
+    valid_services = {"dmt", "aeps", "bbps", "recharge", "insurance", "micro atm", "indo-nepal remittance", "pan"}
+
+    for idx, r in enumerate(raw_records, 1):
+        row_errs = []
+        # Required fields check
+        p_id = str(r.get("partner_id") or "").strip()
+        p_name = str(r.get("partner_name") or "").strip()
+        c_name = str(r.get("customer_name") or "").strip()
+        svc = str(r.get("service") or r.get("service_name") or "").strip()
+        st = str(r.get("status") or "success").strip().lower()
+        amt_raw = r.get("amount")
+        ref_id = str(r.get("reference_id") or r.get("transaction_id") or f"TXN-UPL-{idx}").strip()
+
+        if not c_name:
+            row_errs.append(f"Row {idx}: Customer Name is required.")
+        if not svc:
+            row_errs.append(f"Row {idx}: Service is required.")
+
+        # Status validation
+        if st not in valid_statuses:
+            row_errs.append(f"Row {idx}: Invalid status '{st}'. Must be one of: {', '.join(valid_statuses)}.")
+
+        # Amount validation
+        try:
+            amt = float(amt_raw)
+            if amt <= 0:
+                row_errs.append(f"Row {idx}: Amount must be greater than 0 (got {amt}).")
+        except (ValueError, TypeError):
+            row_errs.append(f"Row {idx}: Amount must be a valid positive number.")
+            amt = 0.0
+
+        # Duplicate reference check
+        if ref_id in seen_in_batch:
+            row_errs.append(f"Row {idx}: Duplicate reference ID '{ref_id}' within upload file.")
+        elif ref_id in existing_ref_ids:
+            warnings.append(f"Row {idx}: Reference ID '{ref_id}' already exists in database; will be updated.")
+        seen_in_batch.add(ref_id)
+
+        # Partner relationship check
+        matched_pid = None
+        if p_id and p_id in existing_partners:
+            matched_pid = p_id
+        else:
+            # Check by name
+            for ep_id, ep_name in existing_partners.items():
+                if p_name and p_name.lower() in ep_name.lower():
+                    matched_pid = ep_id
+                    break
+        if not matched_pid:
+            # Fallback to first active retailer partner with warning
+            fallback_p = next(iter(existing_partners.keys()), None)
+            matched_pid = fallback_p
+            if p_id or p_name:
+                warnings.append(f"Row {idx}: Partner '{p_id or p_name}' not found; mapped to outlet '{existing_partners.get(fallback_p, 'CSP Point')}'.")
+
+        if row_errs:
+            errors.extend(row_errs)
+        else:
+            valid_records.append({
+                "row": idx,
+                "partner_id": matched_pid,
+                "partner_name": existing_partners.get(matched_pid, "Eko Partner CSP"),
+                "customer_name": c_name,
+                "customer_phone": str(r.get("customer_phone") or "9876500001"),
+                "service": svc,
+                "amount": amt,
+                "status": st,
+                "reference_id": ref_id,
+                "failure_reason": str(r.get("failure_reason") or "") if st == "failed" else None
+            })
+
+    return {
+        "total_records": len(raw_records),
+        "valid_count": len(valid_records),
+        "warning_count": len(warnings),
+        "error_count": len(errors),
+        "errors": errors[:25],
+        "warnings": warnings[:25],
+        "preview": valid_records[:15]
+    }
+
+
+@app.post("/api/upload/import")
+def import_upload(data: UploadImportRequest, user_id: str = Depends(verify_user_id), db: Session = Depends(database.get_db)):
+    """Commit validated records into canonical database, updating transactions, commissions & partner metrics."""
+    ensure_user_seeded(user_id, db)
+    records = data.records or []
+    if not records:
+        raise HTTPException(status_code=400, detail="No records provided for import.")
+
+    now = datetime.now()
+    imported_count = 0
+
+    for r in records:
+        try:
+            amt = float(r.get("amount", 0.0))
+            st = str(r.get("status", "success")).lower()
+            svc = str(r.get("service") or r.get("service_name") or "DMT")
+            c_name = str(r.get("customer_name") or "Walk-in Customer")
+            c_phone = str(r.get("customer_phone") or "9876500001")
+            p_id = str(r.get("partner_id") or "partner-paras")
+            ref_id = str(r.get("reference_id") or f"UPL-{uuid.uuid4().hex[:8].upper()}")
+            fail_reason = r.get("failure_reason") if st == "failed" else None
+
+            # 1. Insert Transaction into ServiceActivity
+            txn_id = str(uuid.uuid4())
+            act = models.ServiceActivity(
+                id=txn_id,
+                user_id=user_id,
+                customer_id=p_id,
+                customer_name=c_name,
+                partner_id=p_id,
+                service_name=svc,
+                status=st,
+                amount=amt,
+                commission=0.0,
+                reference_id=ref_id,
+                failure_reason=fail_reason,
+                created_at=now
+            )
+
+            # 2. Deterministic Commission calculation & creation
+            rate, comm_amount, comm_status = canonical_seed.calculate_commission(svc, amt, st)
+            act.commission = comm_amount
+            db.add(act)
+
+            comm = models.Commission(
+                id=str(uuid.uuid4()),
+                user_id=user_id,
+                transaction_id=txn_id,
+                partner_id=p_id,
+                customer_id=p_id,
+                service=svc,
+                transaction_amount=amt,
+                commission_rate=rate,
+                commission_amount=comm_amount,
+                status=comm_status,
+                earned_at=now if comm_status in ("EARNED", "PAID") else None,
+                created_at=now
+            )
+            db.add(comm)
+            imported_count += 1
+        except Exception as e:
+            logger.warning(f"Skipping failed import record: {e}")
+
+    db.commit()
+    return {
+        "status": "ok",
+        "imported": imported_count,
+        "message": f"Successfully imported {imported_count} records into canonical database. Partner metrics, transactions, and earnings have been synchronized."
     }
 
 
@@ -2555,18 +3570,12 @@ class RechargeRequest(BaseModel):
 
 
 def _sandbox_process(service_name: str, amount: float, trigger_failure: bool = False) -> tuple[str, Optional[str], float]:
-    """Sandbox: ~85% success rate simulation, or deterministic trigger when specified. Returns (status, failure_reason, commission)."""
-    import random
+    """Sandbox: deterministic trigger when specified, or success with deterministic commission calculation."""
     if trigger_failure:
-        reason = random.choice(SANDBOX_FAILURE_SCENARIOS)
+        reason = SANDBOX_FAILURE_SCENARIOS[0] if SANDBOX_FAILURE_SCENARIOS else "Beneficiary switch response timed out."
         return "failed", reason, 0.0
-    success = random.random() > 0.15
-    if success:
-        commission = round(amount * 0.005, 2)  # 0.5% commission simulation
-        return "success", None, commission
-    else:
-        reason = random.choice(SANDBOX_FAILURE_SCENARIOS)
-        return "failed", reason, 0.0
+    _, commission, _ = canonical_seed.calculate_commission(service_name, amount, "success")
+    return "success", None, commission
 
 
 @app.post("/api/services/dmt")
@@ -3016,6 +4025,7 @@ def list_whatsapp_outreach(
             "customer_name": o.customer_name,
             "customer_phone": o.customer_phone,
             "template_type": o.template_type,
+            "language": getattr(o, "language", None) or "hinglish",
             "message": o.message,
             "status": o.status,
             "reminder_frequency": o.reminder_frequency,
@@ -3044,6 +4054,7 @@ def create_whatsapp_outreach(
         customer_name=data.customer_name,
         customer_phone=data.customer_phone,
         template_type=data.template_type or "custom",
+        language=data.language or "hinglish",
         message=data.message,
         status="pending",
         reminder_frequency="none",
@@ -3059,6 +4070,7 @@ def create_whatsapp_outreach(
         "customer_name": outreach.customer_name,
         "customer_phone": outreach.customer_phone,
         "template_type": outreach.template_type,
+        "language": outreach.language,
         "message": outreach.message,
         "status": outreach.status,
         "reminder_frequency": outreach.reminder_frequency,
@@ -3091,6 +4103,8 @@ def update_whatsapp_outreach(
         elif data.status in ("failed", "cancelled"):
             if data.reminder_active is None:
                 o.reminder_active = False
+    if data.language is not None:
+        o.language = data.language
     if data.reminder_frequency is not None:
         o.reminder_frequency = data.reminder_frequency
     if data.reminder_active is not None:
@@ -3105,6 +4119,7 @@ def update_whatsapp_outreach(
     return {
         "id": o.id,
         "status": o.status,
+        "language": getattr(o, "language", None) or "hinglish",
         "reminder_frequency": o.reminder_frequency,
         "reminder_active": o.reminder_active,
         "notes": o.notes,
@@ -3119,58 +4134,148 @@ def generate_whatsapp_template(
     user_id: str = Depends(verify_user_id)
 ):
     cname = data.customer_name or "Partner"
-    ttype = (data.template_type or "custom").lower()
+    raw_ttype = (data.template_type or "custom").lower()
     lang = (data.language or "hinglish").lower()
-
-    if ttype == "kyc_reminder":
-        if lang == "hindi":
-            msg = f"नमस्ते {cname} जी, ईको (Eko) ऑपरेशंस टीम की तरफ से सादर प्रणाम। आपका KYC वेरिफिकेशन प्रक्रिया अभी लंबित है। कृपया अपना आधार और पैन कार्ड जल्द से जल्द वेरीफाई करवाएं ताकि आपकी दैनिक लेनदेन सीमा (Transaction Limits) पूरी तरह सक्रिय हो सके।"
-        elif lang == "english":
-            msg = f"Hello {cname}, greetings from the Eko Operations team. Your KYC verification process is currently pending. Please verify your Aadhaar and PAN documents to activate your daily transaction limits."
-        else:
-            msg = f"Namaste {cname} ji, Eko operations team ki taraf se pranam. Aapka KYC verification process abhi pending hai. Kripya apna Aadhaar aur PAN verify karwayein taaki aapki daily transaction limits full capacity par active ho sakein. Kisi bhi sahayata ke liye sampark karein."
-    elif ttype == "payment_reminder":
-        if lang == "hindi":
-            msg = f"नमस्ते {cname} जी, ईको पार्टनर अकाउंट का पेंडिंग सेटलमेंट बकाया है। सुचारू और निर्बाध बैंकिंग सेवाओं के लिए कृपया आज ही भुगतान पूरा करें। धन्यवाद!"
-        elif lang == "english":
-            msg = f"Hello {cname}, your Eko partner account has a pending settlement balance due. Please complete the settlement payment today to ensure uninterrupted banking operations. Thank you!"
-        else:
-            msg = f"Namaste {cname} ji, Aapke Eko partner account ka pending settlement / bill amount due hai. Nirbaadh banking services jaari rakhne ke liye kripya samay par settlement clear karein. Dhanyawad!"
-    elif ttype == "settlement_notice":
-        if lang == "hindi":
-            msg = f"नमस्ते {cname} जी, आपके ईको केंद्र का आज का सेटलमेंट विवरण सफलतापूर्वक प्रोसेस कर दिया गया है। सभी DMT एवं AePS लेन-देन का रिकॉन्सिलेशन पूरा हो चुका है।"
-        elif lang == "english":
-            msg = f"Hello {cname}, today's operational settlement for your Eko service point has been successfully processed. Reconciliation for all DMT and AePS transactions is complete."
-        else:
-            msg = f"Namaste {cname} ji, Aapke Eko banking center ka daily settlement report process ho chuka hai. DMT aur AePS ka full reconciliation complete hai. Statement portal par check karein."
-    elif ttype == "dispute_update":
-        if lang == "hindi":
-            msg = f"नमस्ते {cname} जी, आपके लेन-देन विवाद (Dispute) पर हमारी ऑपरेशंस टीम बैंक स्विच के साथ समन्वय कर रही है। बैंक SLA के तहत 24 घंटे के भीतर समाधान कर दिया जाएगा।"
-        elif lang == "english":
-            msg = f"Hello {cname}, your transaction dispute is actively being coordinated with the banking switch. As per the bank SLA, resolution will be provided within 24 hours."
-        else:
-            msg = f"Namaste {cname} ji, Aapki transaction dispute request Eko operations desk dwara actively follow ki ja rahi hai. Bank switch SLA ke mutabiq 24 ghante ke bheetar resolution mil jayega."
-    elif ttype in ("offer", "festival"):
-        if lang == "hindi":
-            msg = f"नमस्ते {cname} जी, इस त्योहारी सीजन में अपने ग्राहकों को ईको की तीव्र मनी ट्रांसफर, AePS एवं बिल भुगतान सेवाएं दें और पाएँ उच्चतम कमीशन एवं ज़ीरो डाउनटाइम!"
-        elif lang == "english":
-            msg = f"Hello {cname}! This festive season, empower your customers with fast Eko Money Transfer, AePS cash withdrawal, and BBPS bill payments with top commissions and zero downtime!"
-        else:
-            msg = f"Namaste {cname} ji! Is festive season apne grahakon ko dein Eko ki superfast DMT, AePS cash withdrawal aur BBPS services. Highest commission aur instant settlement ka labh uthayein!"
+    if "hindi" in lang or lang == "hi":
+        norm_lang = "hindi"
+    elif "english" in lang or lang == "en":
+        norm_lang = "english"
     else:
-        ctx = f" {data.context}." if data.context else ""
-        if lang == "hindi":
-            msg = f"नमस्ते {cname} जी, ईको डिजिटल ऑपरेशंस की तरफ से संदेश।{ctx} किसी भी सहायता के लिए हमें तुरंत सूचित करें।"
-        elif lang == "english":
-            msg = f"Hello {cname}, message from Eko Digital Operations.{ctx} Contact our support desk for any operational assistance."
-        else:
-            msg = f"Namaste {cname} ji, Eko digital operations update.{ctx} Kisi bhi transaction support ke liye turant sampark karein."
+        norm_lang = "hinglish"
+
+    # Map aliases
+    if raw_ttype in ("kyc_reminder", "kyc"):
+        ttype = "kyc_reminder"
+    elif raw_ttype in ("payment_reminder", "payment", "due"):
+        ttype = "payment_reminder"
+    elif raw_ttype in ("settlement_notice", "settlement"):
+        ttype = "settlement_notice"
+    elif raw_ttype in ("dispute_update", "dispute", "sla"):
+        ttype = "dispute_update"
+    elif raw_ttype in ("money_transfer", "dmt", "send_money"):
+        ttype = "money_transfer"
+    elif raw_ttype in ("aeps", "cash_withdrawal", "aadhaar"):
+        ttype = "aeps"
+    elif raw_ttype in ("bbps", "bill_payment", "bill"):
+        ttype = "bbps"
+    elif raw_ttype in ("recharge", "mobile_recharge"):
+        ttype = "recharge"
+    elif raw_ttype in ("offer", "festival", "festive"):
+        ttype = "offer"
+    else:
+        ttype = "custom"
+
+    templates = {
+        "kyc_reminder": {
+            "english": f"Hi {cname}, your KYC verification is still pending. Please complete your Aadhaar and PAN verification to keep your services active and unlock higher transaction limits.",
+            "hindi": f"नमस्ते {cname} जी, आपका KYC verification अभी pending है। कृपया इसे पूरा कर लें ताकि आपकी services active रहें और transaction limit बढ़ सके।",
+            "hinglish": f"Namaste {cname} ji, aapka KYC verification abhi pending hai. Please ise complete kar lijiye taaki aapki services active rahen aur transaction limits open ho sakein."
+        },
+        "money_transfer": {
+            "english": f"Hi {cname}, your money transfer service is active and ready. Send funds instantly with zero failed transactions and live confirmation.",
+            "hindi": f"नमस्ते {cname} जी, आपका मनी ट्रांसफर उपलब्ध है। तुरंत पैसे भेजें, सुरक्षित एवं बिना किसी रुकावट के।",
+            "hinglish": f"Namaste {cname} ji, aapka money transfer available hai. Instant settlement aur zero downtime ke saath kisi bhi bank account mein transfer karein."
+        },
+        "aeps": {
+            "english": f"Hi {cname}, AePS cash withdrawal and mini-statement services are fully operational at your nearest Eko counter with instant receipt.",
+            "hindi": f"नमस्ते {cname} जी, आधार बैंकिंग (AePS) एवं कैश निकासी सेवा हमारे ईको केंद्र पर उपलब्ध है। तुरंत रसीद प्राप्त करें।",
+            "hinglish": f"Namaste {cname} ji, AePS cash withdrawal aur mini statement facility counter par available hai. Instant cash aur official receipt payein."
+        },
+        "bbps": {
+            "english": f"Hi {cname}, pay all your electricity, water, and broadband bills instantly with instant BBPS confirmation at our counter.",
+            "hindi": f"नमस्ते {cname} जी, बिजली, पानी एवं सभी उपयोगी बिलों का भुगतान हमारे ईको केंद्र पर तुरंत करें एवं पक्की रसीद पाएं।",
+            "hinglish": f"Namaste {cname} ji, electricity, water aur broadband bills ka instant payment hamare counter par karein. Official BBPS receipt instantly mil jayegi."
+        },
+        "recharge": {
+            "english": f"Hi {cname}, recharge your mobile or DTH connection instantly with exciting cashback offers at our Eko service point.",
+            "hindi": f"नमस्ते {cname} जी, अपने मोबाइल एवं डीटीएच का रिचार्ज हमारे ईको केंद्र पर तुरंत करवाएं और पाएं बेहतरीन ऑफर्स।",
+            "hinglish": f"Namaste {cname} ji, mobile aur DTH recharge counter par available hai. Instant activation aur best festive plans ke liye visit karein."
+        },
+        "payment_reminder": {
+            "english": f"Hello {cname}, your Eko partner account has a pending settlement balance due. Please complete the payment today to ensure uninterrupted operations.",
+            "hindi": f"नमस्ते {cname} जी, आपके ईको अकाउंट का बकाया सेटलमेंट भुगतान लंबित है। निर्बाध सेवाओं के लिए कृपया आज ही भुगतान करें।",
+            "hinglish": f"Namaste {cname} ji, aapke Eko account ka settlement balance pending hai. Kripya samay par settlement clear karein taaki services chalti rahein."
+        },
+        "settlement_notice": {
+            "english": f"Hello {cname}, today's operational settlement for your Eko service point has been successfully processed and reconciled.",
+            "hindi": f"नमस्ते {cname} जी, आपके ईको केंद्र का आज का सेटलमेंट सफलतापूर्वक प्रोसेस हो गया है। सभी लेन-देन का मिलान पूरा हुआ।",
+            "hinglish": f"Namaste {cname} ji, aapke Eko center ka daily settlement report process ho chuka hai. Statement portal par check karein."
+        },
+        "dispute_update": {
+            "english": f"Hello {cname}, your transaction dispute is actively being coordinated with the banking switch. Resolution will be provided within SLA.",
+            "hindi": f"नमस्ते {cname} जी, आपके लेन-देन विवाद पर हमारी टीम बैंक स्विच से समन्वय कर रही है। SLA के तहत जल्द समाधान किया जाएगा।",
+            "hinglish": f"Namaste {cname} ji, aapki transaction dispute request Eko operations desk par actively monitor ho rahi hai. Bank switch SLA ke bheetar resolution mil jayega."
+        },
+        "offer": {
+            "english": f"Hello {cname}! Special festive offer: Enjoy fast money transfers, cash withdrawals, and bill payments with highest commission and zero downtime!",
+            "hindi": f"नमस्ते {cname} जी, इस त्योहारी सीजन में अपने ग्राहकों को ईको की मनी ट्रांसफर, AePS एवं बिल सेवाएं दें और पाएं उच्चतम कमीशन!",
+            "hinglish": f"Namaste {cname} ji! Is festive season apne customers ko dein Eko ki fast DMT aur AePS services. Highest commission aur instant settlement ka labh uthayein!"
+        },
+        "custom": {
+            "english": f"Hello {cname}, operational update from Eko Operations. Please visit your dashboard or counter for details.",
+            "hindi": f"नमस्ते {cname} जी, ईको डिजिटल ऑपरेशंस से संदेश। किसी भी सहायता के लिए हमें तुरंत सूचित करें।",
+            "hinglish": f"Namaste {cname} ji, Eko operations center se update. Kisi bhi banking sahayata ke liye sampark karein."
+        }
+    }
+
+    msg = templates.get(ttype, templates["custom"]).get(norm_lang, templates["custom"]["hinglish"])
 
     return {
         "message": msg,
         "template_type": ttype,
-        "language": lang
+        "language": norm_lang
     }
+
+
+# ─── AI Complaint Triage Endpoint ──────────────────────────────────────────────
+@app.post("/api/complaints/triage", response_model=ComplaintTriageResponse)
+def triage_complaint(
+    data: ComplaintTriageRequest,
+    user_id: str = Depends(verify_user_id)
+):
+    subject_lower = data.subject.lower()
+    desc_lower = (data.description or "").lower()
+    combined = f"{subject_lower} {desc_lower}"
+
+    if any(k in combined for k in ["aeps", "biometric", "fingerprint", "timeout", "npc"]):
+        category = "Switch Latency / AePS"
+        severity = "Urgent"
+        summary = "NPCI biometric switch timeout detected during AePS transaction."
+        action = "Verify issuer bank authorization logs and initiate NPCI reversal inquiry."
+        escalation = "Escalate to NPCI switch desk within 4-hour SLA window."
+    elif any(k in combined for k in ["dmt", "transfer", "send money", "credited", "debited"]):
+        category = "Payment Status / DMT"
+        severity = "High"
+        summary = "DMT remittance settlement discrepancy between debit and beneficiary credit."
+        action = "Check beneficiary bank IMPS UTR status and verify bank clearing switch."
+        escalation = "Route to Banking Operations if uncredited after 2 hours."
+    elif any(k in combined for k in ["kyc", "document", "aadhaar", "pan", "limit"]):
+        category = "Document Verification"
+        severity = "Medium"
+        summary = "Customer KYC document verification issue affecting operational limits."
+        action = "Review uploaded Aadhaar/PAN image clarity and trigger re-verification."
+        escalation = "Assign to Field Operations Agent for counter verification."
+    elif any(k in combined for k in ["bbps", "bill", "electricity", "broadband"]):
+        category = "Utility Biller Response"
+        severity = "Medium"
+        summary = "BBPS bill payment confirmation pending from utility provider."
+        action = "Query biller Bharat BillPay switch for clearing acknowledgement."
+        escalation = "File automated dispute with biller aggregator if pending > 24h."
+    else:
+        category = "General Operational Support"
+        severity = "Medium"
+        summary = "General service grievance requiring operator investigation."
+        action = "Review transaction activity logs and contact customer for details."
+        escalation = "Assign to Team Lead if unresolved within standard SLA."
+
+    return ComplaintTriageResponse(
+        category=category,
+        severity=severity,
+        summary=summary,
+        recommended_action=action,
+        escalation_suggestion=escalation,
+        is_ai_suggestion=True
+    )
 
 
 # ─── Banner & Poster Studio Endpoints ─────────────────────────────────────────

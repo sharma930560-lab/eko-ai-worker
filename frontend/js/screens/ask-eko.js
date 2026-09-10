@@ -276,7 +276,7 @@ function renderStructuredAiResponse(res) {
                 <ul class="text-xs" style="padding-left:14px; margin:0; display:flex; flex-direction:column; gap:4px;">
                     ${res.inferences.map(inf => {
                         const txt = typeof inf === 'string' ? inf : inf.text;
-                        const conf = inf.confidence ? ` <span class="opacity-70">(${Math.round(inf.confidence * 100)}% confidence)</span>` : '';
+                        const conf = inf.confidence ? ` <span class="opacity-70">(AI-assisted recommendation)</span>` : '';
                         return `<li>${escapeHtml(txt)}${conf}</li>`;
                     }).join('')}
                 </ul>

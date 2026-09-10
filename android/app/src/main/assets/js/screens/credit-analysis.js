@@ -150,95 +150,110 @@ function renderCreditAnalysisUI(data) {
             ${renderCreditResultCard(data)}
         </div>
 
-        <!-- Interactive Factor Controls Section -->
-        <div class="card mt-3 mb-2" style="padding:14px; border:1px solid var(--border);">
-            <div class="text-xs font-bold text-muted mb-3" style="letter-spacing:0.5px; text-transform:uppercase;">
-                Operational Risk &amp; Assessment Factors
-            </div>
+        <!-- Collapsible Advanced Factor Controls (Simplified Default UX) -->
+        <details class="card mt-3 mb-2" id="ca-advanced-details" style="border:1px solid var(--border); overflow:hidden; background:var(--card-bg);">
+            <summary style="padding:14px; font-size:0.85rem; font-weight:700; cursor:pointer; display:flex; align-items:center; justify-content:space-between; user-select:none;">
+                <span style="display:flex; align-items:center; gap:8px;">
+                    ${renderIcon('sliders', 16, 'text-primary')}
+                    <span>Adjust Factors / Advanced Simulator</span>
+                </span>
+                <span class="text-xs text-muted" id="ca-advanced-toggle-hint">Tap to expand ▾</span>
+            </summary>
+            
+            <div style="padding:14px; border-top:1px solid var(--border);">
+                <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:12px;">
+                    <div class="text-xs font-bold text-muted" style="letter-spacing:0.5px; text-transform:uppercase;">
+                        Simulate Operational Factor Adjustments
+                    </div>
+                    <button class="btn-ghost text-xs" style="padding:4px 8px; color:var(--primary); font-weight:700;" onclick="resetCreditFactors()">
+                        ${renderIcon('rotate-cw', 12)} Reset Baseline
+                    </button>
+                </div>
 
-            <!-- KYC Status -->
-            <div class="form-group mb-3">
-                <label class="form-label" style="display:flex; justify-content:space-between;">
-                    <span>KYC Verification Status</span>
-                    <span class="text-xs text-muted" id="ca-kyc-impact">+7.0 pts when verified</span>
-                </label>
-                <div style="display:flex; gap:8px;">
-                    <label class="ca-segment-btn ${kyc === 'verified' ? 'active' : ''}">
-                        <input type="radio" name="ca_kyc" value="verified" ${kyc === 'verified' ? 'checked' : ''} onchange="onCreditFactorChange()">
-                        <span>Verified</span>
+                <!-- KYC Status -->
+                <div class="form-group mb-3">
+                    <label class="form-label" style="display:flex; justify-content:space-between;">
+                        <span>KYC Verification Status</span>
+                        <span class="text-xs text-muted" id="ca-kyc-impact">+7.0 pts when verified</span>
                     </label>
-                    <label class="ca-segment-btn ${kyc === 'pending' ? 'active' : ''}">
-                        <input type="radio" name="ca_kyc" value="pending" ${kyc === 'pending' ? 'checked' : ''} onchange="onCreditFactorChange()">
-                        <span>Pending</span>
+                    <div style="display:flex; gap:8px;">
+                        <label class="ca-segment-btn ${kyc === 'verified' ? 'active' : ''}">
+                            <input type="radio" name="ca_kyc" value="verified" ${kyc === 'verified' ? 'checked' : ''} onchange="onCreditFactorChange()">
+                            <span>Verified</span>
+                        </label>
+                        <label class="ca-segment-btn ${kyc === 'pending' ? 'active' : ''}">
+                            <input type="radio" name="ca_kyc" value="pending" ${kyc === 'pending' ? 'checked' : ''} onchange="onCreditFactorChange()">
+                            <span>Pending</span>
+                        </label>
+                        <label class="ca-segment-btn ${kyc === 'rejected' ? 'active' : ''}">
+                            <input type="radio" name="ca_kyc" value="rejected" ${kyc === 'rejected' ? 'checked' : ''} onchange="onCreditFactorChange()">
+                            <span>Rejected</span>
+                        </label>
+                    </div>
+                </div>
+
+                <!-- Failed Transactions -->
+                <div class="form-group mb-3">
+                    <label class="form-label" style="display:flex; justify-content:space-between;">
+                        <span>Failed Transactions (Payout/Switch Faults)</span>
+                        <span class="text-xs text-muted" id="ca-fail-impact">High impact risk factor</span>
                     </label>
-                    <label class="ca-segment-btn ${kyc === 'rejected' ? 'active' : ''}">
-                        <input type="radio" name="ca_kyc" value="rejected" ${kyc === 'rejected' ? 'checked' : ''} onchange="onCreditFactorChange()">
-                        <span>Rejected</span>
+                    <select id="ca-factor-failed" class="form-input" onchange="onCreditFactorChange()">
+                        <option value="0" ${failedTxns === 0 ? 'selected' : ''}>0 (None recorded - Strong)</option>
+                        <option value="1" ${failedTxns === 1 ? 'selected' : ''}>1 (Isolated switch timeout)</option>
+                        <option value="3" ${failedTxns === 3 ? 'selected' : ''}>3 (Moderate failure rate)</option>
+                        <option value="5" ${failedTxns >= 5 ? 'selected' : ''}>5+ (Critical failure cluster)</option>
+                    </select>
+                </div>
+
+                <!-- Transaction Volume -->
+                <div class="form-group mb-3">
+                    <label class="form-label" style="display:flex; justify-content:space-between;">
+                        <span>Processed Transaction Volume</span>
+                        <span class="text-xs text-muted">Scales partner limit</span>
                     </label>
+                    <select id="ca-factor-volume" class="form-input" onchange="onCreditFactorChange()">
+                        <option value="10000" ${vol < 20000 ? 'selected' : ''}>Low (Under ₹20,000)</option>
+                        <option value="25000" ${vol >= 20000 && vol < 50000 ? 'selected' : ''}>Moderate (₹20,000 – ₹50,000)</option>
+                        <option value="75000" ${vol >= 50000 && vol < 100000 ? 'selected' : ''}>High (₹50,000 – ₹1,00,000)</option>
+                        <option value="150000" ${vol >= 100000 ? 'selected' : ''}>Very High (₹1,50,000+)</option>
+                    </select>
+                </div>
+
+                <!-- Recent Performance -->
+                <div class="form-group mb-3">
+                    <label class="form-label">Recent Operational Performance</label>
+                    <select id="ca-factor-perf" class="form-input" onchange="onCreditFactorChange()">
+                        <option value="100%" ${perf >= 95 ? 'selected' : ''}>Excellent (100% Success Rate)</option>
+                        <option value="85%" ${perf >= 75 && perf < 95 ? 'selected' : ''}>Good (85% Success Rate)</option>
+                        <option value="60%" ${perf >= 50 && perf < 75 ? 'selected' : ''}>Average (60% Success Rate)</option>
+                        <option value="35%" ${perf < 50 ? 'selected' : ''}>Subpar (Under 40% Success)</option>
+                    </select>
+                </div>
+
+                <!-- Operational Tenure -->
+                <div class="form-group mb-3">
+                    <label class="form-label">Operational Tenure</label>
+                    <select id="ca-factor-tenure" class="form-input" onchange="onCreditFactorChange()">
+                        <option value="2" ${tenure <= 14 ? 'selected' : ''}>&lt; 1 Month (New Partner)</option>
+                        <option value="60" ${tenure > 14 && tenure <= 90 ? 'selected' : ''}>1 – 3 Months (Building Track Record)</option>
+                        <option value="180" ${tenure > 90 && tenure <= 270 ? 'selected' : ''}>6 – 9 Months (Established)</option>
+                        <option value="365" ${tenure > 270 ? 'selected' : ''}>1+ Year (Matured Partner)</option>
+                    </select>
+                </div>
+
+                <!-- Risk Indicators -->
+                <div class="form-group">
+                    <label class="form-label">Active Risk Indicators</label>
+                    <select id="ca-factor-risk-ind" class="form-input" onchange="onCreditFactorChange()">
+                        <option value="none" ${riskInd === 'none' ? 'selected' : ''}>None (Normal operations)</option>
+                        <option value="reversals" ${riskInd === 'reversals' ? 'selected' : ''}>Frequent Chargebacks / Reversals</option>
+                        <option value="timeouts" ${riskInd === 'timeouts' ? 'selected' : ''}>Repeated Switch Timeouts</option>
+                        <option value="limits" ${riskInd === 'limits' ? 'selected' : ''}>Daily Limit Violation Attempts</option>
+                    </select>
                 </div>
             </div>
-
-            <!-- Failed Transactions -->
-            <div class="form-group mb-3">
-                <label class="form-label" style="display:flex; justify-content:space-between;">
-                    <span>Failed Transactions (Payout/Switch Faults)</span>
-                    <span class="text-xs text-muted" id="ca-fail-impact">High impact risk factor</span>
-                </label>
-                <select id="ca-factor-failed" class="form-input" onchange="onCreditFactorChange()">
-                    <option value="0" ${failedTxns === 0 ? 'selected' : ''}>0 (None recorded - Strong)</option>
-                    <option value="1" ${failedTxns === 1 ? 'selected' : ''}>1 (Isolated switch timeout)</option>
-                    <option value="3" ${failedTxns === 3 ? 'selected' : ''}>3 (Moderate failure rate)</option>
-                    <option value="5" ${failedTxns >= 5 ? 'selected' : ''}>5+ (Critical failure cluster)</option>
-                </select>
-            </div>
-
-            <!-- Transaction Volume -->
-            <div class="form-group mb-3">
-                <label class="form-label" style="display:flex; justify-content:space-between;">
-                    <span>Processed Transaction Volume</span>
-                    <span class="text-xs text-muted">Scales partner limit</span>
-                </label>
-                <select id="ca-factor-volume" class="form-input" onchange="onCreditFactorChange()">
-                    <option value="10000" ${vol < 20000 ? 'selected' : ''}>Low (Under ₹20,000)</option>
-                    <option value="25000" ${vol >= 20000 && vol < 50000 ? 'selected' : ''}>Moderate (₹20,000 – ₹50,000)</option>
-                    <option value="75000" ${vol >= 50000 && vol < 100000 ? 'selected' : ''}>High (₹50,000 – ₹1,00,000)</option>
-                    <option value="150000" ${vol >= 100000 ? 'selected' : ''}>Very High (₹1,50,000+)</option>
-                </select>
-            </div>
-
-            <!-- Recent Performance -->
-            <div class="form-group mb-3">
-                <label class="form-label">Recent Operational Performance</label>
-                <select id="ca-factor-perf" class="form-input" onchange="onCreditFactorChange()">
-                    <option value="100%" ${perf >= 95 ? 'selected' : ''}>Excellent (100% Success Rate)</option>
-                    <option value="85%" ${perf >= 75 && perf < 95 ? 'selected' : ''}>Good (85% Success Rate)</option>
-                    <option value="60%" ${perf >= 50 && perf < 75 ? 'selected' : ''}>Average (60% Success Rate)</option>
-                    <option value="35%" ${perf < 50 ? 'selected' : ''}>Subpar (Under 40% Success)</option>
-                </select>
-            </div>
-
-            <!-- Operational Tenure -->
-            <div class="form-group mb-3">
-                <label class="form-label">Operational Tenure</label>
-                <select id="ca-factor-tenure" class="form-input" onchange="onCreditFactorChange()">
-                    <option value="2" ${tenure <= 14 ? 'selected' : ''}>&lt; 1 Month (New Partner)</option>
-                    <option value="60" ${tenure > 14 && tenure <= 90 ? 'selected' : ''}>1 – 3 Months (Building Track Record)</option>
-                    <option value="180" ${tenure > 90 && tenure <= 270 ? 'selected' : ''}>6 – 9 Months (Established)</option>
-                    <option value="365" ${tenure > 270 ? 'selected' : ''}>1+ Year (Matured Partner)</option>
-                </select>
-            </div>
-
-            <!-- Risk Indicators -->
-            <div class="form-group">
-                <label class="form-label">Active Risk Indicators</label>
-                <select id="ca-factor-risk-ind" class="form-input" onchange="onCreditFactorChange()">
-                    <option value="none" ${riskInd === 'none' ? 'selected' : ''}>None (Normal operations)</option>
-                    <option value="reversals" ${riskInd === 'reversals' ? 'selected' : ''}>Frequent Chargebacks / Reversals</option>
-                    <option value="timeouts" ${riskInd === 'timeouts' ? 'selected' : ''}>Repeated Switch Timeouts</option>
-                    <option value="limits" ${riskInd === 'limits' ? 'selected' : ''}>Daily Limit Violation Attempts</option>
-                </select>
-            </div>
-        </div>
+        </details>
     `;
 
     if (window.lucide) lucide.createIcons();

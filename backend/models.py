@@ -38,6 +38,9 @@ class Customer(Base):
     email = Column(String, nullable=True)
     kyc_status = Column(String, default="pending")  # pending | verified | rejected
     business_type = Column(String, nullable=True)
+    is_partner = Column(Boolean, default=False)
+    partner_id = Column(String, index=True, nullable=True)
+    category = Column(String, nullable=True)  # Retailer | Merchant | Enterprise | Others
     notes = Column(Text, nullable=True)
     amount_due = Column(Float, default=0.0)
     last_contact = Column(String, nullable=True)
@@ -50,6 +53,7 @@ class ServiceActivity(Base):
 
     id = Column(String, primary_key=True, default=new_id)
     user_id = Column(String, index=True, nullable=False)
+    partner_id = Column(String, index=True, nullable=True)
     customer_id = Column(String, index=True, nullable=True)
     customer_name = Column(String, nullable=True)
     service_name = Column(String, nullable=False)  # DMT | AePS | BBPS | etc.
@@ -229,12 +233,18 @@ class WhatsAppOutreach(Base):
     customer_name = Column(String, nullable=False)
     customer_phone = Column(String, nullable=False)
     template_type = Column(String, default="custom")  # kyc_reminder | payment_reminder | settlement_notice | dispute_update | offer | custom
+    language = Column(String, default="hinglish")  # english | hindi | hinglish
     message = Column(Text, nullable=False)
     status = Column(String, default="pending")  # draft | pending | whatsapp_opened | sent | failed | cancelled
     reminder_frequency = Column(String, default="none")  # none | once | 4hours | daily | paused | completed
     reminder_active = Column(Boolean, default=False)
+    partner_id = Column(String, index=True, nullable=True)
     last_reminded_at = Column(DateTime(timezone=True), nullable=True)
     sent_at = Column(DateTime(timezone=True), nullable=True)
+    delivered_at = Column(DateTime(timezone=True), nullable=True)
+    read_at = Column(DateTime(timezone=True), nullable=True)
+    failed_at = Column(DateTime(timezone=True), nullable=True)
+    failure_reason = Column(String, nullable=True)
     notes = Column(Text, nullable=True)
     created_at = Column(DateTime(timezone=True), server_default=func.now())
     updated_at = Column(DateTime(timezone=True), onupdate=func.now())
@@ -253,4 +263,41 @@ class PosterDesign(Base):
     preview_data = Column(Text, nullable=True)
     created_at = Column(DateTime(timezone=True), server_default=func.now())
     updated_at = Column(DateTime(timezone=True), onupdate=func.now())
+
+
+class Commission(Base):
+    __tablename__ = "commissions"
+
+    id = Column(String, primary_key=True, default=new_id)
+    user_id = Column(String, index=True, nullable=False)
+    transaction_id = Column(String, ForeignKey("service_activity.id"), index=True, nullable=False)
+    partner_id = Column(String, index=True, nullable=True)
+    customer_id = Column(String, index=True, nullable=True)
+    service = Column(String, nullable=False)
+    transaction_amount = Column(Float, nullable=False)
+    commission_rate = Column(Float, nullable=False)  # e.g., 0.005 for 0.5%
+    commission_amount = Column(Float, nullable=False)
+    status = Column(String, default="EARNED")  # PENDING | EARNED | PAID | REVERSED
+    earned_at = Column(DateTime(timezone=True), server_default=func.now())
+    settlement_id = Column(String, index=True, nullable=True)
+    settlement_date = Column(DateTime(timezone=True), nullable=True)
+    created_at = Column(DateTime(timezone=True), server_default=func.now())
+    updated_at = Column(DateTime(timezone=True), onupdate=func.now())
+
+
+class Settlement(Base):
+    __tablename__ = "settlements"
+
+    id = Column(String, primary_key=True, default=new_id)
+    user_id = Column(String, index=True, nullable=False)
+    partner_id = Column(String, index=True, nullable=True)
+    amount = Column(Float, nullable=False)
+    status = Column(String, default="PAID")  # PENDING | PAID | PROCESSING
+    bank_reference = Column(String, nullable=True)
+    payout_account = Column(String, nullable=True)
+    settled_at = Column(DateTime(timezone=True), nullable=True)
+    period_start = Column(DateTime(timezone=True), nullable=True)
+    period_end = Column(DateTime(timezone=True), nullable=True)
+    created_at = Column(DateTime(timezone=True), server_default=func.now())
+
 

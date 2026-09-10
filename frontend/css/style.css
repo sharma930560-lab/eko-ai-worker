@@ -2481,3 +2481,77 @@ input[type="tel"], textarea, select {
     cursor: pointer;
     text-align: center;
 }
+
+/* ── Filter Tabs & Chips (Earnings & Modules) ────────────────────────────────── */
+.filter-tabs {
+    display: flex;
+    gap: 6px;
+    overflow-x: auto;
+    padding-bottom: 2px;
+    scrollbar-width: none;
+}
+.filter-tabs::-webkit-scrollbar { display: none; }
+.filter-tab {
+    flex: 0 0 auto;
+    padding: 6px 14px;
+    border-radius: 20px;
+    font-size: 0.78rem;
+    font-weight: 600;
+    background: var(--bg);
+    border: 1px solid var(--border);
+    color: var(--text-muted);
+    cursor: pointer;
+    transition: all 0.15s ease;
+}
+.filter-tab:hover {
+    background: var(--surface-hover);
+    color: var(--text-main);
+}
+.filter-tab.active {
+    background: var(--primary);
+    border-color: var(--primary);
+    color: #ffffff;
+    box-shadow: 0 2px 6px rgba(249, 115, 22, 0.25);
+}
+
+.chip {
+    padding: 5px 12px;
+    border-radius: 16px;
+    font-size: 0.75rem;
+    font-weight: 600;
+    background: var(--bg);
+    border: 1px solid var(--border);
+    color: var(--text-muted);
+    cursor: pointer;
+    transition: all 0.15s ease;
+}
+.chip:hover {
+    background: var(--surface-hover);
+    color: var(--text-main);
+}
+.chip.active {
+    background: var(--primary-light);
+    border-color: var(--primary);
+    color: var(--primary);
+}
+
+.hover-card {
+    transition: transform 0.15s ease, box-shadow 0.15s ease, border-color 0.15s ease;
+}
+.hover-card:hover {
+    transform: translateY(-1px);
+    border-color: var(--primary-subtle);
+    box-shadow: 0 4px 12px rgba(0, 0, 0, 0.05);
+}
+
+.stat-card {
+    padding: 14px;
+    display: flex;
+    flex-direction: column;
+    justify-content: space-between;
+}
+.stat-value {
+    font-size: 1.25rem;
+    font-weight: 800;
+    line-height: 1.2;
+}

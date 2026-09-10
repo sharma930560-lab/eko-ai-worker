@@ -31,6 +31,7 @@ function renderPartnersScreen() {
             <button class="filter-tab" data-cat="Retailer" onclick="filterPartnerCategory('Retailer')">Retailers</button>
             <button class="filter-tab" data-cat="Merchant" onclick="filterPartnerCategory('Merchant')">Merchants</button>
             <button class="filter-tab" data-cat="Enterprise" onclick="filterPartnerCategory('Enterprise')">Enterprise</button>
+            <button class="filter-tab" data-cat="Others" onclick="filterPartnerCategory('Others')">Others</button>
         </div>
 
         <div id="partners-list" class="item-list">
@@ -76,9 +77,22 @@ function renderFilteredPartners() {
     let filtered = window._allPartners.filter(p => {
         const matchesSearch = !_partnerSearchTerm ||
             (p.name && p.name.toLowerCase().includes(_partnerSearchTerm)) ||
-            (p.phone && p.phone.includes(_partnerSearchTerm));
-        const matchesCat = _partnerCategoryFilter === 'all' ||
-            (p.business_type && p.business_type.toLowerCase() === _partnerCategoryFilter.toLowerCase());
+            (p.phone && p.phone.includes(_partnerSearchTerm)) ||
+            (p.id && p.id.toLowerCase().includes(_partnerSearchTerm)) ||
+            (p.category && p.category.toLowerCase().includes(_partnerSearchTerm)) ||
+            (p.business_type && p.business_type.toLowerCase().includes(_partnerSearchTerm));
+
+        let matchesCat = true;
+        if (_partnerCategoryFilter !== 'all') {
+            const filterLower = _partnerCategoryFilter.toLowerCase();
+            if (filterLower === 'others') {
+                matchesCat = (p.category && p.category.toLowerCase() === 'others') ||
+                    (p.business_type && ['agent', 'distributor', 'aggregator', 'service', 'institutional'].some(c => p.business_type.toLowerCase().includes(c)));
+            } else {
+                matchesCat = (p.category && p.category.toLowerCase() === filterLower) ||
+                    (p.business_type && p.business_type.toLowerCase().includes(filterLower));
+            }
+        }
         return matchesSearch && matchesCat;
     });
 
