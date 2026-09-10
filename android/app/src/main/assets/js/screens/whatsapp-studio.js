@@ -615,11 +615,10 @@ async function autoGenerateWAMessage() {
         // Fall back to robust client-side templates
     }
 
-    const fallbackTemplates = {
         kyc_reminder: {
-            english: `Hi ${name}, your KYC verification is still pending. Please complete it to keep your services active.`,
-            hindi: `नमस्ते ${name} जी, आपका KYC verification अभी pending है। कृपया इसे पूरा कर लें ताकि आपकी services active रहें।`,
-            hinglish: `Namaste ${name} ji, aapka KYC verification abhi pending hai. Please ise complete kar lijiye taaki aapki services active rahen.`
+            english: `Hi ${name}, your KYC verification is still pending. Please complete your Aadhaar and PAN verification to keep your services active and unlock higher transaction limits.`,
+            hindi: `नमस्ते ${name} जी, Eko Operations टीम की ओर से प्रणाम। आपका KYC सत्यापन अभी लंबित है। कृपया अपना आधार और PAN सत्यापित करवा लें ताकि आपकी लेन-देन सीमा सक्रिय हो सके।`,
+            hinglish: `Namaste ${name} ji, aapka KYC verification abhi pending hai. Please ise complete kar lijiye taaki aapki services active rahen aur transaction limits open ho sakein.`
         },
         payment_reminder: {
             english: `Hello ${name}, your Eko partner account has a pending settlement balance due. Please complete the payment today to ensure uninterrupted operations.`,
@@ -748,7 +747,17 @@ async function submitWhatsAppOutreach(e) {
 
     closeModal('whatsapp-outreach-modal');
     e.target.reset();
-    showToast('Outreach created in Pending list!', 'success');
+
+    const isLaunch = (window._waSubmitAction === 'launch');
+    window._waSubmitAction = null;
+
+    if (isLaunch && record) {
+        showToast('Outreach saved! Opening WhatsApp...', 'success');
+        const waUrl = buildWhatsAppUrl(normalizedPhone, msg);
+        launchWhatsAppLink(waUrl, record.id);
+    } else {
+        showToast('Outreach created in Pending list!', 'success');
+    }
 
     _waFilterTab = 'pending';
     updateWATabCounts();

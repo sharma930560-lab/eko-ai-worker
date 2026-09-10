@@ -701,10 +701,13 @@
                     </div>
                 </div>
 
-                <div style="display:flex; gap:10px; margin-top:16px;">
+                <div style="display:flex; gap:8px; margin-top:16px;">
                     <button type="button" class="btn-secondary" style="flex:1;" onclick="closeModal('whatsapp-outreach-modal')">Cancel</button>
-                    <button type="submit" class="btn-primary" style="flex:2; background:#25d366; border-color:#25d366; color:#fff;" id="btn-submit-wa">
-                        <i data-lucide="save" style="width:16px;height:16px;"></i> Save Outreach
+                    <button type="submit" class="btn-secondary" style="flex:1.5;" id="btn-save-only-wa" onclick="window._waSubmitAction = 'save'">
+                        <i data-lucide="save" style="width:14px;height:14px;"></i> Save Only
+                    </button>
+                    <button type="submit" class="btn-primary" style="flex:2; background:#25d366; border-color:#25d366; color:#fff;" id="btn-submit-wa" onclick="window._waSubmitAction = 'launch'">
+                        <i data-lucide="send" style="width:14px;height:14px;"></i> Save &amp; Launch WhatsApp
                     </button>
                 </div>
             </form>

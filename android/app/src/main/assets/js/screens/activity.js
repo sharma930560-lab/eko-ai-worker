@@ -53,9 +53,28 @@ async function loadActivity() {
 
     try {
         activityRecords = await api.getActivity();
+        if (Array.isArray(activityRecords) && activityRecords.length > 0) {
+            try {
+                localStorage.setItem('eko_cached_activity', JSON.stringify(activityRecords));
+            } catch (_) {}
+        }
         updateActivityTabCounts();
         renderFilteredActivity();
     } catch (e) {
+        console.warn('loadActivity: backend API call failed, attempting cached fallback', e);
+        let cached = null;
+        try {
+            const raw = localStorage.getItem('eko_cached_activity');
+            if (raw) cached = JSON.parse(raw);
+        } catch (_) {}
+
+        if (Array.isArray(cached) && cached.length > 0) {
+            activityRecords = cached;
+            updateActivityTabCounts();
+            renderFilteredActivity();
+            return;
+        }
+
         listEl.innerHTML = `
             <div class="error-state">
                 <div class="error-state-title">Connection Problem</div>

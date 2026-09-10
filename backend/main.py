@@ -49,100 +49,44 @@ models.Base.metadata.create_all(bind=database.engine)
 
 def run_migrations():
     """Ensure newly added columns exist in existing SQLite/PostgreSQL tables."""
+    columns_to_ensure = [
+        ("users", "wallet_balance", "FLOAT DEFAULT 0.0"),
+        ("customers", "email", "VARCHAR"),
+        ("customers", "kyc_status", "VARCHAR DEFAULT 'pending'"),
+        ("customers", "is_partner", "BOOLEAN DEFAULT FALSE"),
+        ("customers", "partner_id", "VARCHAR"),
+        ("customers", "category", "VARCHAR"),
+        ("service_activity", "partner_id", "VARCHAR"),
+        ("tasks", "customer_id", "VARCHAR"),
+        ("notes", "customer_id", "VARCHAR"),
+        ("complaints", "category", "VARCHAR"),
+        ("complaints", "assigned_to", "VARCHAR"),
+        ("complaints", "resolution_note", "TEXT"),
+        ("complaints", "timeline_json", "TEXT"),
+        ("whatsapp_outreach", "language", "VARCHAR DEFAULT 'hinglish'"),
+        ("whatsapp_outreach", "partner_id", "VARCHAR"),
+        ("whatsapp_outreach", "delivered_at", "TIMESTAMP"),
+        ("whatsapp_outreach", "read_at", "TIMESTAMP"),
+        ("whatsapp_outreach", "failed_at", "TIMESTAMP"),
+        ("whatsapp_outreach", "failure_reason", "VARCHAR"),
+    ]
+
     try:
         inspector = inspect(database.engine)
-        table_names = inspector.get_table_names()
-        with database.engine.connect() as conn:
-            # Check users table
-            if "users" in table_names:
-                user_cols = {col["name"] for col in inspector.get_columns("users")}
-                if "wallet_balance" not in user_cols:
-                    logger.info("Migrating DB: Adding wallet_balance column to users table")
-                    conn.execute(text("ALTER TABLE users ADD COLUMN wallet_balance FLOAT DEFAULT 0.0"))
-                    conn.commit()
-
-            # Check customers table
-            if "customers" in table_names:
-                cust_cols = {col["name"] for col in inspector.get_columns("customers")}
-                if "email" not in cust_cols:
-                    logger.info("Migrating DB: Adding email column to customers table")
-                    conn.execute(text("ALTER TABLE customers ADD COLUMN email VARCHAR"))
-                    conn.commit()
-                if "kyc_status" not in cust_cols:
-                    logger.info("Migrating DB: Adding kyc_status column to customers table")
-                    conn.execute(text("ALTER TABLE customers ADD COLUMN kyc_status VARCHAR DEFAULT 'pending'"))
-                    conn.commit()
-                if "is_partner" not in cust_cols:
-                    logger.info("Migrating DB: Adding is_partner column to customers table")
-                    conn.execute(text("ALTER TABLE customers ADD COLUMN is_partner BOOLEAN DEFAULT 0"))
-                    conn.commit()
-                if "partner_id" not in cust_cols:
-                    logger.info("Migrating DB: Adding partner_id column to customers table")
-                    conn.execute(text("ALTER TABLE customers ADD COLUMN partner_id VARCHAR"))
-                    conn.commit()
-                if "category" not in cust_cols:
-                    logger.info("Migrating DB: Adding category column to customers table")
-                    conn.execute(text("ALTER TABLE customers ADD COLUMN category VARCHAR"))
-                    conn.commit()
-
-            # Check service_activity table
-            if "service_activity" in table_names:
-                sa_cols = {col["name"] for col in inspector.get_columns("service_activity")}
-                if "partner_id" not in sa_cols:
-                    logger.info("Migrating DB: Adding partner_id column to service_activity table")
-                    conn.execute(text("ALTER TABLE service_activity ADD COLUMN partner_id VARCHAR"))
-                    conn.commit()
-
-            # Check tasks table
-            if "tasks" in table_names:
-                task_cols = {col["name"] for col in inspector.get_columns("tasks")}
-                if "customer_id" not in task_cols:
-                    logger.info("Migrating DB: Adding customer_id column to tasks table")
-                    conn.execute(text("ALTER TABLE tasks ADD COLUMN customer_id VARCHAR"))
-                    conn.commit()
-
-            # Check notes table
-            if "notes" in table_names:
-                note_cols = {col["name"] for col in inspector.get_columns("notes")}
-                if "customer_id" not in note_cols:
-                    logger.info("Migrating DB: Adding customer_id column to notes table")
-                    conn.execute(text("ALTER TABLE notes ADD COLUMN customer_id VARCHAR"))
-                    conn.commit()
-
-            # Check complaints table
-            if "complaints" in table_names:
-                comp_cols = {col["name"] for col in inspector.get_columns("complaints")}
-                for col_name, col_type in [
-                    ("category", "VARCHAR"),
-                    ("assigned_to", "VARCHAR"),
-                    ("resolution_note", "TEXT"),
-                    ("timeline_json", "TEXT")
-                ]:
-                    if col_name not in comp_cols:
-                        logger.info(f"Migrating DB: Adding {col_name} column to complaints table")
-                        conn.execute(text(f"ALTER TABLE complaints ADD COLUMN {col_name} {col_type}"))
-                        conn.commit()
-
-            # Check whatsapp_outreach table
-            if "whatsapp_outreach" in table_names:
-                wa_cols = {col["name"] for col in inspector.get_columns("whatsapp_outreach")}
-                if "language" not in wa_cols:
-                    logger.info("Migrating DB: Adding language column to whatsapp_outreach table")
-                    conn.execute(text("ALTER TABLE whatsapp_outreach ADD COLUMN language VARCHAR DEFAULT 'hinglish'"))
-                    conn.commit()
-                if "partner_id" not in wa_cols:
-                    logger.info("Migrating DB: Adding partner_id column to whatsapp_outreach table")
-                    conn.execute(text("ALTER TABLE whatsapp_outreach ADD COLUMN partner_id VARCHAR"))
-                    conn.commit()
-                for dt_col in ("delivered_at", "read_at", "failed_at"):
-                    if dt_col not in wa_cols:
-                        logger.info(f"Migrating DB: Adding {dt_col} column to whatsapp_outreach table")
-                        conn.execute(text(f"ALTER TABLE whatsapp_outreach ADD COLUMN {dt_col} TIMESTAMP"))
-                        conn.commit()
-                if "failure_reason" not in wa_cols:
-                    logger.info("Migrating DB: Adding failure_reason column to whatsapp_outreach table")
-                    conn.execute(text("ALTER TABLE whatsapp_outreach ADD COLUMN failure_reason VARCHAR"))
-                    conn.commit()
+        table_names = set(inspector.get_table_names())
+        for table, col, col_type in columns_to_ensure:
+            if table not in table_names:
+                continue
+            try:
+                # Refresh table column check
+                cols = {c["name"] for c in inspector.get_columns(table)}
+                if col not in cols:
+                    logger.info(f"Migrating DB: Adding {col} column to {table} table ({col_type})")
+                    with database.engine.begin() as conn:
+                        conn.execute(text(f"ALTER TABLE {table} ADD COLUMN {col} {col_type}"))
+                    logger.info(f"Migrated {table}.{col} successfully")
+            except Exception as col_err:
+                logger.warning(f"Column migration check for {table}.{col}: {col_err}")
     except Exception as e:
         logger.warning(f"Database migration check failed: {e}")
 
@@ -679,17 +623,25 @@ def ensure_user_seeded(user_id: str, db: Session):
     if not user_id:
         return
 
-    # Check if user already has full canonical dataset (22 partners, >= 120 txns, >= 20 wa, commissions)
-    existing_partners = db.query(models.Customer).filter(
-        models.Customer.user_id == user_id, 
-        models.Customer.is_partner == True
-    ).count()
-    existing_txns = db.query(models.ServiceActivity).filter(models.ServiceActivity.user_id == user_id).count()
-    existing_commissions = db.query(models.Commission).filter(models.Commission.user_id == user_id).count()
-    existing_wa = db.query(models.WhatsAppOutreach).filter(models.WhatsAppOutreach.user_id == user_id).count()
+    try:
+        # Check if user already has full canonical dataset (22 partners, >= 120 txns, >= 20 wa, commissions)
+        existing_partners = db.query(models.Customer).filter(
+            models.Customer.user_id == user_id, 
+            models.Customer.is_partner == True
+        ).count()
+        existing_txns = db.query(models.ServiceActivity).filter(models.ServiceActivity.user_id == user_id).count()
+        existing_commissions = db.query(models.Commission).filter(models.Commission.user_id == user_id).count()
+        existing_wa = db.query(models.WhatsAppOutreach).filter(models.WhatsAppOutreach.user_id == user_id).count()
 
-    if existing_partners >= 20 and existing_txns >= 120 and existing_commissions >= 100 and existing_wa >= 20:
-        return
+        if existing_partners >= 20 and existing_txns >= 120 and existing_commissions >= 100 and existing_wa >= 20:
+            return
+    except Exception as count_err:
+        logger.warning(f"Error checking existing seed counts: {count_err}")
+        db.rollback()
+        try:
+            run_migrations()
+        except Exception:
+            pass
 
     # Clear prior seed if upgrading to canonical dataset
     for model in (
@@ -711,12 +663,19 @@ def ensure_user_seeded(user_id: str, db: Session):
             db.query(model).filter(model.user_id == user_id).delete(synchronize_session=False)
         except Exception:
             pass
-    db.commit()
+    try:
+        db.commit()
+    except Exception:
+        db.rollback()
 
     logger.info(f"Seeding canonical connected operations environment for user: {user_id}")
-    canonical_seed.seed_canonical_environment(user_id, db)
-    _seed_poster_templates(user_id, db)
-    logger.info(f"Successfully initialized canonical demo environment for user: {user_id}")
+    try:
+        canonical_seed.seed_canonical_environment(user_id, db)
+        _seed_poster_templates(user_id, db)
+        logger.info(f"Successfully initialized canonical demo environment for user: {user_id}")
+    except Exception as seed_err:
+        logger.error(f"Error during canonical seed: {seed_err}")
+        db.rollback()
     return
     now = datetime.now()
     seed_suffix = "" if user_id == "demo-operator-01" else f"-{hashlib.sha1(user_id.encode()).hexdigest()[:8]}"
@@ -1804,6 +1763,14 @@ def ready():
         raise HTTPException(status_code=503, detail="Database not ready")
     return {"status": "ready", "version": "1.4.0"}
 
+@app.get("/api/ops/migrate")
+@app.post("/api/ops/migrate")
+def trigger_migration():
+    """Ensure database schema is up-to-date across all tables."""
+    run_migrations()
+    return {"status": "ok", "message": "Schema migration completed successfully."}
+
+
 @app.post("/api/demo/reset")
 def reset_demo(user_id: str = Depends(verify_user_id), db: Session = Depends(database.get_db)):
     if not DEMO_MODE or user_id != "demo-operator-01":
@@ -2005,9 +1972,28 @@ def create_customer(data: CustomerCreate, user_id: str = Depends(verify_user_id)
 
 # ─── Transaction Operations ───────────────────────────────────────────────────
 @app.get("/api/activity", response_model=List[ActivityResponse])
-def list_activity(user_id: str = Depends(verify_user_id), db: Session = Depends(database.get_db)):
-    ensure_user_seeded(user_id, db)
-    return db.query(models.ServiceActivity).filter(models.ServiceActivity.user_id == user_id).order_by(desc(models.ServiceActivity.created_at)).all()
+def list_activity(
+    status: Optional[str] = None,
+    service: Optional[str] = None,
+    partner_id: Optional[str] = None,
+    user_id: str = Depends(verify_user_id),
+    db: Session = Depends(database.get_db)
+):
+    try:
+        ensure_user_seeded(user_id, db)
+    except Exception as e:
+        logger.warning(f"ensure_user_seeded warning in list_activity: {e}")
+        db.rollback()
+
+    query = db.query(models.ServiceActivity).filter(models.ServiceActivity.user_id == user_id)
+    if status and status.lower() != "all":
+        query = query.filter(models.ServiceActivity.status.ilike(status))
+    if service and service.lower() != "all":
+        query = query.filter(models.ServiceActivity.service_name.ilike(f"%{service}%"))
+    if partner_id:
+        query = query.filter(models.ServiceActivity.partner_id == partner_id)
+
+    return query.order_by(desc(models.ServiceActivity.created_at)).all()
 
 @app.post("/api/activity", response_model=ActivityResponse)
 def create_activity(data: ActivityCreate, user_id: str = Depends(verify_user_id), db: Session = Depends(database.get_db)):
