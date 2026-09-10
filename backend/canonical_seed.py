@@ -372,15 +372,19 @@ def seed_canonical_environment(user_id: str, db: Session):
         settle_id = None
         settle_dt = None
         if t.status == "success":
-            if (now - t.created_at).days >= 7:
+            t_created = t.created_at
+            if hasattr(t_created, "tzinfo") and t_created and t_created.tzinfo is not None:
+                t_created = t_created.replace(tzinfo=None)
+            days_ago = (now - t_created).days if t_created else 0
+            if days_ago >= 7:
                 comm_status = "PAID"
                 settle_id = s1.id
                 settle_dt = s1.settled_at
-            elif (now - t.created_at).days >= 4:
+            elif days_ago >= 4:
                 comm_status = "PAID"
                 settle_id = s2.id
                 settle_dt = s2.settled_at
-            elif (now - t.created_at).days >= 1:
+            elif days_ago >= 1:
                 comm_status = "PAID"
                 settle_id = s3.id
                 settle_dt = s3.settled_at

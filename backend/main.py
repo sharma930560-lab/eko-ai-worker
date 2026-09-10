@@ -654,6 +654,8 @@ def ensure_user_seeded(user_id: str, db: Session):
         models.Note,
         models.Commission,
         models.Settlement,
+        models.TransactionIssue,
+        models.Bill,
         models.ServiceActivity,
         models.Customer,
         models.WhatsAppOutreach,
@@ -1765,10 +1767,53 @@ def ready():
 
 @app.get("/api/ops/migrate")
 @app.post("/api/ops/migrate")
-def trigger_migration():
-    """Ensure database schema is up-to-date across all tables."""
+def trigger_migration(seed_user: Optional[str] = None, db: Session = Depends(database.get_db)):
+    """Ensure database schema is up-to-date across all tables and optionally re-seed user."""
     run_migrations()
-    return {"status": "ok", "message": "Schema migration completed successfully."}
+    result = {"status": "ok", "message": "Schema migration completed successfully."}
+    if seed_user:
+        # Force re-seed
+        for model in (
+            models.TimelineEvent,
+            models.CreditScoreHistory,
+            models.CreditScore,
+            models.OperationalNotification,
+            models.Complaint,
+            models.Task,
+            models.Note,
+            models.Commission,
+            models.Settlement,
+            models.TransactionIssue,
+            models.Bill,
+            models.ServiceActivity,
+            models.Customer,
+            models.WhatsAppOutreach,
+            models.PosterDesign,
+        ):
+            try:
+                db.query(model).filter(model.user_id == seed_user).delete(synchronize_session=False)
+            except Exception:
+                pass
+        try:
+            db.commit()
+        except Exception:
+            db.rollback()
+        ensure_user_seeded(seed_user, db)
+        result["seeded_user"] = seed_user
+        result["counts"] = {
+            "partners": db.query(models.Customer).filter(models.Customer.user_id == seed_user, models.Customer.is_partner.is_(True)).count(),
+            "customers": db.query(models.Customer).filter(models.Customer.user_id == seed_user).count(),
+            "transactions": db.query(models.ServiceActivity).filter(models.ServiceActivity.user_id == seed_user).count(),
+            "commissions": db.query(models.Commission).filter(models.Commission.user_id == seed_user).count(),
+            "settlements": db.query(models.Settlement).filter(models.Settlement.user_id == seed_user).count(),
+            "complaints": db.query(models.Complaint).filter(models.Complaint.user_id == seed_user).count(),
+            "whatsapp": db.query(models.WhatsAppOutreach).filter(models.WhatsAppOutreach.user_id == seed_user).count(),
+            "tasks": db.query(models.Task).filter(models.Task.user_id == seed_user).count(),
+            "notes": db.query(models.Note).filter(models.Note.user_id == seed_user).count(),
+            "notifications": db.query(models.OperationalNotification).filter(models.OperationalNotification.user_id == seed_user).count(),
+            "posters": db.query(models.PosterDesign).filter(models.PosterDesign.user_id == seed_user).count(),
+        }
+    return result
 
 
 @app.post("/api/demo/reset")
@@ -1784,11 +1829,23 @@ def reset_demo(user_id: str = Depends(verify_user_id), db: Session = Depends(dat
         models.Complaint,
         models.Task,
         models.Note,
+        models.Commission,
+        models.Settlement,
+        models.TransactionIssue,
+        models.Bill,
         models.ServiceActivity,
         models.Customer,
+        models.WhatsAppOutreach,
+        models.PosterDesign,
     ):
-        db.query(model).filter(model.user_id == user_id).delete(synchronize_session=False)
-    db.commit()
+        try:
+            db.query(model).filter(model.user_id == user_id).delete(synchronize_session=False)
+        except Exception:
+            pass
+    try:
+        db.commit()
+    except Exception:
+        db.rollback()
     ensure_user_seeded(user_id, db)
     return {"status": "reset", "user_id": user_id, "demo_mode": True}
 
