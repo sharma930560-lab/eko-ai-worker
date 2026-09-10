@@ -634,6 +634,25 @@ def ensure_user_seeded(user_id: str, db: Session):
         existing_wa = db.query(models.WhatsAppOutreach).filter(models.WhatsAppOutreach.user_id == user_id).count()
 
         if existing_partners >= 20 and existing_txns >= 120 and existing_commissions >= 100 and existing_wa >= 20:
+            # Auto-heal any stale credit score records that had "total_txns": "0" due to prior query bug
+            stale_records = db.query(models.CreditScore).filter(
+                models.CreditScore.user_id == user_id,
+                models.CreditScore.factors.like('%"total_txns": "0"%')
+            ).all()
+            if stale_records:
+                for sr in stale_records:
+                    if sr.customer_id:
+                        s_val, r_val, c_val, f_val, rec_val = calculate_dynamic_score(db, user_id, sr.customer_id)
+                        if f_val.get("total_txns") != "0":
+                            sr.score = round(s_val, 1)
+                            sr.risk_bracket = r_val
+                            sr.confidence = round(c_val, 2)
+                            sr.factors = json.dumps(f_val)
+                            sr.recommendations = rec_val
+                try:
+                    db.commit()
+                except Exception:
+                    db.rollback()
             return
     except Exception as count_err:
         logger.warning(f"Error checking existing seed counts: {count_err}")
@@ -2206,7 +2225,10 @@ def calculate_dynamic_score(db: Session, user_id: str, customer_id: str) -> tupl
     ).first()
     activity = db.query(models.ServiceActivity).filter(
         models.ServiceActivity.user_id == user_id,
-        models.ServiceActivity.customer_id == customer_id
+        or_(
+            models.ServiceActivity.customer_id == customer_id,
+            models.ServiceActivity.partner_id == customer_id
+        )
     ).order_by(desc(models.ServiceActivity.created_at)).all()
 
     tenure_days = 0
@@ -2439,7 +2461,10 @@ def simulate_credit_score(body: CreditSimulationRequest, user_id: str = Depends(
     # Get current state
     activity = db.query(models.ServiceActivity).filter(
         models.ServiceActivity.user_id == user_id,
-        models.ServiceActivity.customer_id == body.customer_id
+        or_(
+            models.ServiceActivity.customer_id == body.customer_id,
+            models.ServiceActivity.partner_id == body.customer_id
+        )
     ).all()
 
     current_score, current_risk, _, _, _ = calculate_dynamic_score(db, user_id, body.customer_id)
@@ -2507,7 +2532,10 @@ def analyze_credit_score(
 
     db_txns = db.query(models.ServiceActivity).filter(
         models.ServiceActivity.user_id == user_id,
-        models.ServiceActivity.customer_id == body.customer_id
+        or_(
+            models.ServiceActivity.customer_id == body.customer_id,
+            models.ServiceActivity.partner_id == body.customer_id
+        )
     ).all()
     baseline_total_txns = len(db_txns)
     baseline_failed_txns = len([t for t in db_txns if t.status == "failed"])
@@ -2690,16 +2718,39 @@ async def ask_eko(body: AskEkoRequest, user_id: str = Depends(verify_user_id), d
         context_lines.append(f"Subject Customer Profile: Name={customer.name}, KYC Status={customer.kyc_status}, Business Type={customer.business_type or 'General'}, Amount Due={fmt_inr(customer.amount_due)}")
 
         # Credit Score and factors
+        score_val, risk, conf, factors, recs = calculate_dynamic_score(db, user_id, customer.id)
         score_record = db.query(models.CreditScore).filter(
             models.CreditScore.customer_id == customer.id,
             models.CreditScore.user_id == user_id
         ).order_by(desc(models.CreditScore.created_at)).first()
-        if score_record:
-            context_lines.append(f"Customer Credit Assessment: Score={score_record.score}/100, Risk Bracket={score_record.risk_bracket}, Confidence={score_record.confidence}")
-            if score_record.factors:
-                context_lines.append(f"Assessment Risk Factors: {score_record.factors}")
-            if score_record.recommendations:
-                context_lines.append(f"Assessment Recommendations: {score_record.recommendations}")
+        if not score_record:
+            score_record = models.CreditScore(
+                id=str(uuid.uuid4()), user_id=user_id, customer_id=customer.id,
+                customer_name=customer.name, score=round(score_val, 1),
+                risk_bracket=risk, confidence=round(conf, 2),
+                factors=json.dumps(factors), recommendations=recs
+            )
+            db.add(score_record)
+            try:
+                db.commit()
+            except Exception:
+                db.rollback()
+        elif factors.get("total_txns") != "0" and '"total_txns": "0"' in (score_record.factors or ""):
+            score_record.score = round(score_val, 1)
+            score_record.risk_bracket = risk
+            score_record.confidence = round(conf, 2)
+            score_record.factors = json.dumps(factors)
+            score_record.recommendations = recs
+            try:
+                db.commit()
+            except Exception:
+                db.rollback()
+
+        context_lines.append(f"Customer Credit Assessment: Score={score_record.score}/100, Risk Bracket={score_record.risk_bracket}, Confidence={score_record.confidence}")
+        if score_record.factors:
+            context_lines.append(f"Assessment Risk Factors: {score_record.factors}")
+        if score_record.recommendations:
+            context_lines.append(f"Assessment Recommendations: {score_record.recommendations}")
 
         # Credit Score History
         score_history = db.query(models.CreditScoreHistory).filter(
@@ -2733,25 +2784,70 @@ async def ask_eko(body: AskEkoRequest, user_id: str = Depends(verify_user_id), d
             context_lines.append(f"No timeline events recorded yet for {customer.name}.")
 
         # Complaints / Grievances
+        sub_txns = db.query(models.ServiceActivity.id).filter(
+            models.ServiceActivity.user_id == user_id,
+            or_(models.ServiceActivity.customer_id == customer.id, models.ServiceActivity.partner_id == customer.id)
+        )
         complaints = db.query(models.Complaint).filter(
-            models.Complaint.customer_id == customer.id,
-            models.Complaint.user_id == user_id
+            models.Complaint.user_id == user_id,
+            or_(models.Complaint.customer_id == customer.id, models.Complaint.transaction_id.in_(sub_txns))
         ).all()
         if complaints:
             context_lines.append(f"Customer Grievances/Complaints ({len(complaints)}):")
             for comp in complaints:
                 context_lines.append(f"- Status: {comp.status.upper()} | Priority: {comp.priority} | Subject: {comp.subject} | {comp.description}")
 
-        # Recent transactions for customer
+        # Recent transactions for customer or partner
         txns = db.query(models.ServiceActivity).filter(
             models.ServiceActivity.user_id == user_id,
-            or_(models.ServiceActivity.customer_id == customer.id, models.ServiceActivity.customer_name == customer.name)
-        ).order_by(desc(models.ServiceActivity.created_at)).limit(10).all()
+            or_(
+                models.ServiceActivity.customer_id == customer.id,
+                models.ServiceActivity.partner_id == customer.id,
+                models.ServiceActivity.customer_name == customer.name
+            )
+        ).order_by(desc(models.ServiceActivity.created_at)).all()
         if txns:
+            cust_total = len(txns)
+            cust_success = [t for t in txns if t.status == "success"]
+            cust_failed = [t for t in txns if t.status == "failed"]
+            cust_vol = sum(t.amount for t in cust_success)
+            rate_pct = round((len(cust_success) / cust_total) * 100, 1) if cust_total > 0 else 0
+            context_lines.append(f"Customer Operational Summary for {customer.name}: {cust_total} transactions, {len(cust_success)} successful, {len(cust_failed)} failed, Total Volume {fmt_inr(cust_vol)}, Success Rate {rate_pct}%.")
             context_lines.append(f"Recent Transactions for {customer.name}:")
-            for t in txns:
+            for t in txns[:10]:
                 reason = f" (Failure Reason: {t.failure_reason})" if t.failure_reason else ""
                 context_lines.append(f"- {t.created_at.date()} | {t.service_name} | {fmt_inr(t.amount)} | Status: {t.status.upper()}{reason}")
+
+        # Customer Commissions
+        commissions = db.query(models.Commission).filter(
+            models.Commission.user_id == user_id,
+            or_(models.Commission.partner_id == customer.id, models.Commission.customer_id == customer.id)
+        ).all()
+        if commissions:
+            total_comm = sum(c.commission_amount for c in commissions)
+            paid_comm = sum(c.commission_amount for c in commissions if c.status == "PAID")
+            earned_comm = sum(c.commission_amount for c in commissions if c.status == "EARNED")
+            context_lines.append(f"Customer Commission Summary for {customer.name}: Total {fmt_inr(total_comm)} across {len(commissions)} records (Paid {fmt_inr(paid_comm)}, Earned/Pending {fmt_inr(earned_comm)}).")
+
+        # Customer Tasks
+        tasks = db.query(models.Task).filter(
+            models.Task.user_id == user_id,
+            models.Task.customer_id == customer.id
+        ).all()
+        if tasks:
+            context_lines.append(f"Operational Tasks for {customer.name} ({len(tasks)}):")
+            for tk in tasks:
+                context_lines.append(f"- {tk.title} | Status: {'COMPLETED' if tk.completed else 'PENDING'} | Priority: {tk.priority.upper()}")
+
+        # Customer WhatsApp Outreach
+        wa_msgs = db.query(models.WhatsAppOutreach).filter(
+            models.WhatsAppOutreach.user_id == user_id,
+            or_(models.WhatsAppOutreach.customer_id == customer.id, models.WhatsAppOutreach.partner_id == customer.id)
+        ).all()
+        if wa_msgs:
+            context_lines.append(f"WhatsApp Outreach History for {customer.name} ({len(wa_msgs)} messages):")
+            for wa in wa_msgs:
+                context_lines.append(f"- Template: {wa.template_type} | Status: {wa.status.upper()} | Recipient: {wa.customer_name} ({wa.customer_phone})")
     else:
         # Check if query specifically mentioned a name
         import re

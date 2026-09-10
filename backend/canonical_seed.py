@@ -303,6 +303,8 @@ def seed_canonical_environment(user_id: str, db: Session):
 
         svc = services_pool[i % len(services_pool)]
         p_obj = partners[i % len(partners)]
+        if st == "failed" and p_obj.id == partner_map["partner-rahul"].id:
+            p_obj = partner_map["partner-sharma"]
         c_obj = customers[i % len(customers)]
 
         if svc == "DMT":
@@ -496,7 +498,10 @@ def seed_canonical_environment(user_id: str, db: Session):
         ("wa-fail-4", customers[25].id, "Sita Ram", "9876500024", "aeps", "hinglish", "failed", "none", False, "Sita Ram ji, aapka Kisan subsidy cash payout counter par ready hai.", 280, None, None, 270, "Synthetic recipient number reported inactive", 280),
     ]
 
+    cust_map = {c.id: c for c in customers}
     for wid_lbl, cid, cname, cphone, ttype, lang, st, freq, active_rem, msg, s_min, d_min, r_min, f_min, reason, c_min in wa_configs:
+        cid_cust = cust_map.get(cid)
+        p_id = cid if any(p.id == cid for p in partners) else (cid_cust.partner_id if cid_cust else None)
         w_obj = models.WhatsAppOutreach(
             id=seed_id(wid_lbl),
             user_id=user_id,
@@ -509,6 +514,7 @@ def seed_canonical_environment(user_id: str, db: Session):
             status=st,
             reminder_frequency=freq,
             reminder_active=active_rem,
+            partner_id=p_id,
             sent_at=(now - timedelta(minutes=s_min)) if s_min else None,
             delivered_at=(now - timedelta(minutes=d_min)) if d_min else None,
             read_at=(now - timedelta(minutes=r_min)) if r_min else None,
@@ -561,53 +567,23 @@ def seed_canonical_environment(user_id: str, db: Session):
     # ─────────────────────────────────────────────────────────────────────────
     # 8. Stored Credit Assessments for All 22 Partners & Sample Customers
     # ─────────────────────────────────────────────────────────────────────────
+    from main import calculate_dynamic_score
+
     for p in partners:
-        kyc = p.kyc_status or "verified"
-        if "rahul" in p.name.lower():
-            score_val = 58.0
-            risk = "MODERATE"
-            factors = {
-                "kyc_status": "pending",
-                "transaction_volume": 42850,
-                "recent_performance": "88.9%",
-                "failed_transactions": 2,
-                "operational_tenure_days": 15,
-                "risk_indicators": "none"
-            }
-            recs = "Send WhatsApp KYC reminder to complete Aadhaar and PAN verification. Maintain single transfer limit at ₹5,000."
-        elif "paras" in p.name.lower():
-            score_val = 88.0
-            risk = "LOW"
-            factors = {
-                "kyc_status": "verified",
-                "transaction_volume": 95000,
-                "recent_performance": "96.2%",
-                "failed_transactions": 0,
-                "operational_tenure_days": 180,
-                "risk_indicators": "none"
-            }
-            recs = "Eligible for ₹50,000 working capital starter line. Continue regular operations."
-        else:
-            score_val = 74.0 if kyc == "verified" else 52.0
-            risk = "LOW" if score_val >= 70 else "MODERATE"
-            factors = {
-                "kyc_status": kyc,
-                "transaction_volume": 35000,
-                "recent_performance": "92.0%",
-                "failed_transactions": 1,
-                "operational_tenure_days": 60,
-                "risk_indicators": "none"
-            }
-            recs = "Normal monitoring continue karein. Standard transaction limits apply."
+        score_val, risk, conf, factors, recs = calculate_dynamic_score(db, user_id, p.id)
+        factors["transaction_volume"] = sum(t.amount for t in transactions if (t.partner_id == p.id or t.customer_id == p.id) and t.status == "success")
+        factors["total_transactions"] = len([t for t in transactions if t.partner_id == p.id or t.customer_id == p.id])
+        factors["failed_transactions"] = len([t for t in transactions if (t.partner_id == p.id or t.customer_id == p.id) and t.status == "failed"])
+        factors["risk_indicators"] = "none"
 
         db.add(models.CreditScore(
             id=seed_id(f"credit-{p.id}"),
             user_id=user_id,
             customer_id=p.id,
             customer_name=p.name,
-            score=score_val,
+            score=round(score_val, 1),
             risk_bracket=risk,
-            confidence=0.95,
+            confidence=round(conf, 2),
             factors=json.dumps(factors),
             recommendations=recs,
             created_at=now - timedelta(days=1)
@@ -616,25 +592,22 @@ def seed_canonical_environment(user_id: str, db: Session):
 
     # Credit profiles for customers
     for c in customers[:10]:
-        score_val = 78.0 if c.kyc_status == "verified" else 55.0
-        risk = "LOW" if score_val >= 70 else "MODERATE"
+        score_val, risk, conf, factors, recs = calculate_dynamic_score(db, user_id, c.id)
+        factors["transaction_volume"] = sum(t.amount for t in transactions if (t.partner_id == c.id or t.customer_id == c.id) and t.status == "success")
+        factors["total_transactions"] = len([t for t in transactions if t.partner_id == c.id or t.customer_id == c.id])
+        factors["failed_transactions"] = len([t for t in transactions if (t.partner_id == c.id or t.customer_id == c.id) and t.status == "failed"])
+        factors["risk_indicators"] = "none"
+
         db.add(models.CreditScore(
             id=seed_id(f"credit-{c.id}"),
             user_id=user_id,
             customer_id=c.id,
             customer_name=c.name,
-            score=score_val,
+            score=round(score_val, 1),
             risk_bracket=risk,
-            confidence=0.90,
-            factors=json.dumps({
-                "kyc_status": c.kyc_status,
-                "transaction_volume": 28000,
-                "recent_performance": "95.0%",
-                "failed_transactions": 1 if c.kyc_status != "verified" else 0,
-                "operational_tenure_days": 45,
-                "risk_indicators": "none"
-            }),
-            recommendations="Stable consumer transaction behavior.",
+            confidence=round(conf, 2),
+            factors=json.dumps(factors),
+            recommendations=recs,
             created_at=now - timedelta(days=1)
         ))
     db.commit()

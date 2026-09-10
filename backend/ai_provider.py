@@ -273,12 +273,16 @@ class LocalDeterministicProvider(AIProvider):
             except Exception:
                 factors_dict = {}
 
-            success_rate = factors_dict.get("success_rate", "100%")
-            recent_perf = factors_dict.get("recent_performance", "100%")
-            vol = factors_dict.get("volume_handled", "₹0")
-            total_txns = factors_dict.get("total_txns", "0")
-            failed_txns = factors_dict.get("failed_txns", "0")
-            tenure_days = factors_dict.get("operational_tenure_days", "0")
+            success_rate = str(factors_dict.get("success_rate", "100%"))
+            recent_perf = str(factors_dict.get("recent_performance", "100%"))
+            raw_vol = factors_dict.get("volume_handled") or factors_dict.get("transaction_volume") or "₹0"
+            if isinstance(raw_vol, (int, float)):
+                vol = f"₹{raw_vol:,.2f}"
+            else:
+                vol = str(raw_vol)
+            total_txns = str(factors_dict.get("total_txns") if factors_dict.get("total_txns") is not None else factors_dict.get("total_transactions", "0"))
+            failed_txns = str(factors_dict.get("failed_txns") if factors_dict.get("failed_txns") is not None else factors_dict.get("failed_transactions", "0"))
+            tenure_days = str(factors_dict.get("operational_tenure_days", "0"))
 
             is_why_low = any(w in lower_prompt for w in ["why", "lower", "low", "reason"])
             is_affecting = any(w in lower_prompt for w in ["affect", "factor", "driver", "depend"])
@@ -336,6 +340,33 @@ class LocalDeterministicProvider(AIProvider):
                 "grounded": True,
                 "insufficient_data": False
             }
+
+        # 0. Active screen context — Customer / Partner Operational Performance & History
+        if "customer operational summary for" in context.lower() and any(k in lower_prompt for k in ["perform", "how is", "transaction", "history", "volume", "commission", "status", "overview", "activity"]):
+            import re
+            c_m = re.search(r"Customer Operational Summary for ([^:]+): (\d+) transactions, (\d+) successful, (\d+) failed, Total Volume (₹?[\d,.]+), Success Rate ([\d.]+)%", context)
+            if c_m:
+                c_name, c_tot, c_succ, c_fail, c_vol, c_rate = c_m.groups()
+                comm_m = re.search(r"Customer Commission Summary for [^:]+: Total (₹?[\d,.]+) across \d+ records \(Paid (₹?[\d,.]+), Earned/Pending (₹?[\d,.]+)\)", context)
+                comm_info = f" Earned/pending commission stands at {comm_m.group(3)} (Total {comm_m.group(1)})." if comm_m else ""
+
+                ans = f"{c_name} has processed {c_tot} operations ({c_succ} successful, {c_fail} failed) with a {c_rate}% success rate and total volume of {c_vol}.{comm_info}"
+                return {
+                    "answer": ans,
+                    "facts": [
+                        {"text": f"Operational transactions: {c_tot} total ({c_succ} success, {c_fail} failed).", "source_ids": ["service_activity"]},
+                        {"text": f"Processed volume: {c_vol} (Success rate: {c_rate}%).", "source_ids": ["service_activity"]},
+                        {"text": f"Partner/Customer: {c_name}.", "source_ids": ["customers_db"]}
+                    ],
+                    "inferences": [
+                        {"text": f"Operational reliability is verified across {c_tot} database records.", "confidence": 0.95}
+                    ],
+                    "recommendations": [
+                        {"text": f"Maintain current transaction velocity and resolve any failed records promptly.", "reason": "Protects customer SLA and commission earnings."}
+                    ],
+                    "grounded": True,
+                    "insufficient_data": False
+                }
 
         # 1. Active screen context — Selected Transaction
         if "selected transaction:" in context.lower() and any(k in lower_prompt for k in ["why", "fail", "reason", "this", "explain", "transaction"]):
