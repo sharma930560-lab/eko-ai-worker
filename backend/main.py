@@ -75,6 +75,27 @@ def run_migrations():
         ("whatsapp_outreach", "read_at", "TIMESTAMP"),
         ("whatsapp_outreach", "failed_at", "TIMESTAMP"),
         ("whatsapp_outreach", "failure_reason", "VARCHAR"),
+        # Commission table — columns added after initial schema deploy
+        ("commissions", "service", "VARCHAR DEFAULT 'DMT'"),
+        ("commissions", "transaction_amount", "FLOAT DEFAULT 0.0"),
+        ("commissions", "commission_rate", "FLOAT DEFAULT 0.005"),
+        ("commissions", "settlement_id", "VARCHAR"),
+        ("commissions", "settlement_date", "TIMESTAMP"),
+        ("commissions", "earned_at", "TIMESTAMP"),
+        ("commissions", "partner_id", "VARCHAR"),
+        ("commissions", "customer_id", "VARCHAR"),
+        ("commissions", "updated_at", "TIMESTAMP"),
+        # Settlement table — columns added after initial schema deploy
+        ("settlements", "payout_account", "VARCHAR"),
+        ("settlements", "settled_at", "TIMESTAMP"),
+        ("settlements", "period_start", "TIMESTAMP"),
+        ("settlements", "period_end", "TIMESTAMP"),
+        # Complaints — alternate column name used in older seed
+        ("complaints", "resolution_notes", "TEXT"),
+        # Service activity — extra tracking columns
+        ("service_activity", "reference_id", "VARCHAR"),
+        ("service_activity", "fee", "FLOAT DEFAULT 0.0"),
+        ("service_activity", "metadata_json", "TEXT"),
     ]
 
     try:
