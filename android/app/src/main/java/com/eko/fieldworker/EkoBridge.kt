@@ -14,6 +14,11 @@ import android.widget.Toast
 class EkoBridge(private val context: Context, private val viewModel: EkoViewModel) {
 
     @JavascriptInterface
+    fun isEmulator(): Boolean {
+        return if (context is MainActivity) context.isRunningOnEmulator() else false
+    }
+
+    @JavascriptInterface
     fun showToast(message: String) {
         if (context is MainActivity) {
             context.runOnUiThread {

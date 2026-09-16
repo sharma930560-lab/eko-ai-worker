@@ -77,7 +77,7 @@ dependencies {
 task syncFrontendAssets(type: Copy) {
     from "${rootDir}/../frontend"
     into "${projectDir}/src/main/assets"
-    exclude '.netlify/**', 'netlify.toml', '_redirects'
+    exclude '.netlify/**', 'netlify.toml', '_redirects', 'js/dev-config.js'
 }
 
 preBuild.dependsOn syncFrontendAssets

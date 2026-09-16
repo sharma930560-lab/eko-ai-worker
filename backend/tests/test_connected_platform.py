@@ -234,6 +234,10 @@ assert res.status_code == 200
 assert res.json()["completed"] is True
 print("[PASS] 20. Task Completed via PATCH")
 
+res = client.delete(f"/api/tasks/{task_id}", headers=headers)
+assert res.status_code == 200
+print("[PASS] 21. Task Deleted via DELETE")
+
 # 19. Notes API (GET, POST, DELETE)
 res = client.get("/api/notes", headers=headers)
 assert res.status_code == 200

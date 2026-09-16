@@ -586,6 +586,9 @@ function openWhatsAppModal(customerId = null, customerName = null, customerPhone
     if (langEl && language) langEl.value = language.toLowerCase();
     if (ttypeEl && templateType) ttypeEl.value = templateType;
 
+    const btn = document.getElementById('btn-submit-wa');
+    if (btn) { btn.disabled = false; btn.textContent = 'Save Outreach'; }
+
     modal.classList.remove('hidden');
     autoGenerateWAMessage();
     if (window.lucide) lucide.createIcons();
@@ -615,6 +618,7 @@ async function autoGenerateWAMessage() {
         // Fall back to robust client-side templates
     }
 
+    const fallbackTemplates = {
         kyc_reminder: {
             english: `Hi ${name}, your KYC verification is still pending. Please complete your Aadhaar and PAN verification to keep your services active and unlock higher transaction limits.`,
             hindi: `नमस्ते ${name} जी, Eko Operations टीम की ओर से प्रणाम। आपका KYC सत्यापन अभी लंबित है। कृपया अपना आधार और PAN सत्यापित करवा लें ताकि आपकी लेन-देन सीमा सक्रिय हो सके।`,
@@ -743,6 +747,8 @@ async function submitWhatsAppOutreach(e) {
         };
         _waOutreachList.unshift(record);
         saveStoredOutreach(_waOutreachList);
+    } finally {
+        if (btn) { btn.disabled = false; btn.textContent = 'Save Outreach'; }
     }
 
     closeModal('whatsapp-outreach-modal');

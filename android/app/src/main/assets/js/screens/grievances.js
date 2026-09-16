@@ -10,7 +10,7 @@ let _complaintSearchTerm = '';
 function renderGrievancesScreen() {
     return `
     <div class="container-responsive">
-        <div class="screen-header-row">
+        <div class="screen-header-row mb-4">
             <div>
                 <h1 class="screen-title">Complaints &amp; Grievances</h1>
                 <p class="text-sm text-muted">Track resolution SLAs, linked transactions, and escalations.</p>
@@ -21,27 +21,31 @@ function renderGrievancesScreen() {
             </button>
         </div>
 
-        <div class="search-bar mb-4">
-            <i data-lucide="search" class="search-bar-icon"></i>
-            <input type="text" id="comp-search-input" class="form-input" placeholder="Search complaint by subject, ID, or customer..." oninput="handleComplaintSearch(this.value)">
+        <!-- Search & Filter Card -->
+        <div class="card mb-6 p-4">
+            <div class="filter-tabs mb-4">
+                <button class="filter-tab active" data-status="all" onclick="filterComplaintTab('all')">
+                    All (<span class="tab-count" id="comp-count-all">0</span>)
+                </button>
+                <button class="filter-tab" data-status="pending" onclick="filterComplaintTab('pending')">
+                    Pending (<span class="tab-count" id="comp-count-pending">0</span>)
+                </button>
+                <button class="filter-tab" data-status="in_progress" onclick="filterComplaintTab('in_progress')">
+                    In Progress (<span class="tab-count" id="comp-count-inprogress">0</span>)
+                </button>
+                <button class="filter-tab" data-status="resolved" onclick="filterComplaintTab('resolved')">
+                    Resolved (<span class="tab-count" id="comp-count-resolved">0</span>)
+                </button>
+            </div>
+            <div style="position:relative;">
+                <input type="text" id="comp-search-input" class="form-input text-xs" style="padding-left:34px;" placeholder="Search complaint by subject, ID, or customer..." oninput="handleComplaintSearch(this.value)">
+                <div style="position:absolute; left:10px; top:50%; transform:translateY(-50%); color:var(--text-light); pointer-events:none;">
+                    ${renderIcon('search', 14)}
+                </div>
+            </div>
         </div>
 
-        <div class="filter-tabs mb-4">
-            <button class="filter-tab active" data-status="all" onclick="filterComplaintTab('all')">
-                All <span class="tab-count" id="comp-count-all">0</span>
-            </button>
-            <button class="filter-tab" data-status="pending" onclick="filterComplaintTab('pending')">
-                Pending <span class="tab-count" id="comp-count-pending">0</span>
-            </button>
-            <button class="filter-tab" data-status="in_progress" onclick="filterComplaintTab('in_progress')">
-                In Progress <span class="tab-count" id="comp-count-inprogress">0</span>
-            </button>
-            <button class="filter-tab" data-status="resolved" onclick="filterComplaintTab('resolved')">
-                Resolved <span class="tab-count" id="comp-count-resolved">0</span>
-            </button>
-        </div>
-
-        <div id="complaints-list" class="item-list">
+        <div id="complaints-list" class="item-list" style="display:flex; flex-direction:column; gap:var(--sp-3);">
             <div class="loading-state"><div class="spinner"></div></div>
         </div>
     </div>
@@ -52,16 +56,46 @@ async function loadGrievances() {
     const listEl = document.getElementById('complaints-list');
     if (!listEl) return;
 
+    listEl.innerHTML = `<div class="loading-state"><div class="spinner"></div></div>`;
+
     try {
-        complaintRecords = await api.getComplaints();
+        let complaints = null;
+        try {
+            complaints = await api.getComplaints();
+            if (typeof offlineCache !== 'undefined' && offlineCache.set) {
+                offlineCache.set('/api/complaints', complaints);
+            }
+        } catch (netErr) {
+            if (typeof offlineCache !== 'undefined' && offlineCache.get) {
+                const cached = await offlineCache.get('/api/complaints');
+                if (cached && Array.isArray(cached)) {
+                    complaints = cached;
+                    showToast('Viewing cached complaints (offline)', 'info');
+                }
+            }
+            if (!complaints) throw netErr;
+        }
+
+        complaintRecords = Array.isArray(complaints) ? complaints : [];
         updateComplaintTabCounts();
         renderFilteredComplaints();
     } catch (e) {
+        const msg = (typeof formatErrorMessage === 'function')
+            ? formatErrorMessage(e, 'Could not fetch active complaints.')
+            : (e.message || 'Error loading complaints');
         listEl.innerHTML = `
-            <div class="error-state">
-                <div class="error-state-title">Loading Failed</div>
-                <div class="error-state-desc">Could not fetch active complaints. Cached data remains safe.</div>
+            <div class="card p-6 text-center" style="border:1px dashed var(--border);">
+                <div style="width:48px; height:48px; border-radius:50%; background:var(--danger-bg); color:var(--danger); display:flex; align-items:center; justify-content:center; margin:0 auto 12px;">
+                    ${renderIcon('alert-triangle', 24)}
+                </div>
+                <h3 style="font-size:1rem; font-weight:700; color:var(--navy); margin-bottom:4px;">Loading Failed</h3>
+                <div class="text-xs text-muted mb-4">${escapeHtml(msg)}</div>
+                <button class="btn-primary" onclick="loadGrievances()" style="display:inline-flex; align-items:center; gap:8px; padding:8px 16px; font-size:0.85rem; margin:0 auto;">
+                    ${renderIcon('refresh-cw', 14)}
+                    <span>Try Again</span>
+                </button>
             </div>`;
+        if (window.lucide) lucide.createIcons();
     }
 }
 

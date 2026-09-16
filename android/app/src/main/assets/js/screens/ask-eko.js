@@ -128,6 +128,46 @@ function updateAiServiceStatus() {
     lucide.createIcons();
 }
 
+// ─── Greeting Fast-Path ────────────────────────────────────────────────────────
+// Matches simple conversational inputs that need NO backend round-trip.
+const GREETING_REGEX = /^\s*(hi+|hey+|hlo|hello|howdy|namaste|namaskar|good\s*(morning|afternoon|evening|night|day)|sup|what'?s up|how are you|how r u|thanks?|thank you|thank u|ok+|okay+|alright|cool|got it|bye+|goodbye|see ya|take care|cya|great|nice|awesome|perfect|sure|yep|yup|nope|no+|yes+|yeah|yea|hmm+|hm+|lol|haha)\s*[!.?]*\s*$/i;
+
+const GREETING_REPLIES = [
+    "Namaste! 🙏 How can I help you today?",
+    "Hello! What would you like to know about your operations?",
+    "Hey there! Ready to help — ask me anything about your business.",
+    "Hi! I'm here. What's on your mind?",
+    "Greetings! How can I assist your operations today?",
+];
+const THANKS_REPLIES = [
+    "You're welcome! Let me know if there's anything else I can do for you.",
+    "Happy to help! Anything else on your mind?",
+    "Anytime! Feel free to ask whenever you need operational insights.",
+];
+const OK_REPLIES = [
+    "Got it! Let me know if you have any questions.",
+    "Understood! I'm here whenever you need me.",
+    "Sure thing! Just say the word.",
+];
+const BYE_REPLIES = [
+    "Take care! Come back whenever you need operational insights. 👋",
+    "Goodbye! Your records are safe and I'll be here when you need me.",
+    "See you! Have a productive day. 🙏",
+];
+const HOWDY_REPLIES = [
+    "I'm doing great, thanks for asking! Ready to help with your operations. What's up?",
+    "All systems running smoothly on my end! How's business today?",
+];
+
+function _getGreetingReply(q) {
+    const t = q.trim().toLowerCase();
+    if (/^(thanks?|thank\s*(you|u))/.test(t)) return THANKS_REPLIES[Math.floor(Math.random() * THANKS_REPLIES.length)];
+    if (/^(bye+|goodbye|see\s*ya|cya|take\s*care)/.test(t)) return BYE_REPLIES[Math.floor(Math.random() * BYE_REPLIES.length)];
+    if (/^(ok+|okay+|alright|got\s*it|sure|yep|yup|cool|great|nice|awesome|perfect|yes+|yeah|yea|nope|no+|hmm+|hm+|lol|haha)/.test(t)) return OK_REPLIES[Math.floor(Math.random() * OK_REPLIES.length)];
+    if (/^(how\s*(are|r)\s*(you|u)|what'?s\s*up|sup|howdy)/.test(t)) return HOWDY_REPLIES[Math.floor(Math.random() * HOWDY_REPLIES.length)];
+    return GREETING_REPLIES[Math.floor(Math.random() * GREETING_REPLIES.length)];
+}
+
 async function sendToEko(cid = null, retryPrompt = null, replaceBubbleIndex = -1) {
     if (isAiRequestInProgress) return;
 
@@ -136,6 +176,16 @@ async function sendToEko(cid = null, retryPrompt = null, replaceBubbleIndex = -1
     const question = retryPrompt || input?.value.trim();
 
     if (!question) return;
+
+    // ── Instant greeting fast-path: no spinner, no API call ───────────────────
+    if (GREETING_REGEX.test(question) && replaceBubbleIndex < 0) {
+        if (input) input.value = '';
+        chatHistory.push({ role: 'user', html: escapeHtml(question) });
+        chatHistory.push({ role: 'eko', html: `<div class="font-semibold" style="color:var(--navy); line-height:1.5;">${escapeHtml(_getGreetingReply(question))}</div>` });
+        renderChatHistory();
+        if (input) { input.disabled = false; input.focus(); }
+        return;
+    }
 
     const requestId = 'req_' + Date.now() + '_' + Math.random().toString(36).substring(2, 7);
     activeAiRequestId = requestId;
@@ -172,9 +222,11 @@ async function sendToEko(cid = null, retryPrompt = null, replaceBubbleIndex = -1
 
     try {
         const ctx = window._currentAiContext || {};
-        const targetCustomerId = ctx.customer_id || cid;
-        const targetTxnId = ctx.transaction_id || null;
-        const targetCompId = ctx.complaint_id || null;
+        const qLower = question.toLowerCase();
+        const isExplicitOtherDomain = /task|failed|transaction|txn|earning|kamai|settle|complaint|shikayat|business|overview/.test(qLower);
+        const targetCustomerId = isExplicitOtherDomain ? null : (ctx.customer_id || cid);
+        const targetTxnId = /transaction|txn|failed/.test(qLower) ? (ctx.transaction_id || null) : null;
+        const targetCompId = /complaint|shikayat|sla/.test(qLower) ? (ctx.complaint_id || null) : null;
         const result = await api.askEko(question, [], targetCustomerId, targetTxnId, targetCompId, ctx);
 
         // Discard stale response if newer request started
@@ -206,12 +258,12 @@ async function sendToEko(cid = null, retryPrompt = null, replaceBubbleIndex = -1
             isError: true,
             questionText: question,
             html: `
-                <div class="error-state" style="padding:16px; align-items:flex-start; text-align:left; background:var(--gold-light); border-color:#FDE68A; color:#92400E;">
+                <div class="error-state" style="padding:16px; align-items:flex-start; text-align:left; background:var(--gold-light); border-color:#FDE68A; color:var(--warning-dark);">
                     <div class="font-bold text-sm" style="display:flex; align-items:center; gap:8px;">
                         ${renderIcon(isNetworkErr ? 'cloud-off' : 'alert-circle', 16)} AI Service Temporarily Unavailable
                     </div>
                     <div class="text-xs opacity-90 mt-1">${escapeHtml(errorMsg)} Your operational data remains safe on this device.</div>
-                    <button class="btn-primary mt-3" style="min-height:32px; padding:6px 14px; font-size:0.8rem; background:#92400E; color:#FFF;"
+                    <button class="btn-primary mt-3" style="min-height:32px; padding:6px 14px; font-size:0.8rem; background:var(--warning-dark); color:#FFF;"
                             onclick="retryAskEko('${escapeHtml(question).replace(/'/g, "\\'")}')">
                         ${renderIcon('rotate-cw', 12)} Try Again
                     </button>
@@ -313,7 +365,8 @@ function renderStructuredAiResponse(res) {
             </div>`;
     }
 
-    if (rawAnswer.toLowerCase().includes('credit assessment') || rawAnswer.toLowerCase().includes('credit score') || res.facts?.some(f => (f.text || '').toLowerCase().includes('credit assessment'))) {
+    const isCreditResponse = res.intent === 'CREDIT' || (!res.intent && (rawAnswer.toLowerCase().includes('credit assessment') || rawAnswer.toLowerCase().includes('credit score')));
+    if (isCreditResponse && res.intent !== 'TASK' && res.intent !== 'TRANSACTION' && res.intent !== 'EARNINGS' && res.intent !== 'COMPLAINT' && res.intent !== 'BUSINESS_OVERVIEW') {
         html += `
             <div style="margin-top:12px;">
                 <button class="btn-secondary" style="width:100%; min-height:40px; font-size:0.85rem; display:flex; align-items:center; justify-content:center; gap:8px;" onclick="openCreditAnalysisModal()">

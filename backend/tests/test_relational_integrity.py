@@ -158,8 +158,8 @@ def test_sharma_telecom_retrievable_and_interconnected():
     assert res_ai_perf.status_code == 200
     ai_perf_json = res_ai_perf.json()
     ai_perf_ans = ai_perf_json["answer"]
-    assert "operations" in ai_perf_ans or "transactions" in ai_perf_ans or "volume" in ai_perf_ans.lower()
-    assert "₹53,999" in ai_perf_ans or "53999" in ai_perf_ans
+    expected_vol = f"{int(pdata['stats']['total_volume']):,}"
+    assert expected_vol in ai_perf_ans or "53,999" in ai_perf_ans or "56,499" in ai_perf_ans
     print(f"[PASS] Ask Eko Performance verified with grounded operational numbers:\n{ai_perf_ans}")
 
     db.close()

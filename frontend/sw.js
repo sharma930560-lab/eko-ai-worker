@@ -2,7 +2,7 @@
  * Eko Service Worker — Offline Support (Network-First Strategy for Static Assets)
  */
 
-const CACHE_NAME = 'eko-cache-v5';
+const CACHE_NAME = 'eko-cache-v10';
 
 self.addEventListener('install', e => {
     self.skipWaiting();

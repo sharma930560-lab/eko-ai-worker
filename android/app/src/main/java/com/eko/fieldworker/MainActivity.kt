@@ -8,6 +8,7 @@ import android.net.NetworkCapabilities
 import android.net.NetworkRequest
 import android.net.Uri
 import android.webkit.ConsoleMessage
+import android.webkit.ValueCallback
 import android.webkit.WebChromeClient
 import android.webkit.WebSettings
 import android.webkit.WebView
@@ -78,6 +79,29 @@ class MainActivity : AppCompatActivity() {
         }
     }
 
+    // ── Native File Chooser for WebView <input type="file"> ──
+    private var fileUploadCallback: ValueCallback<Array<Uri>>? = null
+    private val fileChooserLauncher = registerForActivityResult(ActivityResultContracts.StartActivityForResult()) { result ->
+        if (fileUploadCallback == null) return@registerForActivityResult
+        var results: Array<Uri>? = null
+        if (result.resultCode == RESULT_OK && result.data != null) {
+            val data = result.data
+            val dataUri = data?.data
+            val clipData = data?.clipData
+            if (clipData != null) {
+                val uris = mutableListOf<Uri>()
+                for (i in 0 until clipData.itemCount) {
+                    uris.add(clipData.getItemAt(i).uri)
+                }
+                results = uris.toTypedArray()
+            } else if (dataUri != null) {
+                results = arrayOf(dataUri)
+            }
+        }
+        fileUploadCallback?.onReceiveValue(results)
+        fileUploadCallback = null
+    }
+
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         setContentView(R.layout.activity_main)
@@ -128,6 +152,17 @@ class MainActivity : AppCompatActivity() {
             Log.i(TAG, "Navigating to deep link: $deepLink")
             webView.evaluateJavascript("window.navigateTo('$deepLink')", null)
         }
+    }
+
+    fun isRunningOnEmulator(): Boolean {
+        return (android.os.Build.FINGERPRINT.startsWith("generic")
+                || android.os.Build.FINGERPRINT.startsWith("unknown")
+                || android.os.Build.MODEL.contains("google_sdk")
+                || android.os.Build.MODEL.contains("Emulator")
+                || android.os.Build.MODEL.contains("Android SDK built for x86")
+                || android.os.Build.MANUFACTURER.contains("Genymotion")
+                || (android.os.Build.BRAND.startsWith("generic") && android.os.Build.DEVICE.startsWith("generic"))
+                || "google_sdk" == android.os.Build.PRODUCT)
     }
 
     // ── Called by EkoBridge to launch the camera ────────────────────────────────
@@ -191,7 +226,7 @@ class MainActivity : AppCompatActivity() {
             domStorageEnabled = true
             databaseEnabled = true
             allowFileAccess = false
-            mixedContentMode = if (BuildConfig.DEBUG) {
+            mixedContentMode = if (BuildConfig.DEBUG || isRunningOnEmulator()) {
                 WebSettings.MIXED_CONTENT_ALWAYS_ALLOW // Debug/emulator HTTP backend
             } else {
                 WebSettings.MIXED_CONTENT_NEVER_ALLOW  // Production HTTPS only
@@ -201,7 +236,7 @@ class MainActivity : AppCompatActivity() {
         // Add Javascript Interface
         webView.addJavascriptInterface(EkoBridge(this, viewModel), "AndroidBridge")
 
-        // Surface WebView console.log → Logcat under tag EkoWebView
+        // Surface WebView console.log → Logcat under tag EkoWebView & handle file picker
         webView.webChromeClient = object : WebChromeClient() {
             override fun onConsoleMessage(msg: ConsoleMessage): Boolean {
                 val level = when (msg.messageLevel()) {
@@ -211,6 +246,28 @@ class MainActivity : AppCompatActivity() {
                 }
                 Log.i("EkoWebView", "[$level] ${msg.message()} (${msg.sourceId()}:${msg.lineNumber()})")
                 return true
+            }
+
+            override fun onShowFileChooser(
+                webView: WebView?,
+                filePathCallback: ValueCallback<Array<Uri>>?,
+                fileChooserParams: FileChooserParams?
+            ): Boolean {
+                fileUploadCallback?.onReceiveValue(null)
+                fileUploadCallback = filePathCallback
+                val intent = fileChooserParams?.createIntent() ?: Intent(Intent.ACTION_GET_CONTENT).apply {
+                    type = "*/*"
+                    addCategory(Intent.CATEGORY_OPENABLE)
+                }
+                return try {
+                    fileChooserLauncher.launch(intent)
+                    true
+                } catch (e: Exception) {
+                    Log.e(TAG, "Error launching file chooser: ${e.message}", e)
+                    fileUploadCallback?.onReceiveValue(null)
+                    fileUploadCallback = null
+                    false
+                }
             }
         }
 

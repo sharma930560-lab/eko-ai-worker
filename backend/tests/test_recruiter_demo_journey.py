@@ -258,6 +258,10 @@ assert res.status_code == 200
 tasks_list = res.json()
 print(f"✓ Tasks list: {len(tasks_list)} tasks")
 
+# Cleanup created task
+del_res = client.delete(f"/api/tasks/{task_id}", headers=headers)
+assert del_res.status_code == 200
+
 # Create a note
 res = client.post("/api/notes", json={
     "content": "Sharma Retail requested temporary increase in DMT daily limit after successful 5K transaction."

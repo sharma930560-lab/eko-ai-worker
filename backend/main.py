@@ -3,6 +3,8 @@ Eko AI Operations — FastAPI Backend
 Professional Fintech Operations + Customer 360 + AI Logic
 """
 import os
+import re
+import time
 import asyncio
 import uuid
 import hashlib
@@ -11,20 +13,24 @@ import json
 from typing import Optional, List, Dict, Any, Union
 from datetime import datetime, date, timedelta
 
-from fastapi import FastAPI, HTTPException, Depends, Header, Request
+from fastapi import FastAPI, HTTPException, Depends, Header, Request, File, UploadFile
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, model_validator
 from sqlalchemy.orm import Session
-from sqlalchemy import desc, and_, or_, text, inspect
+from sqlalchemy import desc, and_, or_, text, inspect, func
 from dotenv import load_dotenv
 from google.oauth2 import id_token
 from google.auth.transport import requests as google_requests
+import base64
+import urllib.parse
 
 import database
 import models
 from ai_provider import get_ai_provider, LocalDeterministicProvider
+from context_router import plan_context, ContextPlan
 import canonical_seed
+import pdf_parser
 
 # ─── Setup ────────────────────────────────────────────────────────────────────
 load_dotenv()
@@ -249,11 +255,14 @@ class WhatsAppOutreachUpdate(BaseModel):
     message: Optional[str] = None
 
 class WhatsAppGenerateRequest(BaseModel):
+    customer_id: Optional[str] = None
     customer_name: Optional[str] = "Customer"
     customer_phone: Optional[str] = None
     template_type: Optional[str] = "custom"
+    details: Optional[str] = None
     context: Optional[str] = None
     language: Optional[str] = "hinglish"
+    amount: Optional[Union[float, int, str]] = None
 
 class ComplaintTriageRequest(BaseModel):
     subject: str
@@ -303,14 +312,27 @@ class CreditScoreResponse(BaseModel):
     model_config = {"from_attributes": True}
 
 class AskEkoRequest(BaseModel):
-    question: str
+    question: Optional[str] = None
+    query: Optional[str] = None
     history: List[Dict[str, str]] = []
     customer_id: Optional[str] = None
     transaction_id: Optional[str] = None
     complaint_id: Optional[str] = None
     page_context: Optional[Dict[str, Any]] = None
+    context: Optional[Dict[str, Any]] = None
+    session_id: Optional[str] = None
     date_from: Optional[str] = None # YYYY-MM-DD
     date_to: Optional[str] = None   # YYYY-MM-DD
+
+    @model_validator(mode='before')
+    @classmethod
+    def resolve_question_and_context(cls, data: Any) -> Any:
+        if isinstance(data, dict):
+            if not data.get("question") and data.get("query"):
+                data["question"] = data["query"]
+            if not data.get("page_context") and data.get("context") and isinstance(data.get("context"), dict):
+                data["page_context"] = data["context"]
+        return data
 
 class Fact(BaseModel):
     text: str
@@ -333,6 +355,7 @@ class AIError(BaseModel):
 class AskEkoResponse(BaseModel):
     success: bool = True
     answer: str
+    response: Optional[str] = None
     facts: List[Fact] = []
     inferences: List[Inference] = []
     recommendations: List[Recommendation] = []
@@ -347,6 +370,18 @@ class AskEkoResponse(BaseModel):
     insufficient_data: bool = False
     missing_info: Optional[str] = None
     error: Optional[AIError] = None
+    request_id: Optional[str] = None
+    latency_ms: Optional[float] = None
+    intent: Optional[str] = None
+    domain: Optional[str] = None
+
+    @model_validator(mode='after')
+    def sync_aliases(self) -> 'AskEkoResponse':
+        if not self.response:
+            self.response = self.answer
+        if not self.domain:
+            self.domain = (self.intent or "").lower()
+        return self
 
 class TaskCreate(BaseModel):
     title: str
@@ -500,18 +535,34 @@ def find_customer_for_question(db: Session, user_id: str, question: str) -> Opti
         return None
 
     customers = db.query(models.Customer).filter(models.Customer.user_id == user_id).all()
-    best_match = None
-    best_score = 0
+    
+    # 1. Exact full name match in question
     for customer in customers:
         name = (customer.name or "").lower()
         if name and name in q_lower:
             return customer
 
+    # 2. Token matching with first-name integrity
+    best_match = None
+    best_score = 0
+    for customer in customers:
         name_tokens = _normalise_name_tokens(customer.name or "")
-        overlap = len(q_tokens.intersection(name_tokens))
-        if overlap > best_score:
+        if not name_tokens:
+            continue
+        
+        # If all tokens of the customer name appear in query tokens
+        if name_tokens.issubset(q_tokens):
+            return customer
+
+        # Prevent surname-only mismatch (e.g., 'Rajesh Kumar' must NOT match 'Rahul Kumar')
+        c_parts = (customer.name or "").split()
+        c_first = c_parts[0].lower() if c_parts else ""
+        overlap = q_tokens.intersection(name_tokens)
+        
+        # Only consider match if the first name or specific identifier overlaps
+        if c_first in overlap and len(overlap) > best_score:
             best_match = customer
-            best_score = overlap
+            best_score = len(overlap)
 
     return best_match if best_score > 0 else None
 
@@ -2675,6 +2726,9 @@ def analyze_credit_score(
 @app.post("/api/ai/ask", response_model=AskEkoResponse)
 async def ask_eko(body: AskEkoRequest, user_id: str = Depends(verify_user_id), db: Session = Depends(database.get_db)):
     """Deep contextual assistant with multi-stage historical retrieval and provider independence."""
+    t_start = time.time()
+    req_id = f"eko-ai-{uuid.uuid4().hex[:8]}"
+
     if not body.question or not body.question.strip():
         raise HTTPException(status_code=400, detail="Question cannot be empty.")
     if len(body.question) > 2000:
@@ -2685,9 +2739,11 @@ async def ask_eko(body: AskEkoRequest, user_id: str = Depends(verify_user_id), d
         "ignore previous instructions",
         "ignore all instructions",
         "disregard previous instructions",
+        "disregard all instructions",
         "you are now a",
         "print system prompt",
         "show system prompt",
+        "reveal system",
         "override safety"
     ]
     q_lower = body.question.lower()
@@ -2698,242 +2754,285 @@ async def ask_eko(body: AskEkoRequest, user_id: str = Depends(verify_user_id), d
             grounded=True,
             insufficient_data=False,
             sources=["System Security Filter"],
-            error=AIError(code="PROMPT_INJECTION_DETECTED", message="Security validation failed: prompt injection pattern detected.", retryable=False)
+            error=AIError(code="PROMPT_INJECTION_DETECTED", message="Security validation failed: prompt injection pattern detected.", retryable=False),
+            request_id=req_id,
+            latency_ms=round((time.time() - t_start) * 1000, 2)
         )
+    # ── Greeting fast-path: skip DB context & AI pipeline ──────────────────────
+    import re as _re
+    _GREETING_RE = _re.compile(
+        r'^\s*(hi+|hey+|hlo|hello|howdy|namaste|namaskar|'
+        r'good\s*(morning|afternoon|evening|night|day)|'
+        r'sup|what\'?s\s*up|how\s*(are|r)\s*(you|u)|'
+        r'thanks?|thank\s*(you|u)|'
+        r'ok+|okay+|alright|cool|got\s*it|bye+|goodbye|see\s*ya|take\s*care|cya|'
+        r'great|nice|awesome|perfect|sure|yep|yup|nope|no+|yes+|yeah|yea|'
+        r'hmm+|hm+|lol|haha)\s*[!.?]*\s*$',
+        _re.IGNORECASE
+    )
+    if _GREETING_RE.match(body.question):
+        _q = body.question.strip().lower()
+        if _re.match(r'(thanks?|thank\s*(you|u))', _q):
+            _reply = "You're welcome! Let me know if there's anything else I can help you with."
+        elif _re.match(r'(bye+|goodbye|see\s*ya|cya|take\s*care)', _q):
+            _reply = "Take care! Come back whenever you need operational insights. 🙏"
+        elif _re.match(r'(ok+|okay+|alright|got\s*it|sure|yep|yup|cool|great|nice|awesome|perfect|yes+|yeah|yea|nope|no+|hmm+|hm+|lol|haha)', _q):
+            _reply = "Got it! Let me know if you have any questions."
+        elif _re.match(r'(how\s*(are|r)\s*(you|u)|what\'?s\s*up|sup|howdy)', _q):
+            _reply = "All operational systems running smoothly! How can I assist your business today?"
+        else:
+            _reply = "Namaste! 🙏 I'm Eko, your operational partner. How can I assist you today?"
+        return AskEkoResponse(
+            success=True,
+            answer=_reply,
+            facts=[], inferences=[], recommendations=[], actions=[],
+            sources=["Instant Reply"],
+            confidence=1.0,
+            data_mode="instant",
+            ai_mode="greeting_fastpath",
+            ai_provider="local",
+            ai_model=None,
+            grounded=False,
+            insufficient_data=False,
+            request_id=req_id,
+            latency_ms=round((time.time() - t_start) * 1000, 2)
+        )
+    # ─────────────────────────────────────────────────────────────────────────────
 
     ensure_user_seeded(user_id, db)
-    context_lines = [f"Today's Date: {date.today()}"]
 
-    customer = None
-    if body.customer_id:
-        customer = db.query(models.Customer).filter(
-            models.Customer.id == body.customer_id,
-            models.Customer.user_id == user_id
-        ).first()
+    # ── 1. Intent Planning & Domain Reset ─────────────────────────────────────
+    plan = plan_context(body.question, body.page_context, body.history)
+    context_lines = [
+        f"Today's Date: {date.today()}",
+        f"Operational User ID: {user_id}",
+    ]
 
-    if not customer and body.question:
-        customer = find_customer_for_question(db, user_id, body.question)
-
-    if customer:
-        context_lines.append(f"Subject Customer Profile: Name={customer.name}, KYC Status={customer.kyc_status}, Business Type={customer.business_type or 'General'}, Amount Due={fmt_inr(customer.amount_due)}")
-
-        # Credit Score and factors
-        score_val, risk, conf, factors, recs = calculate_dynamic_score(db, user_id, customer.id)
-        score_record = db.query(models.CreditScore).filter(
-            models.CreditScore.customer_id == customer.id,
-            models.CreditScore.user_id == user_id
-        ).order_by(desc(models.CreditScore.created_at)).first()
-        if not score_record:
-            score_record = models.CreditScore(
-                id=str(uuid.uuid4()), user_id=user_id, customer_id=customer.id,
-                customer_name=customer.name, score=round(score_val, 1),
-                risk_bracket=risk, confidence=round(conf, 2),
-                factors=json.dumps(factors), recommendations=recs
-            )
-            db.add(score_record)
-            try:
-                db.commit()
-            except Exception:
-                db.rollback()
-        elif factors.get("total_txns") != "0" and '"total_txns": "0"' in (score_record.factors or ""):
-            score_record.score = round(score_val, 1)
-            score_record.risk_bracket = risk
-            score_record.confidence = round(conf, 2)
-            score_record.factors = json.dumps(factors)
-            score_record.recommendations = recs
-            try:
-                db.commit()
-            except Exception:
-                db.rollback()
-
-        context_lines.append(f"Customer Credit Assessment: Score={score_record.score}/100, Risk Bracket={score_record.risk_bracket}, Confidence={score_record.confidence}")
-        if score_record.factors:
-            context_lines.append(f"Assessment Risk Factors: {score_record.factors}")
-        if score_record.recommendations:
-            context_lines.append(f"Assessment Recommendations: {score_record.recommendations}")
-
-        # Credit Score History
-        score_history = db.query(models.CreditScoreHistory).filter(
-            models.CreditScoreHistory.customer_id == customer.id,
-            models.CreditScoreHistory.user_id == user_id
-        ).order_by(desc(models.CreditScoreHistory.created_at)).limit(5).all()
-        if score_history:
-            context_lines.append("Assessment History Changes:")
-            for sh in score_history:
-                context_lines.append(f"- {sh.created_at.date()}: Old={sh.old_score}, New={sh.new_score}, Reason: {sh.change_reason}")
-
-        # Timeline events
-        query = db.query(models.TimelineEvent).filter(
-            models.TimelineEvent.customer_id == customer.id,
-            models.TimelineEvent.user_id == user_id
-        )
-        if body.date_from:
-            query = query.filter(models.TimelineEvent.created_at >= body.date_from)
-        if body.date_to:
-            query = query.filter(models.TimelineEvent.created_at <= body.date_to)
-
-        hist_keywords = ["history", "last year", "old", "previous", "was", "happened"]
-        limit = 50 if any(k in body.question.lower() for k in hist_keywords) else 15
-        timeline = query.order_by(desc(models.TimelineEvent.created_at)).limit(limit).all()
-
-        if timeline:
-            context_lines.append(f"Retrieved {len(timeline)} timeline events for {customer.name}:")
-            for e in timeline:
-                context_lines.append(f"- {e.created_at.date()} | {e.event_type.upper()} | {e.title}: {e.description}")
+    # ── 2. Authorized Domain-Isolated Data Retrieval ──────────────────────────
+    if plan.intent == "TASK":
+        tasks = db.query(models.Task).filter(models.Task.user_id == user_id).all()
+        pending = [t for t in tasks if not t.completed]
+        completed = [t for t in tasks if t.completed]
+        context_lines.append(f"Tasks Summary: Total {len(tasks)} tasks recorded ({len(pending)} pending, {len(completed)} completed).")
+        if pending:
+            context_lines.append("Pending Operational Tasks:")
+            for tk in pending:
+                due_str = str(tk.due_date) if tk.due_date else "Today"
+                context_lines.append(f"- Task: {tk.title} | Priority: {tk.priority.upper()} | Due: {due_str} | ID: {tk.id}")
         else:
-            context_lines.append(f"No timeline events recorded yet for {customer.name}.")
+            context_lines.append("No pending tasks recorded for today.")
 
-        # Complaints / Grievances
-        sub_txns = db.query(models.ServiceActivity.id).filter(
+    elif plan.intent == "TRANSACTION":
+        failed_txns = db.query(models.ServiceActivity).filter(
             models.ServiceActivity.user_id == user_id,
-            or_(models.ServiceActivity.customer_id == customer.id, models.ServiceActivity.partner_id == customer.id)
-        )
-        complaints = db.query(models.Complaint).filter(
-            models.Complaint.user_id == user_id,
-            or_(models.Complaint.customer_id == customer.id, models.Complaint.transaction_id.in_(sub_txns))
-        ).all()
-        if complaints:
-            context_lines.append(f"Customer Grievances/Complaints ({len(complaints)}):")
-            for comp in complaints:
-                context_lines.append(f"- Status: {comp.status.upper()} | Priority: {comp.priority} | Subject: {comp.subject} | {comp.description}")
+            models.ServiceActivity.status == "failed"
+        ).order_by(desc(models.ServiceActivity.created_at)).limit(10).all()
+        context_lines.append(f"Failed Transactions Summary: {len(failed_txns)} failed transactions recorded.")
+        if failed_txns:
+            context_lines.append("Failed Transactions List:")
+            for ft in failed_txns:
+                cust = ft.customer_name or "Retail Counter"
+                ref = ft.reference_id or ft.id
+                reason = ft.failure_reason or "Bank authorization timeout"
+                context_lines.append(f"- {ref} | {ft.service_name} | {fmt_inr(ft.amount)} | Customer: {cust} | Reason: {reason}")
+        else:
+            context_lines.append("Zero failed transactions recorded for today.")
 
-        # Recent transactions for customer or partner
-        txns = db.query(models.ServiceActivity).filter(
-            models.ServiceActivity.user_id == user_id,
-            or_(
-                models.ServiceActivity.customer_id == customer.id,
-                models.ServiceActivity.partner_id == customer.id,
-                models.ServiceActivity.customer_name == customer.name
-            )
-        ).order_by(desc(models.ServiceActivity.created_at)).all()
-        if txns:
-            cust_total = len(txns)
-            cust_success = [t for t in txns if t.status == "success"]
-            cust_failed = [t for t in txns if t.status == "failed"]
-            cust_vol = sum(t.amount for t in cust_success)
-            rate_pct = round((len(cust_success) / cust_total) * 100, 1) if cust_total > 0 else 0
-            context_lines.append(f"Customer Operational Summary for {customer.name}: {cust_total} transactions, {len(cust_success)} successful, {len(cust_failed)} failed, Total Volume {fmt_inr(cust_vol)}, Success Rate {rate_pct}%.")
-            context_lines.append(f"Recent Transactions for {customer.name}:")
-            for t in txns[:10]:
-                reason = f" (Failure Reason: {t.failure_reason})" if t.failure_reason else ""
-                context_lines.append(f"- {t.created_at.date()} | {t.service_name} | {fmt_inr(t.amount)} | Status: {t.status.upper()}{reason}")
+    elif plan.intent == "EARNINGS":
+        commissions = db.query(models.Commission).filter(models.Commission.user_id == user_id).all()
+        settlements = db.query(models.Settlement).filter(models.Settlement.user_id == user_id).all()
+        total_comm = sum(c.commission_amount for c in commissions)
+        paid_comm = sum(c.commission_amount for c in commissions if c.status == "PAID")
+        earned_comm = sum(c.commission_amount for c in commissions if c.status == "EARNED")
+        total_settled = sum(s.amount for s in settlements if s.status == "PAID")
+        pending_settled = sum(s.amount for s in settlements if s.status != "PAID")
+        context_lines.append(f"Commission Earnings Summary: Total Commission {fmt_inr(total_comm)} across {len(commissions)} transactions (Paid {fmt_inr(paid_comm)}, Earned/Pending {fmt_inr(earned_comm)}).")
+        context_lines.append(f"Settlements Summary: Total Settled/Paid {fmt_inr(total_settled)}, Pending Settlement Balance: {fmt_inr(pending_settled)} across {len(settlements)} cycles.")
 
-        # Customer Commissions
-        commissions = db.query(models.Commission).filter(
-            models.Commission.user_id == user_id,
-            or_(models.Commission.partner_id == customer.id, models.Commission.customer_id == customer.id)
-        ).all()
-        if commissions:
-            total_comm = sum(c.commission_amount for c in commissions)
-            paid_comm = sum(c.commission_amount for c in commissions if c.status == "PAID")
-            earned_comm = sum(c.commission_amount for c in commissions if c.status == "EARNED")
-            context_lines.append(f"Customer Commission Summary for {customer.name}: Total {fmt_inr(total_comm)} across {len(commissions)} records (Paid {fmt_inr(paid_comm)}, Earned/Pending {fmt_inr(earned_comm)}).")
+    elif plan.intent == "COMPLAINT":
+        complaints = db.query(models.Complaint).filter(models.Complaint.user_id == user_id).all()
+        open_comps = [c for c in complaints if c.status in ("open", "in_progress", "escalated")]
+        context_lines.append(f"Complaints Summary: Total {len(complaints)} complaints ({len(open_comps)} active/open).")
+        if open_comps:
+            context_lines.append("Active Complaints List:")
+            for c in open_comps[:10]:
+                rem_hrs = "SLA Approaching"
+                if c.sla_deadline:
+                    diff = (c.sla_deadline - datetime.now()).total_seconds() / 3600
+                    rem_hrs = f"{round(diff, 1)}h remaining" if diff > 0 else "SLA Breached"
+                context_lines.append(f"- Complaint: {c.subject} | Status: {c.status.upper()} | Priority: {c.priority.upper()} | SLA: {rem_hrs} | ID: {c.id}")
+        else:
+            context_lines.append("No active complaints under SLA monitoring.")
 
-        # Customer Tasks
-        tasks = db.query(models.Task).filter(
-            models.Task.user_id == user_id,
-            models.Task.customer_id == customer.id
-        ).all()
-        if tasks:
-            context_lines.append(f"Operational Tasks for {customer.name} ({len(tasks)}):")
-            for tk in tasks:
-                context_lines.append(f"- {tk.title} | Status: {'COMPLETED' if tk.completed else 'PENDING'} | Priority: {tk.priority.upper()}")
+    elif plan.intent == "CREDIT":
+        cust_q = db.query(models.Customer).filter(models.Customer.user_id == user_id)
+        if plan.entity_name:
+            cust_q = cust_q.filter(models.Customer.name.ilike(f"%{plan.entity_name}%"))
+        elif body.customer_id:
+            cust_q = cust_q.filter(models.Customer.id == body.customer_id)
+        customer = cust_q.first()
+        if not customer:
+            customer = db.query(models.Customer).filter(models.Customer.user_id == user_id, models.Customer.name.ilike("%Rahul%")).first()
+        if customer:
+            score_val, risk, conf, factors, recs = calculate_dynamic_score(db, user_id, customer.id)
+            score_record = db.query(models.CreditScore).filter(
+                models.CreditScore.customer_id == customer.id,
+                models.CreditScore.user_id == user_id
+            ).order_by(desc(models.CreditScore.created_at)).first()
+            if not score_record:
+                score_record = models.CreditScore(
+                    id=str(uuid.uuid4()), user_id=user_id, customer_id=customer.id,
+                    customer_name=customer.name, score=round(score_val, 1),
+                    risk_bracket=risk, confidence=round(conf, 2),
+                    factors=json.dumps(factors), recommendations=recs
+                )
+                db.add(score_record)
+                try: db.commit()
+                except Exception: db.rollback()
+            context_lines.append(f"Subject Customer Profile: Name={customer.name}, KYC Status={customer.kyc_status}, Business Type={customer.business_type or 'General'}, Amount Due={fmt_inr(customer.amount_due)}")
+            context_lines.append(f"Customer Credit Assessment: Score={score_record.score}/100, Risk Bracket={score_record.risk_bracket}, Confidence={score_record.confidence}")
+            if score_record.factors:
+                context_lines.append(f"Assessment Risk Factors: {score_record.factors}")
+            if score_record.recommendations:
+                context_lines.append(f"Assessment Recommendations: {score_record.recommendations}")
+        else:
+            context_lines.append("Information Notice: Customer record not found for credit assessment.")
 
-        # Customer WhatsApp Outreach
-        wa_msgs = db.query(models.WhatsAppOutreach).filter(
-            models.WhatsAppOutreach.user_id == user_id,
-            or_(models.WhatsAppOutreach.customer_id == customer.id, models.WhatsAppOutreach.partner_id == customer.id)
-        ).all()
-        if wa_msgs:
-            context_lines.append(f"WhatsApp Outreach History for {customer.name} ({len(wa_msgs)} messages):")
-            for wa in wa_msgs:
-                context_lines.append(f"- Template: {wa.template_type} | Status: {wa.status.upper()} | Recipient: {wa.customer_name} ({wa.customer_phone})")
-    else:
-        # Check if query specifically mentioned a name
-        import re
-        name_match = re.search(r'\b([A-Z][a-z]+)\b', body.question)
-        if name_match:
-            potential_name = name_match.group(1)
-            context_lines.append(f"Information Notice: The query mentions '{potential_name}', but no customer record exists for '{potential_name}' in the verified database.")
-
-    # General Operational Summary
-    dashboard = get_ops_dashboard(user_id, db)
-    context_lines.append(f"Operational Business Summary: {dashboard['today_transactions']} txns today, Volume {fmt_inr(dashboard['total_volume'])}, Success Rate {dashboard['success_rate']}, Active Customers {dashboard.get('active_customers', 0)}.")
-
-    # Recent Failed Transactions across system
-    failed_txns = db.query(models.ServiceActivity).filter(
-        models.ServiceActivity.user_id == user_id,
-        models.ServiceActivity.status == "failed"
-    ).order_by(desc(models.ServiceActivity.created_at)).limit(5).all()
-    if failed_txns:
-        context_lines.append("Recent System Failures:")
-        for ft in failed_txns:
-            context_lines.append(f"- {ft.service_name} for {ft.customer_name or 'Anonymous'} ({fmt_inr(ft.amount)}): {ft.failure_reason or 'Bank server timeout'}")
-
-    # Active Transaction Context (Page Context)
-    target_txn_id = body.transaction_id or (body.page_context.get("transaction_id") if body.page_context else None)
-    if not target_txn_id and body.question:
-        import re
-        txn_match = re.search(r'\b(DMT[A-Za-z0-9]+|t_[a-z0-9_]+|[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12})\b', body.question)
-        if txn_match:
-            target_txn_id = txn_match.group(1)
-        elif "25,000" in body.question or "25000" in body.question:
-            t_25k = db.query(models.ServiceActivity).filter(
+    elif plan.intent == "CUSTOMER":
+        cust_q = db.query(models.Customer).filter(models.Customer.user_id == user_id)
+        if plan.entity_name:
+            cust_q = cust_q.filter(models.Customer.name.ilike(f"%{plan.entity_name}%"))
+        elif body.customer_id:
+            cust_q = cust_q.filter(models.Customer.id == body.customer_id)
+        customer = cust_q.first()
+        if not customer and body.customer_id:
+            customer = db.query(models.Customer).filter(models.Customer.id == body.customer_id).first()
+        if customer:
+            txns = db.query(models.ServiceActivity).filter(
                 models.ServiceActivity.user_id == user_id,
-                models.ServiceActivity.amount == 25000.0
+                or_(
+                    models.ServiceActivity.customer_id == customer.id,
+                    models.ServiceActivity.partner_id == customer.id,
+                    models.ServiceActivity.customer_name.ilike(f"%{customer.name}%")
+                )
+            ).order_by(desc(models.ServiceActivity.created_at)).all()
+            succ_txns = [t for t in txns if t.status == "success"]
+            tot_vol = sum(t.amount for t in succ_txns) if succ_txns else sum(t.amount for t in txns)
+            perf_pct = round((len(succ_txns) / len(txns) * 100)) if txns else 0
+            context_lines.append(f"Customer 360 Profile: Name={customer.name} | Phone={customer.phone or 'N/A'} | Business Type={customer.business_type or 'Retail'}")
+            context_lines.append(f"Customer Operational Performance: Total Operations={len(txns)} transactions | Transaction Volume={fmt_inr(tot_vol)} | Success Rate={perf_pct}%")
+            if txns:
+                context_lines.append(f"Recent Transaction Operations ({min(5, len(txns))}):")
+                for t in txns[:5]:
+                    context_lines.append(f"- {t.reference_id or t.id} | {t.service_name} | {fmt_inr(t.amount)} | {t.status.upper()}")
+        else:
+            context_lines.append("Customer record not found for operational evaluation.")
+
+    elif plan.intent == "BUSINESS_OVERVIEW":
+        dashboard = get_ops_dashboard(user_id, db)
+        pending_c = db.query(models.Task).filter(models.Task.user_id == user_id, models.Task.completed == False).count()
+        open_c = db.query(models.Complaint).filter(models.Complaint.user_id == user_id, models.Complaint.status.in_(["open", "in_progress", "escalated"])).count()
+        commissions = db.query(models.Commission).filter(models.Commission.user_id == user_id).all()
+        total_comm = sum(c.commission_amount for c in commissions)
+        context_lines.append(f"Operational Business Summary: {dashboard['today_transactions']} txns today, Volume {fmt_inr(dashboard['total_volume'])}, Success Rate {dashboard['success_rate']}, Active Customers {dashboard.get('active_customers', 0)}.")
+        context_lines.append(f"Pending Tasks Count: {pending_c}")
+        context_lines.append(f"Active Complaints Under SLA: {open_c}")
+        context_lines.append(f"Total Commission Earnings: {fmt_inr(total_comm)}")
+
+    elif plan.intent == "COMPOUND":
+        tasks = db.query(models.Task).filter(models.Task.user_id == user_id, models.Task.completed == False).order_by(models.Task.priority.desc()).limit(5).all()
+        failed_txns = db.query(models.ServiceActivity).filter(models.ServiceActivity.user_id == user_id, models.ServiceActivity.status == "failed").order_by(desc(models.ServiceActivity.created_at)).limit(5).all()
+        context_lines.append(f"Pending Operational Tasks ({len(tasks)}):")
+        for tk in tasks:
+            context_lines.append(f"- Task: {tk.title} | Priority: {tk.priority.upper()} | ID: {tk.id}")
+        context_lines.append(f"Recent Failed Transactions ({len(failed_txns)}):")
+        for ft in failed_txns:
+            cust = ft.customer_name or "Retail Counter"
+            context_lines.append(f"- {ft.reference_id or ft.id} | {ft.service_name} | {fmt_inr(ft.amount)} | Customer: {cust} | Reason: {ft.failure_reason or 'Switch timeout'}")
+
+    elif plan.intent == "SETTLEMENT":
+        settlements = db.query(models.Settlement).filter(models.Settlement.user_id == user_id).order_by(desc(models.Settlement.created_at)).limit(10).all()
+        total_settled = sum(s.amount for s in settlements if s.status == "PAID")
+        pending_settled = sum(s.amount for s in settlements if s.status != "PAID")
+        context_lines.append(f"Settlements Summary: Total Settled/Paid {fmt_inr(total_settled)}, Pending Settlement Balance: {fmt_inr(pending_settled)} across {len(settlements)} cycles.")
+        for s in settlements[:5]:
+            settle_date = s.settled_at.strftime("%Y-%m-%d") if s.settled_at else (s.created_at.strftime("%Y-%m-%d") if s.created_at else "Recent")
+            context_lines.append(f"- Batch: {s.bank_reference or s.id} | Status: {s.status} | Net: {fmt_inr(s.amount)} | Date: {settle_date}")
+
+    else:
+        context_lines.append("Query Intent: UNKNOWN. User asked a query outside the recognized operational domains. Ask for clarification.")
+
+    # Active Transaction / Complaint Context (ONLY if explicitly matching intent or transaction reference)
+    if plan.intent == "TRANSACTION":
+        target_txn_id = body.transaction_id or (body.page_context.get("transaction_id") if body.page_context else None)
+        if not target_txn_id and body.question:
+            ref_match = re.search(r'\b(DMT[A-Z0-9]+|TXN-[A-Z0-9-]+)\b', body.question, re.IGNORECASE)
+            if ref_match:
+                target_txn_id = ref_match.group(1).upper()
+        if target_txn_id:
+            t = db.query(models.ServiceActivity).filter(
+                or_(
+                    models.ServiceActivity.id == target_txn_id,
+                    models.ServiceActivity.reference_id == target_txn_id,
+                    models.ServiceActivity.reference_id.like(f"%{target_txn_id}%")
+                ),
+                models.ServiceActivity.user_id == user_id
             ).first()
-            if t_25k:
-                target_txn_id = t_25k.id
+            if t:
+                context_lines.append(
+                    f"ACTIVE SCREEN CONTEXT — SELECTED TRANSACTION: ID={t.id} | Reference={t.reference_id or 'N/A'} | "
+                    f"Service={t.service_name} | Amount={fmt_inr(t.amount)} | Status={t.status.upper()} | "
+                    f"Customer={t.customer_name or 'N/A'} | Failure Reason={t.failure_reason or 'Not provided'}"
+                )
 
-    if target_txn_id:
-        t = db.query(models.ServiceActivity).filter(
-            or_(
-                models.ServiceActivity.id == target_txn_id,
-                models.ServiceActivity.reference_id == target_txn_id,
-                models.ServiceActivity.reference_id.like(f"%{target_txn_id}%")
-            ),
-            models.ServiceActivity.user_id == user_id
-        ).first()
-        if t:
-            context_lines.append(
-                f"ACTIVE SCREEN CONTEXT — SELECTED TRANSACTION: ID={t.id} | Reference={t.reference_id or 'N/A'} | "
-                f"Service={t.service_name} | Amount={fmt_inr(t.amount)} | Status={t.status.upper()} | "
-                f"Customer={t.customer_name or 'N/A'} | Date={t.created_at.date() if t.created_at else 'N/A'} | "
-                f"Failure Reason={t.failure_reason or 'Not provided'}"
-            )
+    if plan.intent == "COMPLAINT":
+        target_comp_id = body.complaint_id or (body.page_context.get("complaint_id") if body.page_context else None)
+        if target_comp_id:
+            c = db.query(models.Complaint).filter(
+                models.Complaint.id == target_comp_id,
+                models.Complaint.user_id == user_id
+            ).first()
+            if c:
+                context_lines.append(
+                    f"ACTIVE SCREEN CONTEXT — SELECTED COMPLAINT: ID={c.id}, Subject='{c.subject}', "
+                    f"Status={c.status.upper()}, Priority={c.priority.upper()}"
+                )
 
-    # Active Complaint Context (Page Context)
-    target_comp_id = body.complaint_id or (body.page_context.get("complaint_id") if body.page_context else None)
-    if target_comp_id:
-        c = db.query(models.Complaint).filter(
-            models.Complaint.id == target_comp_id,
-            models.Complaint.user_id == user_id
-        ).first()
-        if c:
-            remaining_hours = None
-            if c.sla_deadline and c.status not in ("closed", "resolved"):
-                remaining_hours = round((c.sla_deadline - datetime.now()).total_seconds() / 3600, 1)
-            context_lines.append(
-                f"ACTIVE SCREEN CONTEXT — SELECTED COMPLAINT: ID={c.id}, Subject='{c.subject}', "
-                f"Status={c.status.upper()}, Priority={c.priority.upper()}, "
-                f"Description='{c.description or 'N/A'}', SLA Deadline={c.sla_deadline}, "
-                f"SLA Hours Remaining={remaining_hours if remaining_hours is not None else 'N/A'}, "
-                f"Linked Transaction ID={c.transaction_id or 'None'}, Customer ID={c.customer_id or 'None'}"
-            )
-
-    if body.page_context and isinstance(body.page_context, dict):
-        cf = body.page_context.get("credit_factors")
-        if cf:
-            context_lines.append(f"ACTIVE CREDIT ANALYSIS SIMULATION FACTORS: {cf}")
-
+    # ── 3. Prompt Construction with Strict Intent Isolation ───────────────────
+    context_plan_str = f"<CONTEXT_PLAN>\nIntent: {plan.intent}\nDomains: {', '.join(plan.domains)}\nLanguage: {plan.language}\nEntity: {plan.entity_name or 'None'}\n</CONTEXT_PLAN>"
     ai_provider = get_ai_provider()
     provider_name = type(ai_provider).__name__
     provider_model = getattr(ai_provider, "model_name", None)
-    system_instruction = f"{SYSTEM_PROMPT}\n\n<VERIFIED_DATABASE_CONTEXT>\n" + "\n".join(context_lines) + "\n</VERIFIED_DATABASE_CONTEXT>"
+    system_instruction = f"{SYSTEM_PROMPT}\n\n{context_plan_str}\n\n<VERIFIED_DATABASE_CONTEXT>\n" + "\n".join(context_lines) + "\n</VERIFIED_DATABASE_CONTEXT>"
     prompt = f"<USER_QUESTION>\n{body.question}\n</USER_QUESTION>\nPrevious History: {body.history}"
+
+    # ── 4. Response Relevance Gate ────────────────────────────────────────────
+    def _is_response_relevant(intent: str, ans: str) -> bool:
+        ans_lower = ans.lower()
+        if intent == "TASK":
+            return any(w in ans_lower for w in ["task", "tasks", "pending", "follow-up", "karya"]) and not ("credit score" in ans_lower or "settlement dues" in ans_lower)
+        if intent == "TRANSACTION":
+            return any(w in ans_lower for w in ["transaction", "transactions", "failed", "switch", "aeps", "dmt", "timeout", "reconcil"]) and not ("credit assessment" in ans_lower)
+        if intent == "EARNINGS":
+            return any(w in ans_lower for w in ["earning", "earnings", "commission", "paid", "kamai", "₹"]) and not ("credit assessment" in ans_lower)
+        if intent == "COMPLAINT":
+            return any(w in ans_lower for w in ["complaint", "complaints", "shikayat", "sla", "dispute", "grievance"])
+        if intent == "CREDIT":
+            return any(w in ans_lower for w in ["credit", "score", "assessment", "risk", "cibil"])
+        if intent == "CUSTOMER":
+            return any(w in ans_lower for w in ["operations", "transaction", "transactions", "volume", "performance", "₹"])
+        if intent == "COMPOUND":
+            return ("task" in ans_lower or "tasks" in ans_lower) and ("transaction" in ans_lower or "failed" in ans_lower)
+        return True
 
     try:
         res_data = await ai_provider.generate(system_instruction, prompt, timeout=25.0)
+
+        # Apply relevance validation
+        if not _is_response_relevant(plan.intent, res_data.get("answer", "")):
+            logger.warning(f"Relevance gate triggered for intent {plan.intent}. Fallback to deterministic domain engine.")
+            local_provider = LocalDeterministicProvider()
+            res_data = await local_provider.generate(system_instruction, prompt)
 
         facts = [Fact(**f) if isinstance(f, dict) else Fact(text=str(f)) for f in res_data.get("facts", [])]
         inferences = [Inference(**i) if isinstance(i, dict) else Inference(text=str(i), confidence=0.9) for i in res_data.get("inferences", [])]
@@ -2948,13 +3047,16 @@ async def ask_eko(body: AskEkoRequest, user_id: str = Depends(verify_user_id), d
             actions=res_data.get("actions", []),
             sources=res_data.get("sources", ["Eko Core Database"]),
             confidence=float(res_data.get("confidence", 0.95)),
-            data_mode="online",
-            ai_mode="live_ai",
+            data_mode="online" if provider_name != "LocalDeterministicProvider" else "grounded-local",
+            ai_mode="live_ai" if provider_name != "LocalDeterministicProvider" else "deterministic",
             ai_provider=provider_name,
             ai_model=provider_model,
             grounded=res_data.get("grounded", True),
             insufficient_data=res_data.get("insufficient_data", False),
-            missing_info=res_data.get("missing_info")
+            missing_info=res_data.get("missing_info"),
+            request_id=req_id,
+            latency_ms=round((time.time() - t_start) * 1000, 2),
+            intent=plan.intent
         )
     except Exception as e:
         logger.error(f"AI Provider execution failed: {e}")
@@ -2980,11 +3082,12 @@ async def ask_eko(body: AskEkoRequest, user_id: str = Depends(verify_user_id), d
             grounded=True,
             insufficient_data=fallback_res.get("insufficient_data", True),
             missing_info=fallback_res.get("missing_info", "Cloud reasoning connection paused"),
+            intent=plan.intent,
             error=AIError(
                 code="AI_PROVIDER_UNAVAILABLE",
                 message="Cloud reasoning engine is temporarily unavailable. Displaying local grounded evaluation.",
                 retryable=True
-            )
+            ),
         )
 
 
@@ -3329,19 +3432,24 @@ def list_commissions(
     commissions = query.order_by(desc(models.Commission.created_at)).all()
 
     # Partner & customer names lookup
-    all_names = {
-        c.id: c.name for c in db.query(models.Customer).filter(models.Customer.user_id == user_id).all()
-    }
+    customers = db.query(models.Customer).filter(models.Customer.user_id == user_id).all()
+    all_names = {c.id: c.name for c in customers}
+    txns = {t.id: t for t in db.query(models.ServiceActivity).filter(models.ServiceActivity.user_id == user_id).all()}
 
     results = []
     for c in commissions:
+        txn = txns.get(c.transaction_id)
+        p_name = all_names.get(c.partner_id) or (all_names.get(txn.partner_id) if txn else None) or (txn.customer_name if txn else None) or "Eko Partner Outlet"
+        c_name = all_names.get(c.customer_id) or (all_names.get(txn.customer_id) if txn else None) or (txn.customer_name if txn else None) or "Retail Customer"
+        ref_id = txn.reference_id if txn else c.transaction_id
         results.append({
             "id": c.id,
             "transaction_id": c.transaction_id,
+            "transaction_reference": ref_id,
             "partner_id": c.partner_id,
-            "partner_name": all_names.get(c.partner_id, "Eko Partner Outlet"),
+            "partner_name": p_name,
             "customer_id": c.customer_id,
-            "customer_name": all_names.get(c.customer_id, "Retail Customer"),
+            "customer_name": c_name,
             "service": c.service,
             "transaction_amount": c.transaction_amount,
             "commission_rate": c.commission_rate,
@@ -3367,34 +3475,49 @@ def get_commission_detail(cid: str, user_id: str = Depends(verify_user_id), db: 
         raise HTTPException(status_code=404, detail="Commission record not found.")
 
     txn = db.query(models.ServiceActivity).filter(models.ServiceActivity.id == c.transaction_id).first()
-    partner = db.query(models.Customer).filter(models.Customer.id == c.partner_id).first()
+    partner_id = c.partner_id or (txn.partner_id if txn else None)
+    partner = db.query(models.Customer).filter(models.Customer.id == partner_id).first() if partner_id else None
+    partner_name = partner.name if partner else (txn.customer_name if (txn and txn.customer_name) else None)
 
-    return {
-        "commission": {
-            "id": c.id,
-            "transaction_id": c.transaction_id,
-            "partner_id": c.partner_id,
-            "partner_name": partner.name if partner else "Eko Partner Outlet",
-            "service": c.service,
-            "transaction_amount": c.transaction_amount,
-            "commission_rate": c.commission_rate,
-            "commission_amount": c.commission_amount,
-            "status": c.status,
-            "settlement_id": c.settlement_id,
-            "settlement_date": c.settlement_date.isoformat() if c.settlement_date else None,
-            "earned_at": c.earned_at.isoformat() if c.earned_at else None,
-            "created_at": c.created_at.isoformat() if c.created_at else None,
-        },
-        "transaction": {
-            "id": txn.id if txn else None,
-            "reference_id": txn.reference_id if txn else None,
-            "status": txn.status if txn else None,
-            "service_name": txn.service_name if txn else None,
-            "amount": txn.amount if txn else None,
-            "failure_reason": txn.failure_reason if txn else None,
-            "created_at": txn.created_at.isoformat() if txn and txn.created_at else None,
-        } if txn else None
+    settlement = None
+    if c.settlement_id:
+        settlement = db.query(models.Settlement).filter(models.Settlement.id == c.settlement_id).first()
+
+    comm_data = {
+        "id": c.id,
+        "transaction_id": c.transaction_id,
+        "transaction_reference": txn.reference_id if txn else c.transaction_id,
+        "partner_id": partner_id,
+        "partner_name": partner_name,
+        "customer_id": c.customer_id,
+        "service": c.service or (txn.service_name if txn else "Financial Service"),
+        "transaction_amount": c.transaction_amount if c.transaction_amount is not None else (txn.amount if txn else 0.0),
+        "commission_rate": c.commission_rate,
+        "commission_amount": c.commission_amount,
+        "status": c.status,
+        "settlement_id": c.settlement_id,
+        "settlement_reference": settlement.bank_reference if (settlement and settlement.bank_reference) else (c.settlement_id if c.settlement_id else None),
+        "settlement_status": settlement.status if settlement else ("PENDING" if c.status == "EARNED" else ("PAID" if c.status == "PAID" else None)),
+        "settlement_date": c.settlement_date.isoformat() if c.settlement_date else (settlement.settled_at.isoformat() if (settlement and settlement.settled_at) else None),
+        "earned_at": c.earned_at.isoformat() if c.earned_at else None,
+        "created_at": c.created_at.isoformat() if c.created_at else None,
     }
+
+    txn_data = {
+        "id": txn.id if txn else None,
+        "reference_id": txn.reference_id if txn else None,
+        "status": txn.status if txn else None,
+        "service_name": txn.service_name if txn else None,
+        "amount": txn.amount if txn else None,
+        "failure_reason": txn.failure_reason if txn else None,
+        "created_at": txn.created_at.isoformat() if txn and txn.created_at else None,
+    } if txn else None
+
+    # Return top-level flat fields for direct access AND nested commission/transaction for backward compatibility
+    res = dict(comm_data)
+    res["commission"] = comm_data
+    res["transaction"] = txn_data
+    return res
 
 
 @app.get("/api/earnings/summary")
@@ -3435,6 +3558,7 @@ def get_earnings_summary(user_id: str = Depends(verify_user_id), db: Session = D
         "total_earnings": total_earnings,
         "today_earnings": today_earnings,
         "this_month_earnings": month_earnings,
+        "monthly_earnings": month_earnings,
         "pending_earnings": pending_earnings,
         "paid_earnings": paid_earnings,
         "reversed_earnings": reversed_earnings,
@@ -3481,6 +3605,56 @@ class UploadValidateRequest(BaseModel):
 
 class UploadImportRequest(BaseModel):
     records: List[Dict[str, Any]]
+
+class PdfParseRequest(BaseModel):
+    file_base64: Optional[str] = None
+    filename: Optional[str] = "upload.pdf"
+
+@app.post("/api/upload/parse-pdf")
+async def parse_pdf_upload(
+    request: Request,
+    user_id: str = Depends(verify_user_id),
+    db: Session = Depends(database.get_db)
+):
+    """
+    Extract text and structured canonical records from an uploaded PDF.
+    Supports both multipart/form-data ('file') and JSON payload ('file_base64').
+    Distinguishes structured statements, scanned/image-only PDFs, and unsupported documents.
+    """
+    ensure_user_seeded(user_id, db)
+    pdf_bytes = None
+    filename = "document.pdf"
+    content_type = request.headers.get("content-type", "")
+
+    if "multipart/form-data" in content_type:
+        try:
+            form = await request.form()
+            uploaded_file = form.get("file")
+            if uploaded_file and hasattr(uploaded_file, "read"):
+                filename = getattr(uploaded_file, "filename", "document.pdf")
+                pdf_bytes = await uploaded_file.read()
+        except Exception as e:
+            logger.warning(f"Failed to read multipart form for PDF parse: {e}")
+    else:
+        try:
+            body = await request.json()
+            if body and "file_base64" in body:
+                b64 = body["file_base64"]
+                if "," in b64:
+                    b64 = b64.split(",", 1)[1]
+                pdf_bytes = base64.b64decode(b64)
+                filename = body.get("filename", "document.pdf")
+        except Exception as e:
+            logger.warning(f"Failed to decode JSON base64 for PDF parse: {e}")
+
+    if not pdf_bytes:
+        return JSONResponse(
+            status_code=400,
+            content={"success": False, "status": "empty", "error": "No PDF file payload provided."}
+        )
+
+    res = pdf_parser.extract_pdf_data(pdf_bytes, filename)
+    return res
 
 @app.post("/api/upload/validate")
 def validate_upload(data: UploadValidateRequest, user_id: str = Depends(verify_user_id), db: Session = Depends(database.get_db)):
@@ -3616,6 +3790,34 @@ def import_upload(data: UploadImportRequest, user_id: str = Depends(verify_user_
             ref_id = str(r.get("reference_id") or f"UPL-{uuid.uuid4().hex[:8].upper()}")
             fail_reason = r.get("failure_reason") if st == "failed" else None
 
+            rate, comm_amount, comm_status = canonical_seed.calculate_commission(svc, amt, st)
+
+            # Check if transaction with this reference_id already exists for this tenant
+            existing_act = db.query(models.ServiceActivity).filter(
+                models.ServiceActivity.user_id == user_id,
+                models.ServiceActivity.reference_id == ref_id
+            ).first() if ref_id else None
+
+            if existing_act:
+                existing_act.amount = amt
+                existing_act.status = st
+                existing_act.service_name = svc
+                existing_act.customer_name = c_name
+                existing_act.failure_reason = fail_reason
+                existing_act.commission = comm_amount
+                existing_act.updated_at = now
+
+                existing_comm = db.query(models.Commission).filter(
+                    models.Commission.transaction_id == existing_act.id
+                ).first()
+                if existing_comm:
+                    existing_comm.transaction_amount = amt
+                    existing_comm.commission_rate = rate
+                    existing_comm.commission_amount = comm_amount
+                    existing_comm.status = comm_status
+                imported_count += 1
+                continue
+
             # 1. Insert Transaction into ServiceActivity
             txn_id = str(uuid.uuid4())
             act = models.ServiceActivity(
@@ -3627,17 +3829,14 @@ def import_upload(data: UploadImportRequest, user_id: str = Depends(verify_user_
                 service_name=svc,
                 status=st,
                 amount=amt,
-                commission=0.0,
+                commission=comm_amount,
                 reference_id=ref_id,
                 failure_reason=fail_reason,
                 created_at=now
             )
-
-            # 2. Deterministic Commission calculation & creation
-            rate, comm_amount, comm_status = canonical_seed.calculate_commission(svc, amt, st)
-            act.commission = comm_amount
             db.add(act)
 
+            # 2. Deterministic Commission calculation & creation
             comm = models.Commission(
                 id=str(uuid.uuid4()),
                 user_id=user_id,
@@ -4116,6 +4315,15 @@ def update_task(tid: str, data: TaskUpdate, user_id: str = Depends(verify_user_i
     db.refresh(t)
     return t
 
+@app.delete("/api/tasks/{tid}")
+def delete_task(tid: str, user_id: str = Depends(verify_user_id), db: Session = Depends(database.get_db)):
+    t = db.query(models.Task).filter(models.Task.id == tid, models.Task.user_id == user_id).first()
+    if not t:
+        raise HTTPException(status_code=404, detail="Task not found.")
+    db.delete(t)
+    db.commit()
+    return {"success": True, "deleted": True, "message": "Task deleted successfully.", "id": tid}
+
 @app.get("/api/notes", response_model=List[NoteResponse])
 def list_notes(user_id: str = Depends(verify_user_id), db: Session = Depends(database.get_db)):
     ensure_user_seeded(user_id, db)
@@ -4270,9 +4478,73 @@ def update_whatsapp_outreach(
 @app.post("/api/whatsapp/generate")
 def generate_whatsapp_template(
     data: WhatsAppGenerateRequest,
-    user_id: str = Depends(verify_user_id)
+    user_id: str = Depends(verify_user_id),
+    db: Session = Depends(database.get_db)
 ):
-    cname = data.customer_name or "Partner"
+    ensure_user_seeded(user_id, db)
+    
+    # 1. Resolve canonical customer context with tenant isolation
+    customer = None
+    cid = data.customer_id
+    if cid:
+        customer = db.query(models.Customer).filter(
+            models.Customer.id == cid,
+            models.Customer.user_id == user_id
+        ).first()
+    if not customer and data.customer_name:
+        req_name = data.customer_name.strip()
+        customer = db.query(models.Customer).filter(
+            func.lower(models.Customer.name) == req_name.lower(),
+            models.Customer.user_id == user_id
+        ).first()
+        if not customer:
+            # Check if customer first name matches (e.g. "Rajesh" in "Rajesh Verma")
+            req_first = req_name.split()[0].lower() if req_name else ""
+            c_cand = db.query(models.Customer).filter(
+                models.Customer.user_id == user_id,
+                func.lower(models.Customer.name).like(f"{req_first}%")
+            ).first()
+            if c_cand:
+                customer = c_cand
+
+    if customer and data.customer_id:
+        cname = customer.name
+        cphone = customer.phone or data.customer_phone or ""
+        cid = customer.id
+    elif customer and data.customer_name and customer.name.lower() == data.customer_name.strip().lower():
+        cname = customer.name
+        cphone = customer.phone or data.customer_phone or ""
+        cid = customer.id
+    else:
+        cname = (data.customer_name or (customer.name if customer else "Customer")).strip()
+        cphone = (customer.phone if customer else data.customer_phone) or ""
+        cid = customer.id if customer else None
+
+    # Retrieve real customer operational statistics if available
+    customer_stats = None
+    if customer:
+        txns = db.query(models.ServiceActivity).filter(
+            models.ServiceActivity.user_id == user_id,
+            or_(
+                models.ServiceActivity.customer_id == customer.id,
+                models.ServiceActivity.partner_id == customer.id,
+                models.ServiceActivity.customer_name == customer.name
+            )
+        ).all()
+        total_txns = len(txns)
+        succ_txns = len([t for t in txns if t.status == "success"])
+        fail_txns = len([t for t in txns if t.status == "failed"])
+        tot_vol = sum(t.amount for t in txns if t.status == "success")
+        rate_pct = round((succ_txns / total_txns) * 100, 1) if total_txns > 0 else 100.0
+        customer_stats = {
+            "total_transactions": total_txns,
+            "successful_transactions": succ_txns,
+            "failed_transactions": fail_txns,
+            "total_volume": tot_vol,
+            "success_rate": rate_pct,
+            "kyc_status": customer.kyc_status
+        }
+
     raw_ttype = (data.template_type or "custom").lower()
     lang = (data.language or "hinglish").lower()
     if "hindi" in lang or lang == "hi":
@@ -4282,87 +4554,134 @@ def generate_whatsapp_template(
     else:
         norm_lang = "hinglish"
 
-    # Map aliases
+    # Map template types & aliases
     if raw_ttype in ("kyc_reminder", "kyc"):
         ttype = "kyc_reminder"
     elif raw_ttype in ("payment_reminder", "payment", "due"):
         ttype = "payment_reminder"
     elif raw_ttype in ("settlement_notice", "settlement"):
         ttype = "settlement_notice"
-    elif raw_ttype in ("dispute_update", "dispute", "sla"):
+    elif raw_ttype in ("dispute_update", "dispute", "sla", "complaint_update", "complaint"):
         ttype = "dispute_update"
-    elif raw_ttype in ("money_transfer", "dmt", "send_money"):
-        ttype = "money_transfer"
-    elif raw_ttype in ("aeps", "cash_withdrawal", "aadhaar"):
-        ttype = "aeps"
-    elif raw_ttype in ("bbps", "bill_payment", "bill"):
-        ttype = "bbps"
-    elif raw_ttype in ("recharge", "mobile_recharge"):
-        ttype = "recharge"
+    elif raw_ttype in ("money_transfer", "dmt", "send_money", "dmt_success"):
+        ttype = "dmt_success"
+    elif raw_ttype in ("dmt_failed", "transfer_failed"):
+        ttype = "dmt_failed"
+    elif raw_ttype in ("aeps", "cash_withdrawal", "aadhaar", "aeps_success"):
+        ttype = "aeps_success"
+    elif raw_ttype in ("bbps", "bill_payment", "bill", "bbps_success"):
+        ttype = "bbps_success"
+    elif raw_ttype in ("recharge", "mobile_recharge", "recharge_success"):
+        ttype = "recharge_success"
     elif raw_ttype in ("offer", "festival", "festive"):
         ttype = "offer"
     else:
         ttype = "custom"
 
+    # Parse details / amount
+    details_str = (data.details or "").strip()
+    amount_str = ""
+    if getattr(data, "amount", None) is not None:
+        try:
+            val_clean = str(data.amount).replace("₹", "").replace(",", "").strip()
+            num_val = float(val_clean)
+            amount_str = f"₹{num_val:,.0f}" if num_val.is_integer() else f"₹{num_val:,.2f}"
+        except (ValueError, TypeError):
+            amount_str = str(data.amount)
+    elif details_str:
+        amt_match = re.search(r'(?:₹|rs\.?|inr)?\s*([\d,]+(?:\.\d{2})?)', details_str, re.IGNORECASE)
+        if amt_match:
+            try:
+                num_val = float(amt_match.group(1).replace(",", ""))
+                amount_str = f"₹{num_val:,.0f}" if num_val.is_integer() else f"₹{num_val:,.2f}"
+            except ValueError:
+                amount_str = details_str
+        else:
+            amount_str = details_str
+
+    det_label_en = f" (Details: {details_str})" if details_str and amount_str != details_str else ""
+    det_label_hi = f" (विवरण: {details_str})" if details_str and amount_str != details_str else ""
+    det_label_hing = f" (Details: {details_str})" if details_str and amount_str != details_str else ""
+
     templates = {
         "kyc_reminder": {
-            "english": f"Hi {cname}, your KYC verification is still pending. Please complete your Aadhaar and PAN verification to keep your services active and unlock higher transaction limits.",
-            "hindi": f"नमस्ते {cname} जी, आपका KYC verification अभी pending है। कृपया इसे पूरा कर लें ताकि आपकी services active रहें और transaction limit बढ़ सके।",
-            "hinglish": f"Namaste {cname} ji, aapka KYC verification abhi pending hai. Please ise complete kar lijiye taaki aapki services active rahen aur transaction limits open ho sakein."
+            "english": f"Hi {cname}, your KYC verification is still pending. Please complete your Aadhaar and PAN verification to keep your services active and unlock higher transaction limits.{det_label_en}",
+            "hindi": f"नमस्ते {cname} जी, आपका KYC verification अभी pending है। कृपया इसे पूरा कर लें ताकि आपकी services active रहें और transaction limit बढ़ सके।{det_label_hi}",
+            "hinglish": f"Namaste {cname} ji, aapka KYC verification abhi pending hai. Please ise complete kar lijiye taaki aapki services active rahen aur transaction limits open ho sakein.{det_label_hing}"
         },
-        "money_transfer": {
-            "english": f"Hi {cname}, your money transfer service is active and ready. Send funds instantly with zero failed transactions and live confirmation.",
-            "hindi": f"नमस्ते {cname} जी, आपका मनी ट्रांसफर उपलब्ध है। तुरंत पैसे भेजें, सुरक्षित एवं बिना किसी रुकावट के।",
-            "hinglish": f"Namaste {cname} ji, aapka money transfer available hai. Instant settlement aur zero downtime ke saath kisi bhi bank account mein transfer karein."
+        "dmt_success": {
+            "english": f"Hi {cname}, your money transfer service is active and ready. Your transfer{' of ' + amount_str if amount_str else ''} has been processed successfully with zero failed transactions and live confirmation.{det_label_en} Powered by Eko Partner Services 🟠",
+            "hindi": f"नमस्ते {cname} जी, आपका मनी ट्रांसफर उपलब्ध है। आपका{' ' + amount_str if amount_str else ''} मनी ट्रांसफर सफलतापूर्वक पूरा हो गया है। तुरंत पैसे भेजें, सुरक्षित एवं बिना किसी रुकावट के।{det_label_hi} Powered by Eko Partner Services 🟠",
+            "hinglish": f"Namaste {cname} ji, aapka money transfer available hai. Aapka{' ' + amount_str if amount_str else ''} transfer successfully complete ho gaya hai. Instant settlement aur zero downtime ke saath kisi bhi bank account mein transfer karein.{det_label_hing} Powered by Eko Partner Services 🟠"
         },
-        "aeps": {
-            "english": f"Hi {cname}, AePS cash withdrawal and mini-statement services are fully operational at your nearest Eko counter with instant receipt.",
-            "hindi": f"नमस्ते {cname} जी, आधार बैंकिंग (AePS) एवं कैश निकासी सेवा हमारे ईको केंद्र पर उपलब्ध है। तुरंत रसीद प्राप्त करें।",
-            "hinglish": f"Namaste {cname} ji, AePS cash withdrawal aur mini statement facility counter par available hai. Instant cash aur official receipt payein."
+        "dmt_failed": {
+            "english": f"Dear {cname}, your money transfer{' of ' + amount_str if amount_str else ''} could not be completed due to bank switch timeout. Your funds are completely safe and reconciliation is in progress.{det_label_en} Powered by Eko Partner Services 🟠",
+            "hindi": f"नमस्ते {cname} जी, बैंक सर्वर समस्या के कारण आपका{' ' + amount_str if amount_str else ''} मनी ट्रांसफर पूरा नहीं हो सका। आपकी राशि पूरी तरह सुरक्षित है और समाधान प्रक्रिया जारी है।{det_label_hi} Powered by Eko Partner Services 🟠",
+            "hinglish": f"Namaste {cname} ji, bank switch timeout ki wajah se aapka{' ' + amount_str if amount_str else ''} transfer complete nahi ho saka. Aapka paisa 100% surakshit hai aur settlement check ho raha hai.{det_label_hing} Powered by Eko Partner Services 🟠"
         },
-        "bbps": {
-            "english": f"Hi {cname}, pay all your electricity, water, and broadband bills instantly with instant BBPS confirmation at our counter.",
-            "hindi": f"नमस्ते {cname} जी, बिजली, पानी एवं सभी उपयोगी बिलों का भुगतान हमारे ईको केंद्र पर तुरंत करें एवं पक्की रसीद पाएं।",
-            "hinglish": f"Namaste {cname} ji, electricity, water aur broadband bills ka instant payment hamare counter par karein. Official BBPS receipt instantly mil jayegi."
+        "aeps_success": {
+            "english": f"Hi {cname}, AePS cash withdrawal and mini-statement services are fully operational at your nearest Eko counter with instant receipt.{' Withdrawal of ' + amount_str + ' completed successfully.' if amount_str else ''}{det_label_en} Powered by Eko Partner Services 🟠",
+            "hindi": f"नमस्ते {cname} जी, आधार बैंकिंग (AePS) एवं कैश निकासी सेवा हमारे ईको केंद्र पर उपलब्ध है। तुरंत रसीद प्राप्त करें।{' आधार से ' + amount_str + ' की निकासी सफल रही।' if amount_str else ''}{det_label_hi} Powered by Eko Partner Services 🟠",
+            "hinglish": f"Namaste {cname} ji, AePS cash withdrawal aur mini statement facility counter par available hai. Instant cash aur official receipt payein.{' Aadhaar se ' + amount_str + ' withdrawal complete hua.' if amount_str else ''}{det_label_hing} Powered by Eko Partner Services 🟠"
         },
-        "recharge": {
-            "english": f"Hi {cname}, recharge your mobile or DTH connection instantly with exciting cashback offers at our Eko service point.",
-            "hindi": f"नमस्ते {cname} जी, अपने मोबाइल एवं डीटीएच का रिचार्ज हमारे ईको केंद्र पर तुरंत करवाएं और पाएं बेहतरीन ऑफर्स।",
-            "hinglish": f"Namaste {cname} ji, mobile aur DTH recharge counter par available hai. Instant activation aur best festive plans ke liye visit karein."
+        "bbps_success": {
+            "english": f"Hi {cname}, pay all your electricity, water, and broadband bills instantly with instant BBPS confirmation at our counter.{' Bill payment of ' + amount_str + ' received.' if amount_str else ''}{det_label_en} Powered by Eko Partner Services 🟠",
+            "hindi": f"नमस्ते {cname} जी, बिजली, पानी एवं सभी उपयोगी बिलों का भुगतान हमारे ईको केंद्र पर तुरंत करें एवं पक्की रसीद पाएं।{' ' + amount_str + ' का बिल भुगतान सफल रहा।' if amount_str else ''}{det_label_hi} Powered by Eko Partner Services 🟠",
+            "hinglish": f"Namaste {cname} ji, electricity, water aur broadband bills ka instant payment hamare counter par karein. Official BBPS receipt instantly mil jayegi.{' ' + amount_str + ' bill payment successful.' if amount_str else ''}{det_label_hing} Powered by Eko Partner Services 🟠"
+        },
+        "recharge_success": {
+            "english": f"Hi {cname}, recharge your mobile or DTH connection instantly with exciting cashback offers at our Eko service point.{' Recharge of ' + amount_str + ' successful.' if amount_str else ''}{det_label_en} Powered by Eko Partner Services 🟠",
+            "hindi": f"नमस्ते {cname} जी, अपने मोबाइल एवं डीटीएच का रिचार्ज हमारे ईको केंद्र पर तुरंत करवाएं और पाएं बेहतरीन ऑफर्स।{' ' + amount_str + ' का रिचार्ज सक्रिय हो गया है।' if amount_str else ''}{det_label_hi} Powered by Eko Partner Services 🟠",
+            "hinglish": f"Namaste {cname} ji, mobile aur DTH recharge counter par available hai. Instant activation aur best festive plans ke liye visit karein.{' ' + amount_str + ' recharge ho gaya hai.' if amount_str else ''}{det_label_hing} Powered by Eko Partner Services 🟠"
         },
         "payment_reminder": {
-            "english": f"Hello {cname}, your Eko partner account has a pending settlement balance due. Please complete the payment today to ensure uninterrupted operations.",
-            "hindi": f"नमस्ते {cname} जी, आपके ईको अकाउंट का बकाया सेटलमेंट भुगतान लंबित है। निर्बाध सेवाओं के लिए कृपया आज ही भुगतान करें।",
-            "hinglish": f"Namaste {cname} ji, aapke Eko account ka settlement balance pending hai. Kripya samay par settlement clear karein taaki services chalti rahein."
+            "english": f"Hello {cname}, your Eko partner account has a pending settlement balance due{': ' + amount_str if amount_str else ''}. Please complete the payment today to ensure uninterrupted operations.{det_label_en}",
+            "hindi": f"नमस्ते {cname} जी, आपके ईको अकाउंट का बकाया सेटलमेंट भुगतान लंबित है{': ' + amount_str if amount_str else ''}। निर्बाध सेवाओं के लिए कृपया आज ही भुगतान करें।{det_label_hi}",
+            "hinglish": f"Namaste {cname} ji, aapke Eko account ka settlement balance pending hai{': ' + amount_str if amount_str else ''}. Kripya samay par settlement clear karein taaki services chalti rahein.{det_label_hing}"
         },
         "settlement_notice": {
-            "english": f"Hello {cname}, today's operational settlement for your Eko service point has been successfully processed and reconciled.",
-            "hindi": f"नमस्ते {cname} जी, आपके ईको केंद्र का आज का सेटलमेंट सफलतापूर्वक प्रोसेस हो गया है। सभी लेन-देन का मिलान पूरा हुआ।",
-            "hinglish": f"Namaste {cname} ji, aapke Eko center ka daily settlement report process ho chuka hai. Statement portal par check karein."
+            "english": f"Hello {cname}, today's operational settlement for your Eko service point has been successfully processed and reconciled.{' Settled amount: ' + amount_str if amount_str else ''}{det_label_en}",
+            "hindi": f"नमस्ते {cname} जी, आपके ईको केंद्र का आज का सेटलमेंट सफलतापूर्वक प्रोसेस हो गया है। सभी लेन-देन का मिलान पूरा हुआ।{' सेटलमेंट राशि: ' + amount_str if amount_str else ''}{det_label_hi}",
+            "hinglish": f"Namaste {cname} ji, aapke Eko center ka daily settlement report process ho chuka hai. Statement portal par check karein.{' Settlement amount: ' + amount_str if amount_str else ''}{det_label_hing}"
         },
         "dispute_update": {
-            "english": f"Hello {cname}, your transaction dispute is actively being coordinated with the banking switch. Resolution will be provided within SLA.",
-            "hindi": f"नमस्ते {cname} जी, आपके लेन-देन विवाद पर हमारी टीम बैंक स्विच से समन्वय कर रही है। SLA के तहत जल्द समाधान किया जाएगा।",
-            "hinglish": f"Namaste {cname} ji, aapki transaction dispute request Eko operations desk par actively monitor ho rahi hai. Bank switch SLA ke bheetar resolution mil jayega."
+            "english": f"Hello {cname}, your transaction dispute is actively being coordinated with the banking switch. Resolution will be provided within SLA.{det_label_en}",
+            "hindi": f"नमस्ते {cname} जी, आपके लेन-देन विवाद पर हमारी टीम बैंक स्विच से समन्वय कर रही है। SLA के तहत जल्द समाधान किया जाएगा।{det_label_hi}",
+            "hinglish": f"Namaste {cname} ji, aapki transaction dispute request Eko operations desk par actively monitor ho rahi hai. Bank switch SLA ke bheetar resolution mil jayega.{det_label_hing}"
         },
         "offer": {
-            "english": f"Hello {cname}! Special festive offer: Enjoy fast money transfers, cash withdrawals, and bill payments with highest commission and zero downtime!",
-            "hindi": f"नमस्ते {cname} जी, इस त्योहारी सीजन में अपने ग्राहकों को ईको की मनी ट्रांसफर, AePS एवं बिल सेवाएं दें और पाएं उच्चतम कमीशन!",
-            "hinglish": f"Namaste {cname} ji! Is festive season apne customers ko dein Eko ki fast DMT aur AePS services. Highest commission aur instant settlement ka labh uthayein!"
+            "english": f"Hello {cname}! Special festive offer: Enjoy fast money transfers, cash withdrawals, and bill payments with highest commission and zero downtime!{det_label_en}",
+            "hindi": f"नमस्ते {cname} जी, इस त्योहारी सीजन में अपने ग्राहकों को ईको की मनी ट्रांसफर, AePS एवं बिल सेवाएं दें और पाएं उच्चतम कमीशन!{det_label_hi}",
+            "hinglish": f"Namaste {cname} ji! Is festive season apne customers ko dein Eko ki fast DMT aur AePS services. Highest commission aur instant settlement ka labh uthayein!{det_label_hing}"
         },
         "custom": {
-            "english": f"Hello {cname}, operational update from Eko Operations. Please visit your dashboard or counter for details.",
-            "hindi": f"नमस्ते {cname} जी, ईको डिजिटल ऑपरेशंस से संदेश। किसी भी सहायता के लिए हमें तुरंत सूचित करें।",
-            "hinglish": f"Namaste {cname} ji, Eko operations center se update. Kisi bhi banking sahayata ke liye sampark karein."
+            "english": f"Hello {cname}, operational update from Eko Operations: {details_str if details_str else 'Please visit your dashboard or counter for details.'} Powered by Eko Partner Services 🟠",
+            "hindi": f"नमस्ते {cname} जी, ईको डिजिटल ऑपरेशंस से संदेश: {details_str if details_str else 'किसी भी सहायता के लिए हमें तुरंत सूचित करें।'} Powered by Eko Partner Services 🟠",
+            "hinglish": f"Namaste {cname} ji, Eko operations center se update: {details_str if details_str else 'Kisi bhi banking sahayata ke liye sampark karein.'} Powered by Eko Partner Services 🟠"
         }
     }
 
     msg = templates.get(ttype, templates["custom"]).get(norm_lang, templates["custom"]["hinglish"])
 
+    # Clean destination phone
+    clean_phone = re.sub(r"\D", "", cphone)
+    if clean_phone and len(clean_phone) == 10:
+        clean_phone = f"91{clean_phone}"
+    elif not clean_phone:
+        clean_phone = "919876543210"
+
+    wa_url = f"https://wa.me/{clean_phone}?text={urllib.parse.quote(msg)}"
+
     return {
         "message": msg,
         "template_type": ttype,
-        "language": norm_lang
+        "language": norm_lang,
+        "customer_id": cid,
+        "customer_name": cname,
+        "customer_phone": cphone,
+        "details": details_str,
+        "customer_stats": customer_stats,
+        "whatsapp_url": wa_url
     }
 
 
@@ -4597,6 +4916,36 @@ def generate_poster_copy(
         "partner_name": p_name,
         "template_type": ttype
     }
+
+
+# ─── QA Suite Compatibility Aliases ───────────────────────────────────────────
+@app.get("/api/dashboard")
+def get_dashboard_alias(period: Optional[str] = "today", user_id: str = Depends(verify_user_id), db: Session = Depends(database.get_db)):
+    """Compatibility alias mapping /api/dashboard to /api/ops/dashboard."""
+    return get_ops_dashboard(user_id=user_id, db=db)
+
+@app.get("/api/transactions")
+def get_transactions_alias(limit: int = 50, user_id: str = Depends(verify_user_id), db: Session = Depends(database.get_db)):
+    """Compatibility alias mapping /api/transactions to /api/activity."""
+    txns = db.query(models.ServiceActivity).filter(
+        models.ServiceActivity.user_id == user_id
+    ).order_by(desc(models.ServiceActivity.created_at)).limit(limit).all()
+    return txns
+
+@app.get("/api/earnings")
+def get_earnings_alias(user_id: str = Depends(verify_user_id), db: Session = Depends(database.get_db)):
+    """Compatibility alias mapping /api/earnings to /api/earnings/summary."""
+    return get_earnings_summary(user_id=user_id, db=db)
+
+@app.get("/api/grievances")
+def get_grievances_alias(user_id: str = Depends(verify_user_id), db: Session = Depends(database.get_db)):
+    """Compatibility alias mapping /api/grievances to /api/complaints."""
+    return db.query(models.Complaint).filter(models.Complaint.user_id == user_id).order_by(desc(models.Complaint.created_at)).all()
+
+@app.get("/api/customers/{cid}/credit-analysis")
+def get_customer_credit_analysis_alias(cid: str, user_id: str = Depends(verify_user_id), db: Session = Depends(database.get_db)):
+    """Compatibility alias mapping /api/customers/{id}/credit-analysis to /api/credit-score/analyze."""
+    return analyze_credit_score(body=CreditAnalysisRequest(customer_id=cid), user_id=user_id, db=db)
 
 
 

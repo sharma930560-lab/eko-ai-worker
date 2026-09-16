@@ -314,13 +314,27 @@ const SCREENS = {
 
 function navigateTo(screen) {
     if (!currentUser) { showLoginScreen(); return; }
+    // Support standard aliases
+    if (screen === 'dashboard') screen = 'home';
+    if (screen === 'transactions') screen = 'activity';
+    if (screen === 'complaints') screen = 'grievances';
+    if (screen === 'credit-analysis') {
+        if (typeof openCreditAnalysisModal === 'function') {
+            openCreditAnalysisModal();
+            return;
+        }
+    }
     currentScreen = screen;
     const content = document.getElementById('main-content');
     if (!content) return;
 
     document.querySelectorAll('.nav-item').forEach(n => {
         const tab = n.dataset.tab;
-        n.classList.toggle('active', tab === screen || (tab === 'partners' && screen === 'customers'));
+        n.classList.toggle('active',
+            tab === screen ||
+            (tab === 'partners' && screen === 'customers') ||
+            (tab === 'customers' && screen === 'customers')
+        );
     });
 
     const def = SCREENS[screen];
@@ -646,8 +660,8 @@ function renderHomeScreen() {
 
         <!-- Outreach & Marketing Hub -->
         <div style="display:grid; grid-template-columns:1fr 1fr; gap:12px; margin-top:14px;">
-            <div class="card" style="padding:14px; display:flex; align-items:center; gap:12px; cursor:pointer; border-left:4px solid #25d366; background:var(--card-bg);" onclick="navigateTo('whatsapp-studio')">
-                <div style="background:rgba(37,211,102,0.12); color:#128c7e; width:42px; height:42px; border-radius:10px; display:flex; align-items:center; justify-content:center; flex-shrink:0;">
+            <div class="card" style="padding:14px; display:flex; align-items:center; gap:12px; cursor:pointer; border-left:4px solid var(--whatsapp); background:var(--card-bg);" onclick="navigateTo('whatsapp-studio')">
+            <div style="background:var(--whatsapp-bg); color:var(--whatsapp-dark); width:42px; height:42px; border-radius:10px; display:flex; align-items:center; justify-content:center; flex-shrink:0;">
                     ${renderIcon('message-circle', 22)}
                 </div>
                 <div style="min-width:0;">
@@ -831,8 +845,18 @@ function openDataUploadModal() {
     const modal = document.getElementById('data-upload-modal');
     if (!modal) return;
     _pendingUploadRecords = [];
+    const card = document.getElementById('upload-selected-file-card');
+    if (card) {
+        card.classList.add('hidden');
+        card.innerHTML = '';
+    }
     const previewContainer = document.getElementById('upload-preview-container');
     if (previewContainer) previewContainer.classList.add('hidden');
+    const statusEl = document.getElementById('upload-status-indicator');
+    if (statusEl) {
+        statusEl.classList.add('hidden');
+        statusEl.innerHTML = '';
+    }
     const tbody = document.getElementById('upload-preview-tbody');
     if (tbody) tbody.innerHTML = '';
     const fileInp = document.getElementById('upload-file-input');
@@ -843,6 +867,7 @@ function openDataUploadModal() {
         confirmBtn.innerHTML = `${renderIcon('check', 14)} Import Valid Records`;
     }
     modal.classList.remove('hidden');
+    setupDataUploadDropzone();
     if (window.lucide) lucide.createIcons();
 }
 
@@ -850,6 +875,11 @@ function closeDataUploadModal() {
     const modal = document.getElementById('data-upload-modal');
     if (modal) modal.classList.add('hidden');
     _pendingUploadRecords = [];
+    const card = document.getElementById('upload-selected-file-card');
+    if (card) {
+        card.classList.add('hidden');
+        card.innerHTML = '';
+    }
 }
 
 function downloadUploadSampleTemplate() {
@@ -870,74 +900,330 @@ function downloadUploadSampleTemplate() {
     showToast("Sample CSV template downloaded");
 }
 
-function parseCSVLine(line) {
+function parseCSVLine(line, delimiter = ',') {
     const values = [];
     let current = '';
     let inQuotes = false;
     for (let i = 0; i < line.length; i++) {
         const c = line[i];
         if (c === '"') {
-            inQuotes = !inQuotes;
-        } else if (c === ',' && !inQuotes) {
-            values.push(current.trim().replace(/^"|"$/g, ''));
+            if (inQuotes && line[i + 1] === '"') {
+                // Escaped double quote per RFC 4180
+                current += '"';
+                i++;
+            } else {
+                inQuotes = !inQuotes;
+            }
+        } else if (c === delimiter && !inQuotes) {
+            values.push(current.trim());
             current = '';
         } else {
             current += c;
         }
     }
-    values.push(current.trim().replace(/^"|"$/g, ''));
+    values.push(current.trim());
     return values;
 }
 
-async function handleFileUpload(event) {
-    const file = event.target.files && event.target.files[0];
+function parseDelimitedRecords(text, delimiter = ',') {
+    // Strip UTF-8 BOM if present
+    const cleanText = text.replace(/^\uFEFF/, '').trim();
+    if (!cleanText) return [];
+
+    const lines = cleanText.split(/\r?\n/).filter(l => l.trim().length > 0);
+    if (lines.length < 2) return [];
+
+    const headers = parseCSVLine(lines[0], delimiter).map(h => 
+        h.toLowerCase().replace(/[^a-z0-9_]/g, '_').replace(/^_+|_+$/g, '')
+    );
+
+    const records = [];
+    const maxRecords = 500;
+    for (let i = 1; i < lines.length && records.length < maxRecords; i++) {
+        const rowVals = parseCSVLine(lines[i], delimiter);
+        if (rowVals.length === 0 || rowVals.every(v => !v)) continue;
+        const rec = {};
+        headers.forEach((h, idx) => {
+            rec[h] = rowVals[idx] !== undefined ? rowVals[idx] : '';
+        });
+        records.push(rec);
+    }
+    return records;
+}
+
+function formatFileSize(bytes) {
+    if (bytes < 1024) return bytes + ' B';
+    if (bytes < 1024 * 1024) return (bytes / 1024).toFixed(1) + ' KB';
+    return (bytes / (1024 * 1024)).toFixed(1) + ' MB';
+}
+
+function renderSelectedFileCard(file, ext, detectedFormat, statusText, statusType = 'info') {
+    const card = document.getElementById('upload-selected-file-card');
+    if (!card) return;
+    card.classList.remove('hidden');
+
+    let icon = '📄';
+    if (ext === 'csv' || ext === 'tsv') icon = '📊';
+    else if (ext === 'json') icon = '📦';
+    else if (ext === 'pdf') icon = '📑';
+
+    let color = 'var(--text)';
+    if (statusType === 'success') color = 'var(--success)';
+    else if (statusType === 'danger' || statusType === 'error') color = 'var(--danger)';
+    else if (statusType === 'warning') color = 'var(--warning)';
+
+    card.innerHTML = `
+        <div style="display:flex; align-items:center; gap:12px;">
+            <div style="width:42px; height:42px; border-radius:8px; background:var(--primary-light); display:flex; align-items:center; justify-content:center; font-size:22px; flex-shrink:0;">
+                ${icon}
+            </div>
+            <div style="flex:1; min-width:0;">
+                <div style="font-weight:700; font-size:0.95rem; text-overflow:ellipsis; overflow:hidden; white-space:nowrap; color:var(--text);" title="${escapeHtml(file.name)}">
+                    ${escapeHtml(file.name)}
+                </div>
+                <div class="text-xs text-muted" style="margin-top:2px;">
+                    <span style="font-weight:700; color:var(--primary);">${(ext || '').toUpperCase()}</span> • ${formatFileSize(file.size)} • Format: <span style="font-weight:600; color:var(--text);">${escapeHtml(detectedFormat)}</span>
+                </div>
+                <div class="text-xs font-semibold" style="margin-top:4px; color:${color};">
+                    ${statusText}
+                </div>
+            </div>
+        </div>
+    `;
+}
+
+async function processUploadFile(file) {
     if (!file) return;
 
+    const statusEl = document.getElementById('upload-status-indicator');
+    const confirmBtn = document.getElementById('btn-confirm-import');
+    const previewContainer = document.getElementById('upload-preview-container');
+
+    // Reset preview and button
+    if (previewContainer) previewContainer.classList.add('hidden');
+    if (confirmBtn) {
+        confirmBtn.disabled = true;
+        confirmBtn.innerHTML = `${renderIcon('check', 14)} Import Valid Records`;
+    }
+
+    // 1. Validation of file extension & size
+    const ext = (file.name.split('.').pop() || '').toLowerCase();
+    const validExts = ['csv', 'tsv', 'json', 'pdf', 'txt'];
+
+    let detectedFormat = ext.toUpperCase();
+    if (ext === 'txt') detectedFormat = 'TSV/Text';
+    else if (ext === 'csv') detectedFormat = 'CSV';
+    else if (ext === 'tsv') detectedFormat = 'TSV';
+    else if (ext === 'json') detectedFormat = 'JSON';
+    else if (ext === 'pdf') detectedFormat = 'PDF';
+
+    if (!validExts.includes(ext)) {
+        renderSelectedFileCard(file, ext || 'UNKNOWN', 'Unsupported', 'Unsupported file format. Please upload CSV, TSV, JSON, or PDF.', 'danger');
+        showToast('Unsupported file format. Supported: CSV, TSV, JSON, PDF.', 'warning');
+        if (statusEl) {
+            statusEl.classList.remove('hidden');
+            statusEl.innerHTML = `<span style="color:var(--danger);">Unsupported file format <b>.${escapeHtml(ext)}</b>. Please upload a .csv, .tsv, .json, or .pdf file.</span>`;
+        }
+        return;
+    }
+
+    if (file.size > 5 * 1024 * 1024) {
+        renderSelectedFileCard(file, ext, detectedFormat, 'File size exceeds maximum 5MB limit.', 'danger');
+        showToast('File size exceeds maximum 5MB limit.', 'warning');
+        if (statusEl) {
+            statusEl.classList.remove('hidden');
+            statusEl.innerHTML = `<span style="color:var(--danger);">File size (${formatFileSize(file.size)}) exceeds maximum 5MB limit.</span>`;
+        }
+        return;
+    }
+
+    if (file.size === 0) {
+        renderSelectedFileCard(file, ext, detectedFormat, 'File is empty (0 bytes).', 'danger');
+        showToast('File is empty (0 bytes).', 'warning');
+        if (statusEl) {
+            statusEl.classList.remove('hidden');
+            statusEl.innerHTML = `<span style="color:var(--danger);">Uploaded file is empty.</span>`;
+        }
+        return;
+    }
+
+    renderSelectedFileCard(file, ext, detectedFormat, `<span class="spinner" style="display:inline-block; width:10px; height:10px; vertical-align:middle; margin-right:4px;"></span> Parsing file...`, 'info');
+
+    if (statusEl) {
+        statusEl.classList.remove('hidden');
+        statusEl.innerHTML = `<span class="spinner" style="display:inline-block; width:12px; height:12px; vertical-align:middle; margin-right:6px;"></span> Processing <b>${escapeHtml(file.name)}</b> (${formatFileSize(file.size)})...`;
+    }
+
+    // ── Handle PDF Upload ──
+    if (ext === 'pdf') {
+        try {
+            renderSelectedFileCard(file, ext, detectedFormat, `<span class="spinner" style="display:inline-block; width:10px; height:10px; vertical-align:middle; margin-right:4px;"></span> Extracting text from PDF...`, 'info');
+            const pdfRes = await api.parsePdf(file);
+
+            if (!pdfRes || !pdfRes.success) {
+                const errMsg = (pdfRes && pdfRes.error) || 'Failed to extract PDF records.';
+                renderSelectedFileCard(file, ext, detectedFormat, errMsg, 'danger');
+                if (statusEl) {
+                    statusEl.innerHTML = `<span style="color:var(--danger);"><b>PDF Error:</b> ${escapeHtml(errMsg)}</span>`;
+                }
+                showToast(errMsg, 'warning');
+                return;
+            }
+
+            const records = pdfRes.records || [];
+            if (records.length === 0) {
+                renderSelectedFileCard(file, ext, detectedFormat, 'PDF received, but no supported import schema was detected.', 'warning');
+                if (statusEl) {
+                    statusEl.innerHTML = `<span style="color:var(--warning);">PDF received, but no supported import schema was detected.</span>`;
+                }
+                showToast('PDF received, but no supported import schema was detected.', 'warning');
+                return;
+            }
+
+            renderSelectedFileCard(file, ext, detectedFormat, `Text extracted successfully • ${records.length} records detected`, 'success');
+            if (statusEl) {
+                statusEl.innerHTML = `<span class="spinner" style="display:inline-block; width:12px; height:12px; vertical-align:middle; margin-right:6px;"></span> Validating <b>${records.length}</b> records from PDF...`;
+            }
+
+            // Validate extracted records with canonical upload validator
+            const res = await api.validateUpload({ records });
+            displayUploadValidationResult(res);
+
+            if (statusEl) {
+                const isAllValid = res.error_count === 0 && res.valid_count > 0;
+                statusEl.innerHTML = `
+                    <div style="display:flex; justify-content:space-between; align-items:center; flex-wrap:wrap; gap:6px;">
+                        <span>PDF: <b>${escapeHtml(file.name)}</b> (${formatFileSize(file.size)})</span>
+                        <span style="color:${isAllValid ? 'var(--success)' : (res.valid_count > 0 ? 'var(--warning)' : 'var(--danger)')};">
+                            ${res.valid_count} of ${res.total_records} records valid
+                        </span>
+                    </div>`;
+            }
+        } catch (err) {
+            const msg = (err && (err.message || err.detail)) || 'Failed to parse PDF document.';
+            renderSelectedFileCard(file, ext, detectedFormat, `Error: ${msg}`, 'danger');
+            showToast(msg, 'error');
+            if (statusEl) {
+                statusEl.innerHTML = `<span style="color:var(--danger);">PDF parsing error: ${escapeHtml(msg)}</span>`;
+            }
+        }
+        return;
+    }
+
+    // ── Handle CSV / TSV / JSON ──
     const reader = new FileReader();
+    reader.onerror = () => {
+        renderSelectedFileCard(file, ext, detectedFormat, 'Failed to read file from disk.', 'danger');
+        showToast('Failed to read file from disk.', 'error');
+        if (statusEl) statusEl.classList.add('hidden');
+    };
+
     reader.onload = async (e) => {
         const text = e.target.result;
         let records = [];
 
         try {
-            if (file.name.endsWith('.json')) {
+            if (ext === 'json') {
                 const parsed = JSON.parse(text);
-                records = Array.isArray(parsed) ? parsed : (parsed.records || [parsed]);
+                const rawList = Array.isArray(parsed) ? parsed : (parsed.records || [parsed]);
+                records = rawList.slice(0, 500);
             } else {
-                // CSV or TSV parsing
-                const lines = text.split(/\r?\n/).filter(l => l.trim().length > 0);
-                if (lines.length < 2) {
-                    showToast('CSV file must have a header row and at least one data row.', 'warning');
-                    return;
-                }
-                const delimiter = lines[0].includes('\t') ? '\t' : ',';
-                const headers = lines[0].split(delimiter).map(h => h.trim().toLowerCase().replace(/[^a-z0-9_]/g, '_'));
-
-                for (let i = 1; i < lines.length; i++) {
-                    const rowVals = delimiter === '\t' ? lines[i].split('\t') : parseCSVLine(lines[i]);
-                    if (rowVals.length === 0 || rowVals.every(v => !v)) continue;
-                    const rec = {};
-                    headers.forEach((h, idx) => {
-                        rec[h] = rowVals[idx] !== undefined ? rowVals[idx] : '';
-                    });
-                    records.push(rec);
-                }
+                const delimiter = (ext === 'tsv' || text.split('\n')[0].includes('\t')) ? '\t' : ',';
+                records = parseDelimitedRecords(text, delimiter);
             }
 
             if (records.length === 0) {
+                renderSelectedFileCard(file, ext, detectedFormat, 'No records detected in file.', 'danger');
+                if (statusEl) {
+                    statusEl.innerHTML = `<span style="color:var(--danger);">No records detected in ${escapeHtml(file.name)}. Ensure header row is present.</span>`;
+                }
                 showToast('No records detected in file.', 'warning');
                 return;
             }
 
+            renderSelectedFileCard(file, ext, detectedFormat, `${records.length} records detected`, 'info');
+
+            if (statusEl) {
+                statusEl.innerHTML = `<span class="spinner" style="display:inline-block; width:12px; height:12px; vertical-align:middle; margin-right:6px;"></span> Validating <b>${records.length}</b> records from ${escapeHtml(file.name)}...`;
+            }
+
             // Submit validation to backend
-            showToast(`Validating ${records.length} records...`, 'info');
             const res = await api.validateUpload({ records });
             displayUploadValidationResult(res);
 
+            const isAllValid = res.error_count === 0 && res.valid_count > 0;
+            renderSelectedFileCard(
+                file, ext, detectedFormat,
+                `${records.length} records detected • ${res.valid_count} valid`,
+                isAllValid ? 'success' : (res.valid_count > 0 ? 'warning' : 'danger')
+            );
+
+            if (statusEl) {
+                statusEl.innerHTML = `
+                    <div style="display:flex; justify-content:space-between; align-items:center; flex-wrap:wrap; gap:6px;">
+                        <span>File: <b>${escapeHtml(file.name)}</b> (${formatFileSize(file.size)} · ${ext.toUpperCase()})</span>
+                        <span style="color:${isAllValid ? 'var(--success)' : (res.valid_count > 0 ? 'var(--warning)' : 'var(--danger)')};">
+                            ${res.valid_count} of ${res.total_records} records valid
+                        </span>
+                    </div>`;
+            }
+
         } catch (err) {
+            renderSelectedFileCard(file, ext, detectedFormat, `Parsing error: ${err.message || 'Invalid format'}`, 'danger');
             showToast(`File parsing error: ${err.message || 'Invalid format'}`, 'warning');
+            if (statusEl) {
+                statusEl.innerHTML = `<span style="color:var(--danger);">Parsing error: ${escapeHtml(err.message || 'Check file format')}</span>`;
+            }
         }
     };
     reader.readAsText(file);
+}
+
+function handleFileUpload(event) {
+    const file = event.target.files && event.target.files[0];
+    if (file) processUploadFile(file);
+    if (event.target) event.target.value = '';
+}
+
+function setupDataUploadDropzone() {
+    const dropzone = document.getElementById('upload-dropzone');
+    if (!dropzone || dropzone._dndInitialized) return;
+    dropzone._dndInitialized = true;
+
+    ['dragenter', 'dragover'].forEach(eventName => {
+        dropzone.addEventListener(eventName, (e) => {
+            e.preventDefault();
+            e.stopPropagation();
+            dropzone.style.borderColor = 'var(--primary)';
+            dropzone.style.background = 'var(--primary-light)';
+        }, false);
+    });
+
+    ['dragleave', 'dragend'].forEach(eventName => {
+        dropzone.addEventListener(eventName, (e) => {
+            e.preventDefault();
+            e.stopPropagation();
+            dropzone.style.borderColor = 'var(--border)';
+            dropzone.style.background = 'var(--bg)';
+        }, false);
+    });
+
+    dropzone.addEventListener('drop', (e) => {
+        e.preventDefault();
+        e.stopPropagation();
+        dropzone.style.borderColor = 'var(--border)';
+        dropzone.style.background = 'var(--bg)';
+
+        const dt = e.dataTransfer;
+        const files = dt.files;
+        if (files && files.length > 0) {
+            processUploadFile(files[0]);
+        }
+    }, false);
+
+    // Prevent default browser drag-and-drop file opening across entire window
+    window.addEventListener('dragover', (e) => e.preventDefault(), false);
+    window.addEventListener('drop', (e) => e.preventDefault(), false);
 }
 
 function displayUploadValidationResult(res) {
@@ -1007,24 +1293,39 @@ async function confirmDataImport() {
         return;
     }
     const confirmBtn = document.getElementById('btn-confirm-import');
+    const statusEl = document.getElementById('upload-status-indicator');
+
     if (confirmBtn) {
         confirmBtn.disabled = true;
-        confirmBtn.innerHTML = `${renderIcon('loader', 14)} Importing...`;
+        confirmBtn.innerHTML = `<span class="spinner" style="display:inline-block; width:12px; height:12px; vertical-align:middle; margin-right:4px;"></span> Importing...`;
+    }
+    if (statusEl) {
+        statusEl.innerHTML = `<span class="spinner" style="display:inline-block; width:12px; height:12px; vertical-align:middle; margin-right:6px;"></span> Committing ${_pendingUploadRecords.length} records to database &amp; ledger...`;
     }
 
     try {
         const res = await api.importUpload({ records: _pendingUploadRecords });
         showToast(res.message || `Successfully imported ${res.imported} records!`, 'success');
+        
+        // Invalidate offline cache so fresh database records are pulled everywhere
+        if (typeof offlineCache !== 'undefined' && offlineCache.invalidateAll) {
+            await offlineCache.invalidateAll();
+        }
+
         closeDataUploadModal();
 
-        // Refresh all dynamic views
+        // Refresh all dynamic views with fresh server data
         if (typeof loadHomeScreen === 'function' && currentScreen === 'home') loadHomeScreen();
         if (typeof loadPartners === 'function' && currentScreen === 'partners') loadPartners();
         if (typeof loadActivity === 'function' && currentScreen === 'activity') loadActivity();
         if (typeof loadEarningsScreen === 'function' && currentScreen === 'earnings') loadEarningsScreen();
+        if (typeof loadCustomers === 'function' && currentScreen === 'customers') loadCustomers();
     } catch (err) {
         showToast(`Import failed: ${err.message || 'Unknown error'}`, 'warning');
         if (confirmBtn) confirmBtn.disabled = false;
+        if (statusEl) {
+            statusEl.innerHTML = `<span style="color:var(--danger);">Import failed: ${escapeHtml(err.message || 'Database error')}</span>`;
+        }
     }
 }
 

@@ -22,38 +22,59 @@
 
     --accent:       #06B6D4;     /* Cyan / operational highlight */
     --accent-light: #ECFEFF;
+    --accent-dark:  #0891B2;     /* Cyan 600 — for text on white */
 
-    /* Semantic */
+    /* Semantic — base */
     --success:    #10B981;
     --success-bg: #ECFDF5;
+    --success-dark: #059669;    /* Emerald 600 */
     --warning:    #F59E0B;
     --warning-bg: #FFFBEB;
+    --warning-dark: #B45309;    /* Amber 700 — replaces hardcoded #92400E */
     --danger:     #EF4444;
     --danger-bg:  #FEF2F2;
+    --danger-dark: #DC2626;     /* Red 600 */
     --info:       #3B82F6;
     --info-bg:    #EFF6FF;
+    --info-dark:  #1D4ED8;      /* Blue 700 */
+
+    /* WhatsApp brand tokens */
+    --whatsapp:       #25D366;
+    --whatsapp-bg:    rgba(37, 211, 102, 0.12);
+    --whatsapp-dark:  #128C7E;
 
     /* Neutral / Surface */
     --bg:           #F8FAFC;     /* Slate 50 */
     --surface:      #FFFFFF;
     --surface-hover:#FFF7ED;     /* Warm hover — ties to brand orange */
+    --card-bg:      #FFFFFF;     /* Alias for card backgrounds */
     --border:       #E2E8F0;
 
     /* Typography */
-    --text-main:  #0F172A;
-    --text-muted: #475569;
-    --text-light: #94A3B8;
+    --text-main:      #0F172A;
+    --text-secondary: #334155;   /* Slate 700 — referenced in service flow modal */
+    --text-muted:     #475569;
+    --text-light:     #94A3B8;
+
+    /* Font-size scale (use instead of raw rem values) */
+    --font-2xs:  0.65rem;        /* 10.4px — badge labels */
+    --font-xs:   0.75rem;        /* 12px   — metadata, timestamps */
+    --font-sm:   0.875rem;       /* 14px   — body secondary */
+    --font-base: 1rem;           /* 16px   — body primary */
+    --font-lg:   1.125rem;       /* 18px   — subheadings */
+    --font-xl:   1.25rem;        /* 20px   — headings */
 
     /* Spacing (4-point grid) */
-    --sp-1: 4px;
-    --sp-2: 8px;
-    --sp-3: 12px;
-    --sp-4: 16px;
-    --sp-5: 20px;
-    --sp-6: 24px;
-    --sp-8: 32px;
-    --sp-10: 40px;
-    --sp-12: 48px;
+    --sp-1: 4px;   --space-1: 4px;
+    --sp-2: 8px;   --space-2: 8px;
+    --sp-3: 12px;  --space-3: 12px;
+    --sp-4: 16px;  --space-4: 16px;
+    --sp-5: 20px;  --space-5: 20px;
+    --sp-6: 24px;  --space-6: 24px;
+    --sp-8: 32px;  --space-8: 32px;
+    --sp-10: 40px; --space-10: 40px;
+    --sp-12: 48px; --space-12: 48px;
+    --sp-16: 64px; --space-16: 64px;
 
     /* Radii */
     --radius-sm:   8px;
@@ -117,18 +138,147 @@ img, svg, video, canvas {
 /* ── Utilities ─────────────────────────────────────────────────────────────── */
 .hidden { display: none !important; }
 
-.text-sm   { font-size: 0.875rem; }
-.text-xs   { font-size: 0.75rem; }
+.text-sm       { font-size: var(--font-sm); }
+.text-xs       { font-size: var(--font-xs); }
+.text-2xs      { font-size: var(--font-2xs); }
 .font-bold     { font-weight: 700; }
 .font-semibold { font-weight: 600; }
-.text-primary  { color: var(--primary); }
-.text-muted    { color: var(--text-muted); }
-.text-success  { color: var(--success); }
-.text-danger   { color: var(--danger); }
-.text-warning  { color: var(--warning); }
+.text-primary   { color: var(--primary); }
+.text-muted     { color: var(--text-muted); }
+.text-secondary { color: var(--text-secondary); }
+.text-success   { color: var(--success); }
+.text-danger    { color: var(--danger); }
+.text-warning   { color: var(--warning); }
+.text-info      { color: var(--info); }
+.text-accent    { color: var(--accent-dark); }
 
 /* min-width:0 prevents flex/grid children from overflowing their tracks */
 .min-w-0 { min-width: 0; }
+
+/* ── Margin Bottom Scale ───────────────────────────────────────────────────── */
+.mb-0 { margin-bottom: 0 !important; }
+.mb-1 { margin-bottom: var(--sp-1) !important; }
+.mb-2 { margin-bottom: var(--sp-2) !important; }
+.mb-3 { margin-bottom: var(--sp-3) !important; }
+.mb-4 { margin-bottom: var(--sp-4) !important; }
+.mb-5 { margin-bottom: var(--sp-5) !important; }
+.mb-6 { margin-bottom: var(--sp-6) !important; }
+.mb-8 { margin-bottom: var(--sp-8) !important; }
+.mb-10 { margin-bottom: var(--sp-10) !important; }
+
+/* ── Margin Top Scale ──────────────────────────────────────────────────────── */
+.mt-0 { margin-top: 0 !important; }
+.mt-1 { margin-top: var(--sp-1) !important; }
+.mt-2 { margin-top: var(--sp-2) !important; }
+.mt-3 { margin-top: var(--sp-3) !important; }
+.mt-4 { margin-top: var(--sp-4) !important; }
+.mt-5 { margin-top: var(--sp-5) !important; }
+.mt-6 { margin-top: var(--sp-6) !important; }
+.mt-8 { margin-top: var(--sp-8) !important; }
+.mt-10 { margin-top: var(--sp-10) !important; }
+
+/* ── Padding Scale ─────────────────────────────────────────────────────────── */
+.p-0 { padding: 0 !important; }
+.p-1 { padding: var(--sp-1) !important; }
+.p-2 { padding: var(--sp-2) !important; }
+.p-3 { padding: var(--sp-3) !important; }
+.p-4 { padding: var(--sp-4) !important; }
+.p-5 { padding: var(--sp-5) !important; }
+.p-6 { padding: var(--sp-6) !important; }
+.p-8 { padding: var(--sp-8) !important; }
+
+/* ── Gap Scale ─────────────────────────────────────────────────────────────── */
+.gap-1 { gap: var(--sp-1) !important; }
+.gap-2 { gap: var(--sp-2) !important; }
+.gap-3 { gap: var(--sp-3) !important; }
+.gap-4 { gap: var(--sp-4) !important; }
+.gap-5 { gap: var(--sp-5) !important; }
+.gap-6 { gap: var(--sp-6) !important; }
+.gap-8 { gap: var(--sp-8) !important; }
+
+/* ── Flex & Layout Utilities ───────────────────────────────────────────────── */
+.flex { display: flex !important; }
+.inline-flex { display: inline-flex !important; }
+.flex-col { flex-direction: column !important; }
+.flex-row { flex-direction: row !important; }
+.flex-wrap { flex-wrap: wrap !important; }
+.items-center { align-items: center !important; }
+.items-start { align-items: flex-start !important; }
+.items-end { align-items: flex-end !important; }
+.justify-between { justify-content: space-between !important; }
+.justify-center { justify-content: center !important; }
+.justify-end { justify-content: flex-end !important; }
+.flex-1 { flex: 1 1 0% !important; }
+.flex-shrink-0 { flex-shrink: 0 !important; }
+
+/* ── Segment Tabs (AI Tools & Segmented Controls) ─────────────────────────── */
+.segment-tab-container {
+    display: flex;
+    background: var(--surface);
+    padding: var(--sp-1);
+    border-radius: var(--radius-md);
+    gap: var(--sp-1);
+    margin-bottom: var(--sp-6);
+    border: 1px solid var(--border);
+    box-shadow: var(--shadow-xs);
+}
+
+.segment-tab {
+    flex: 1;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    gap: var(--sp-2);
+    min-height: 42px;
+    padding: 8px 16px;
+    border-radius: var(--radius-sm);
+    font-size: var(--font-sm);
+    font-weight: 600;
+    color: var(--text-muted);
+    background: transparent;
+    border: 1px solid transparent;
+    cursor: pointer;
+    transition: all 0.2s cubic-bezier(0.4, 0, 0.2, 1);
+    text-decoration: none;
+    user-select: none;
+}
+
+.segment-tab:hover {
+    color: var(--navy);
+    background: rgba(0, 0, 0, 0.03);
+    border-color: var(--border);
+}
+
+.segment-tab:focus-visible {
+    outline: 2px solid var(--primary);
+    outline-offset: 2px;
+}
+
+.segment-tab.active {
+    background: var(--surface);
+    color: var(--primary);
+    font-weight: 700;
+    border-color: var(--primary-subtle);
+    box-shadow: 0 1px 3px rgba(249, 115, 22, 0.15), 0 1px 2px rgba(0, 0, 0, 0.06);
+}
+
+.segment-tab.active svg,
+.segment-tab.active i {
+    color: var(--primary);
+}
+
+@media (max-width: 640px) {
+    .segment-tab-container {
+        display: grid;
+        grid-template-columns: repeat(2, 1fr);
+        gap: var(--sp-2);
+        padding: var(--sp-2);
+    }
+    .segment-tab {
+        padding: 10px 12px;
+        font-size: var(--font-xs);
+    }
+}
 
 /* ── Typography ────────────────────────────────────────────────────────────── */
 h1, h2, h3, h4, h5 {
@@ -2555,3 +2705,58 @@ input[type="tel"], textarea, select {
     font-weight: 800;
     line-height: 1.2;
 }
+
+/* Responsive visibility utilities */
+@media (max-width: 767px) {
+    .desktop-only { display: none !important; }
+    .mobile-only { display: block !important; }
+}
+@media (min-width: 768px) {
+    .desktop-only { display: block !important; }
+    .mobile-only { display: none !important; }
+}
+
+/* Commission Ledger Responsive Data Table */
+.commission-table-wrap {
+    width: 100%;
+    overflow-x: auto;
+    border-radius: var(--radius-md);
+    border: 1px solid var(--border-color);
+    background: var(--surface-card);
+    box-shadow: var(--shadow-sm);
+    -webkit-overflow-scrolling: touch;
+}
+.commission-table {
+    width: 100%;
+    border-collapse: collapse;
+    text-align: left;
+    font-size: 0.825rem;
+}
+.commission-table th {
+    background: var(--surface-hover);
+    padding: 10px 14px;
+    font-weight: 600;
+    color: var(--text-muted);
+    font-size: 0.72rem;
+    text-transform: uppercase;
+    letter-spacing: 0.04em;
+    border-bottom: 1px solid var(--border-color);
+    white-space: nowrap;
+}
+.commission-table td {
+    padding: 12px 14px;
+    border-bottom: 1px solid var(--border-color);
+    vertical-align: middle;
+    white-space: nowrap;
+}
+.commission-table tbody tr {
+    transition: background var(--transition-fast);
+    cursor: pointer;
+}
+.commission-table tbody tr:hover {
+    background: var(--surface-hover);
+}
+.commission-table tbody tr:last-child td {
+    border-bottom: none;
+}
+

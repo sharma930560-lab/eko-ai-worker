@@ -98,7 +98,9 @@ function switchAiToolTab(tab) {
                 </div>
                 <div class="form-group">
                     <label class="form-label">Recipient Name</label>
-                    <input id="wa-recipient" class="form-input" placeholder="e.g. Rajesh Kumar" />
+                    <input id="wa-recipient" class="form-input" list="wa-customers-list" placeholder="e.g. Rajesh Kumar" autocomplete="off" oninput="onWaRecipientChanged()" />
+                    <datalist id="wa-customers-list"></datalist>
+                    <div id="wa-recipient-match" class="text-xs text-muted mt-1" style="display:none;"></div>
                 </div>
                 <div class="form-group">
                     <label class="form-label">Additional Details (Amount, Ref ID, etc.)</label>
@@ -118,6 +120,7 @@ function switchAiToolTab(tab) {
             </div>
             <div id="wa-result-box"></div>
         `;
+        populateWaCustomers();
     } else if (tab === 'flyer') {
         container.innerHTML = `
             <div class="card" style="padding:20px; margin-bottom:16px;">
@@ -254,6 +257,41 @@ function toggleVoiceRecording() {
 }
 
 // ── WhatsApp Studio ────────────────────────────────────────────────────────────
+let _waCustomersCache = [];
+let _waGenerateSeq = 0;
+
+async function populateWaCustomers() {
+    try {
+        const customers = await api.getCustomers();
+        if (Array.isArray(customers)) {
+            _waCustomersCache = customers;
+            const dl = document.getElementById('wa-customers-list');
+            if (dl) {
+                dl.innerHTML = customers.map(c => `<option value="${escapeHtml(c.name)}">${escapeHtml(c.phone ? `${c.name} (${c.phone})` : c.name)}</option>`).join('');
+            }
+        }
+    } catch (_) {}
+}
+
+function onWaRecipientChanged() {
+    const input = document.getElementById('wa-recipient');
+    const matchEl = document.getElementById('wa-recipient-match');
+    if (!input || !matchEl) return;
+    const val = input.value.trim().toLowerCase();
+    if (!val) {
+        matchEl.style.display = 'none';
+        return;
+    }
+    const matched = _waCustomersCache.find(c => c.name && c.name.toLowerCase() === val) ||
+                    _waCustomersCache.find(c => c.name && c.name.toLowerCase().startsWith(val));
+    if (matched) {
+        matchEl.innerHTML = `<span style="color:var(--success); font-weight:600;">✓ Verified Customer: ${escapeHtml(matched.name)}</span> ${matched.phone ? `<span class="text-muted">(${escapeHtml(matched.phone)})</span>` : ''}`;
+        matchEl.style.display = 'block';
+    } else {
+        matchEl.style.display = 'none';
+    }
+}
+
 function prefillWaContext(template) {
     const detailsEl = document.getElementById('wa-details');
     const prefills = {
@@ -281,9 +319,27 @@ async function generateWaMessage() {
     if (!template) { showToast('Please select a message template', 'error'); return; }
     if (!details) { showToast('Please enter message details', 'error'); return; }
 
+    const currentSeq = ++_waGenerateSeq;
     resultBox.innerHTML = '<div class="loading-state"><div class="spinner"></div><p>Generating message...</p></div>';
 
-    const prompt = `Generate a professional WhatsApp message in ${lang} for an Eko financial services partner to send to their customer named ${recipient}.
+    // Match recipient to customer if present in cache
+    const matchedCust = _waCustomersCache.find(c => c.name && c.name.toLowerCase() === recipient.toLowerCase()) ||
+                        _waCustomersCache.find(c => c.name && c.name.toLowerCase().startsWith(recipient.toLowerCase()));
+
+    try {
+        let res;
+        try {
+            res = await api.generateWhatsAppMessage({
+                customer_id: matchedCust ? matchedCust.id : null,
+                customer_name: recipient,
+                customer_phone: matchedCust ? matchedCust.phone : null,
+                template_type: template,
+                details: details,
+                language: lang
+            });
+        } catch (apiErr) {
+            console.warn('Dedicated WhatsApp endpoint error, falling back to askAi', apiErr);
+            const prompt = `Generate a professional WhatsApp message in ${lang} for an Eko financial services partner to send to their customer named ${recipient}.
 Template type: ${template}
 Transaction/Event details: ${details}
 Requirements:
@@ -292,29 +348,49 @@ Requirements:
 - Use *bold* for key numbers and names (WhatsApp markdown)
 - End with: "Powered by Eko Partner Services 🟠"
 - Do not use HTML tags`;
+            const askRes = await api.askAi({ question: prompt, context: null, history: [] });
+            res = {
+                message: askRes.answer || askRes.response || 'Message generated.',
+                language: lang,
+                customer_name: recipient,
+                whatsapp_url: `https://wa.me/?text=${encodeURIComponent(askRes.answer || askRes.response || '')}`
+            };
+        }
 
-    try {
-        const res = await api.askAi({ question: prompt, context: null, history: [] });
-        const msg = res.answer || res.response || 'Message generated.';
+        // Prevent race condition if user clicked generate or switched while request was in-flight
+        if (currentSeq !== _waGenerateSeq) {
+            return;
+        }
+
+        const msg = res.message || 'Message generated.';
+        const actualLang = res.language ? (res.language.charAt(0).toUpperCase() + res.language.slice(1)) : lang;
+        const custName = res.customer_name || recipient;
+        const waUrl = res.whatsapp_url || `https://wa.me/?text=${encodeURIComponent(msg)}`;
+
         resultBox.innerHTML = `
             <div class="card" style="padding:20px;">
                 <div class="font-bold mb-3" style="display:flex; justify-content:space-between; align-items:center;">
                     <span style="display:flex; align-items:center; gap:6px; color:var(--success);">${renderIcon('check-circle', 16)} Message Ready</span>
-                    <span class="badge badge-success" style="font-size:0.6rem;">${lang}</span>
+                    <div style="display:flex; gap:6px; align-items:center;">
+                        <span class="badge badge-info" style="font-size:0.65rem;">${escapeHtml(custName)}</span>
+                        <span class="badge badge-success" style="font-size:0.65rem;">${escapeHtml(actualLang)}</span>
+                    </div>
                 </div>
                 <div id="wa-message-text" style="white-space:pre-wrap; font-size:0.9rem; line-height:1.7; background:var(--bg); padding:14px; border-radius:8px; border:1px solid var(--border);">${escapeHtml(msg)}</div>
                 <div style="display:flex; gap:8px; margin-top:16px; flex-wrap:wrap;">
                     <button class="btn-primary" style="flex:1; min-width:120px;" onclick="copyWaMessage()">
                         ${renderIcon('copy', 14)} Copy
                     </button>
-                    <button class="btn-secondary" style="flex:1; min-width:120px;" onclick="shareWaMessage()">
+                    <a id="wa-share-btn" href="${escapeHtml(waUrl)}" target="_blank" rel="noopener noreferrer" class="btn-secondary" style="flex:1; min-width:120px; display:inline-flex; align-items:center; justify-content:center; gap:6px; text-decoration:none; padding:10px 16px; border-radius:6px; font-weight:600; cursor:pointer;" onclick="shareWaMessage(event, '${escapeHtml(waUrl)}')">
                         ${renderIcon('share-2', 14)} Share via WhatsApp
-                    </button>
+                    </a>
                 </div>
             </div>`;
         if (window.lucide) lucide.createIcons();
     } catch(e) {
-        resultBox.innerHTML = `<div class="text-sm text-danger text-center p-4">AI generation failed: ${escapeHtml(e.message || 'Error')}. Check your connection.</div>`;
+        if (currentSeq === _waGenerateSeq) {
+            resultBox.innerHTML = `<div class="text-sm text-danger text-center p-4">AI generation failed: ${escapeHtml(e.message || 'Error')}. Check your connection.</div>`;
+        }
     }
 }
 
@@ -329,10 +405,11 @@ function copyWaMessage() {
     }
 }
 
-function shareWaMessage() {
+function shareWaMessage(event, url) {
+    if (event) event.preventDefault();
     const el = document.getElementById('wa-message-text');
-    if (!el) return;
-    window.open(`https://wa.me/?text=${encodeURIComponent(el.textContent)}`, '_blank');
+    const targetUrl = url || (el ? `https://wa.me/?text=${encodeURIComponent(el.textContent)}` : 'https://wa.me/');
+    window.open(targetUrl, '_blank');
 }
 
 // ── Campaign Broadcaster ───────────────────────────────────────────────────────

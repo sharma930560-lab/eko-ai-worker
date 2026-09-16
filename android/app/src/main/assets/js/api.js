@@ -62,14 +62,53 @@ async function apiRequest(method, path, body = null) {
             }
             throw { status: res.status, message: errMsg };
         }
-        return await res.json();
+        const data = await res.json();
+        // Seamless offline-first write-through cache for GET requests
+        if (method === 'GET' && typeof offlineCache !== 'undefined' && offlineCache.set) {
+            offlineCache.set(path, data).catch(() => {});
+        }
+        return data;
     } catch (e) {
         clearTimeout(timer);
+        // Seamless offline fallback for GET requests when network is unavailable
+        if (method === 'GET' && typeof offlineCache !== 'undefined' && offlineCache.get) {
+            try {
+                const cached = await offlineCache.get(path);
+                if (cached !== null && cached !== undefined) {
+                    return cached;
+                }
+            } catch (_) {}
+        }
+
         if (e.name === 'AbortError') {
             throw { status: 408, message: `Request timed out after ${Math.round(timeoutMs / 1000)}s. Please try again.` };
         }
         throw e;
     }
+}
+
+async function apiRequestFormData(method, path, formData) {
+    let base = window.EKO_API_BASE || 'https://eko-field-worker-api.onrender.com';
+    try {
+        const devOverride = localStorage.getItem('eko_api_base_override');
+        if (devOverride) base = devOverride;
+    } catch (e) {}
+
+    const url = `${base}${path}`;
+    const headers = {};
+    const savedUser = localStorage.getItem('eko_user');
+    if (savedUser) {
+        try {
+            const user = JSON.parse(savedUser);
+            if (user.id) headers['X-User-Id'] = user.id;
+        } catch (e) {}
+    }
+    const res = await fetch(url, {
+        method,
+        headers,
+        body: formData
+    });
+    return res.json();
 }
 
 const api = {
@@ -115,9 +154,17 @@ const api = {
     getEarningsSummary: () => apiRequest('GET', '/api/earnings/summary'),
     getSettlements: () => apiRequest('GET', '/api/settlements'),
 
-    // Data Upload / CSV & XLSX Import
+    // Data Upload / CSV & TSV & JSON & PDF Import
     validateUpload: (data) => apiRequest('POST', '/api/upload/validate', data),
     importUpload: (data) => apiRequest('POST', '/api/upload/import', data),
+    parsePdf: (fileOrData) => {
+        if (typeof FormData !== 'undefined' && (fileOrData instanceof File || fileOrData instanceof Blob)) {
+            const formData = new FormData();
+            formData.append('file', fileOrData, fileOrData.name || 'document.pdf');
+            return apiRequestFormData('POST', '/api/upload/parse-pdf', formData);
+        }
+        return apiRequest('POST', '/api/upload/parse-pdf', fileOrData);
+    },
 
     // Service Flows (Sandbox)
     initDMT: (data) => apiRequest('POST', '/api/services/dmt', data),
