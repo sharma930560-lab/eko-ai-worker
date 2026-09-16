@@ -21,32 +21,19 @@ function getEkoApiBase() {
   } catch (e) {}
 
   if (typeof AndroidBridge !== 'undefined') {
-    if ((typeof AndroidBridge.isDebug === 'function' && AndroidBridge.isDebug()) ||
-        (typeof AndroidBridge.isEmulator === 'function' && AndroidBridge.isEmulator())) {
-      return 'http://10.0.2.2:8000';
-    }
-    if (window.location.hostname === 'appassets.androidplatform.net') {
+    const isEmulator = typeof AndroidBridge.isEmulator === 'function' && AndroidBridge.isEmulator();
+    const isDebug = typeof AndroidBridge.isDebug === 'function' && AndroidBridge.isDebug();
+    if (isEmulator || isDebug) {
       return 'http://10.0.2.2:8000';
     }
     if (typeof AndroidBridge.getProductionApiBase === 'function') {
       return AndroidBridge.getProductionApiBase();
     }
-    return 'http://10.0.2.2:8000';
+    return 'https://eko-field-worker-api.onrender.com';
   }
 
   if (window.location.hostname === 'localhost' || window.location.hostname === '127.0.0.1') {
     return 'http://127.0.0.1:8000';
-  }
-
-  if (window.location.hostname === 'appassets.androidplatform.net') {
-    return 'http://10.0.2.2:8000';
-  }
-
-  if (window.location.hostname === 'eko-field-worker.netlify.app' ||
-      window.location.protocol === 'https:' ||
-      window.location.hostname.endsWith('netlify.app') ||
-      window.location.hostname.endsWith('onrender.com')) {
-    return 'https://eko-field-worker-api.onrender.com';
   }
 
   return 'https://eko-field-worker-api.onrender.com';

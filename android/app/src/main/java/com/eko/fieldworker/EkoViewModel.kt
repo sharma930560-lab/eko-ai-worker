@@ -17,7 +17,7 @@ class EkoViewModel(application: Application) : AndroidViewModel(application) {
     private val _status = MutableLiveData<NetworkStatus>(NetworkStatus.ONLINE)
     val status: LiveData<NetworkStatus> = _status
 
-    private var baseUrl: String = "http://10.0.2.2:8000" // Default for emulator
+    private var baseUrl: String = if (BuildConfig.DEBUG) "http://10.0.2.2:8000" else "https://eko-field-worker-api.onrender.com"
     private var userId: String = "demo_user_123"
 
     init {
