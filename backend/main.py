@@ -1759,7 +1759,7 @@ def health():
     )
     ai_ok = configured_provider in ("ollama", "local", "local-llm", "deterministic") or has_optional_hosted
     ollama_model = os.getenv("OLLAMA_MODEL", "qwen3:4b")
-    git_sha = os.getenv("RENDER_GIT_COMMIT", "e88e953")[:7]  # deploy-trigger: v1.4.0-hotfix
+    git_sha = os.getenv("RENDER_GIT_COMMIT", "af2fe56")[:7]  # deploy-trigger: v1.4.0-verified-release
     return {
         "status": "ok" if db_ok else "degraded",
         "service": "Eko Partner Operations API",
